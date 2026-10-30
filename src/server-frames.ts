@@ -27,6 +27,7 @@ import type {
   PeerInvite,
   PeerView,
   ProactivityView,
+  SpendView,
   SettingsView,
   SetupView,
   SkillRow,
@@ -148,6 +149,21 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer() })
 );
 
+const Totals = { costUsd: Type.Number(), tokensIn: Type.Number(), tokensOut: Type.Number(), calls: Type.Number() };
+
+/** Settings › Spend: today and this month, today by purpose and source, the cap, and what it held today. */
+const Spend = Type.Unsafe<SpendView>(
+  Type.Object({
+    day: Text,
+    today: Type.Object(Totals),
+    month: Type.Object(Totals),
+    lines: Type.Array(Type.Object({ ...Totals, purpose: Text, source: Text })),
+    capUsd: Type.Union([Type.Number(), Type.Null()]),
+    capped: Type.Boolean(),
+    held: Type.Array(Type.Object({ work: Text, why: Text, at: Type.Number() }))
+  })
+);
+
 /** Settings › Proactivity's time zone: the zone kept, whether the user pinned it, and the asking connection's. */
 const Zone = Type.Unsafe<ZoneView>(
   Type.Object({ on: Type.Boolean(), zone: Type.Union([Text, Type.Null()]), pinned: Type.Boolean(), detected: Type.Union([Text, Type.Null()]) })
@@ -212,6 +228,8 @@ export const ANSWERS = {
   "set-proactivity": Proactivity,
   "set-looks": Proactivity,
   "set-right-away": Proactivity,
+  spend: Spend,
+  "set-spend-cap": Type.Union([Spend, Refused]),
   zone: Zone,
   "set-zone": Zone,
   "push-key": Text,

@@ -19,6 +19,7 @@ import { ExecutorContext } from "./ui/Executor";
 import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
+import { SpendContext } from "./ui/Spend";
 import { LedgerContext } from "./ui/LastNight";
 import { PeerContext } from "./ui/Peers";
 import { OnlineContext } from "./ui/online";
@@ -556,6 +557,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           <MailContext.Provider value={ky.mailActions}>
           <ProactivityContext.Provider value={ky.proactivityActions}>
           <LedgerContext.Provider value={ky.ledgerActions}>
+          <SpendContext.Provider value={ky.spendActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -595,6 +597,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </SpendContext.Provider>
           </LedgerContext.Provider>
           </ProactivityContext.Provider>
           </MailContext.Provider>

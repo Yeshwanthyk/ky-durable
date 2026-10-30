@@ -288,6 +288,8 @@ class Looking extends Context.Service<
           }),
           run: Effect.fn("Looks.run")(function* (time) {
             if ((yield* Ref.get(looking)) || (yield* level) === "off") return;
+
+            if (!(yield* Effect.sync(() => host.allows("look")))) return;
             yield* Ref.set(looking, true);
             yield* Effect.suspend(() => look(time)).pipe(
               Effect.catchCause((cause) => warn("look failed", Cause.squash(cause))),

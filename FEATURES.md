@@ -266,6 +266,14 @@ Retired with the sign-in form, cookie and KY_TOKEN, which Access replaced (setup
 | automation-editor | Activity adds and edits automations: title, prompt, a cron or one time, model and thinking, cloud or machine, and the chat it reports to. A refusal shows in the form; Archive and Delete are in the editor. | src/ui/Automations.tsx:432, src/sockets.ts:271 | local | P adds, edits, runs and deletes an automation from Activity |
 | seeds | A new ky starts, once, with starter skills (research-brief, inbox-triage) archived, one example specialist (editor), and the automations "Daily digest" and "Weekly review" paused, so nothing acts until the owner turns it on. A restart seeds nothing again, and a ky that isn't new is left as it is. | src/seeds.ts:76, src/setup.ts, src/server.ts:350 | local | W first-run › starts with starter skills, a specialist and automations, all off, once; W first-run › leaves a ky that isn't new as it is; W config › builds VibeProxy when all its config is set, and seeds a new ky |
 
+## Spend
+
+| id | behaviour | cite | tag | check |
+| --- | --- | --- | --- | --- |
+| spend-ledger | Every model answer pi gets, in any conversation, adds its tokens and cost to `ky_spend` under the day in the user's zone (UTC while unknown), its purpose and source (chat, subagent, automation, look, dream, episode, skill review, mail, peer), provider and model; a direct ask (titles, routing, memory summaries) adds as `call`, and a machine task's reported cost as `machine-task` (or `automation`). | src/spend/wiring.ts:111, src/spend/wiring.ts:100, src/spend/spend.ts:103, src/server.ts:509 | local | W spend › counts the chat's answers, and over the cap holds a look and tells the chat once while it keeps answering; invariants: test/invariants/spend.test.ts |
+| spend-settings | Settings › Spend shows today and this month, today by purpose and source, and the daily cap in USD, off by default, set or cleared there; a cap that isn't dollars above 0 is refused. | src/ui/Spend.tsx:90, src/sockets.ts:1085, src/spend/spend.ts:122 | local | W spend › counts the chat's answers, and over the cap holds a look and tells the chat once while it keeps answering; invariants: test/invariants/spend.test.ts |
+| spend-cap | Once today's spend reaches the cap, looks, dreams, episode reflections, skill reviews and scheduled automation runs and check-ins do not start, each kind keeping why once a day; a run the user asks for still starts. The user's own chat keeps answering, and says once a day, above their message, that the cap is reached. The next local day work starts again. | src/spend/spend.ts:129, src/spend/wiring.ts:88, src/automations/automations.ts:757, src/dreaming/looks.ts:292, src/dreaming/dreaming.ts:328, src/dreaming/episodes.ts:151, src/skills/skills.ts:710, src/sockets.ts:837 | local | W spend › counts the chat's answers, and over the cap holds a look and tells the chat once while it keeps answering; invariants: test/invariants/spend.test.ts |
+
 ## Vault
 
 The Vault object keeps ky's secrets and the tokens it hands out: the api-key providers' keys (`api-key-add`), pairing and task tokens, and the user's subscriptions.
@@ -395,6 +403,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 203.
+- Local features: 206.
 - Live-only features: 16.
 - Known broken: none. `pnpm harness` has no expected failures.

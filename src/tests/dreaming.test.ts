@@ -19,7 +19,7 @@ describe("dreaming's contract", () => {
   it("allowlists only tools the domain registers", async () => {
     const names = await inside(crypto.randomUUID(), (instance, state) => {
       // No turn runs here, so episode reflections never start: their host only has to be there.
-      const background = { conversation: () => Promise.reject(new Error("no episodes in this test")), feed: instance.feed, later: () => undefined, context: BACKGROUND_CONTEXT, model: () => ({}) };
+      const background = { conversation: () => Promise.reject(new Error("no episodes in this test")), feed: instance.feed, later: () => undefined, context: BACKGROUND_CONTEXT, model: () => ({}), allows: () => true };
 
       const { soul, memory } = dreamingTools({
         soul: instance.soul,

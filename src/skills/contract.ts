@@ -9,6 +9,7 @@ import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../providers/contract";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
+import type { BackgroundWork } from "../spend/contract";
 
 export type { Reviews, Skills } from "./wiring";
 
@@ -493,6 +494,8 @@ export type ReviewHost = {
   readonly later: (work: Promise<void>) => void;
   readonly context: Context;
   readonly model: () => AgentChange;
+  /** Whether unasked work may start now (src/spend). */
+  readonly allows: (work: BackgroundWork) => boolean;
 };
 
 export async function reviewFork(host: ReviewHost, conversation: Conversation, at: EntryId): Promise<Conversation> {

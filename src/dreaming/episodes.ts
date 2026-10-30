@@ -148,6 +148,7 @@ export function episodeExtension({ sql, reviews, host, chat, busyAfter, proactiv
   }
 
   async function pass(session: string): Promise<void> {
+    if (!host.allows("episode")) return;
     const { context } = host;
     running.add(session);
 
