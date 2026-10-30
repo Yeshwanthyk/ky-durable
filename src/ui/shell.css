@@ -4452,7 +4452,7 @@ article.skills-reader > * {
   gap: 8px;
   min-height: 24px;
   padding: 0 12px 0 14px;
-  color: var(--working);
+  color: var(--ink);
   font-size: calc(11.5px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -4462,7 +4462,7 @@ article.skills-reader > * {
   content: "";
   flex: 1;
   height: 1px;
-  background: color-mix(in srgb, var(--working) 45%, transparent);
+  background: var(--line-strong);
 }
 
 .today-group {
