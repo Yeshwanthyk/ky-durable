@@ -52,8 +52,8 @@ function ErrorNote({ error }: { error: string | null }) {
   ) : null;
 }
 
-function placeholder(running: boolean, connected: boolean, talksToMain: boolean, group: boolean) {
-  if (!connected) return "Offline · sends on reconnect";
+function placeholder(running: boolean, connected: boolean, offline: boolean, talksToMain: boolean, group: boolean) {
+  if (!connected) return offline ? "Offline · sends on reconnect" : "Sends when ky reconnects";
 
   if (running) return "Steer the running turn";
 
@@ -71,6 +71,7 @@ export function ComposerDock({
   draft,
   cantSee,
   connected,
+  offline = false,
   talksToMain,
   mentions = [],
   group = false,
@@ -92,6 +93,8 @@ export function ComposerDock({
   /** Why the attached images can't go to this session's model, if they can't. */
   cantSee: string | null;
   connected: boolean;
+  /** The browser has no network; the topbar's pill says why else the socket is down. */
+  offline?: boolean;
   talksToMain: boolean;
   /** The specialists typing @ offers. */
   mentions?: readonly Mentionable[];
@@ -143,7 +146,7 @@ export function ComposerDock({
         label="Message"
         mentions={mentions}
         history={history}
-        placeholder={placeholder(session.running, connected, talksToMain, group)}
+        placeholder={placeholder(session.running, connected, offline, talksToMain, group)}
       />
     </div>
   );

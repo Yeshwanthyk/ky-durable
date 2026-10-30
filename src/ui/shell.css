@@ -560,6 +560,22 @@
   animation: none;
 }
 
+/* Why the socket is down, in the tones of a machine's dot: offline is a still grey (nothing to wait
+   on but the network), can't-reach keeps the pulse in amber (it is still trying), signed out is a
+   still red (only the user can fix it). */
+.status-dot[data-tone="off"] {
+  animation: none;
+}
+
+.status-dot[data-tone="waking"] {
+  background: var(--warning);
+}
+
+.status-dot[data-tone="failed"] {
+  background: var(--danger);
+  animation: none;
+}
+
 /* Connecting settles with a small pop instead of swapping colour in place. */
 .status-dot[data-connected="true"][data-pop="true"] {
   animation: dot-settle 300ms var(--ease-out);

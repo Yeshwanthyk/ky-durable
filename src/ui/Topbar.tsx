@@ -3,6 +3,7 @@ import type { Activity } from "./activity";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
+import { CONNECTION_LINE, CONNECTION_TONE, type ConnectionKind } from "../connection";
 import { CrewCount, CrewRow, crewSays, kyGaze } from "./Crew";
 import type { Crew } from "./crew-of";
 import { type Group, GroupMembers } from "./GroupMembers";
@@ -21,8 +22,8 @@ type Drawer = {
 /** The agent pill's view of the panel it opens. */
 type PillPanel = Pick<PanelState, "whoRef" | "open" | "shown" | "toggle">;
 
-/** How the connection is doing, in words. */
-type Status = { readonly label: string; readonly connected: boolean };
+/** How the connection is doing, in words, and why it is down. */
+type Status = { readonly label: string; readonly connected: boolean; readonly kind: ConnectionKind };
 
 // In ky's chats, the drawer of chats (below the wide layout); in a subagent's, the way back.
 function NavButton({ talksToMain, drawer, onBack }: { talksToMain: boolean; drawer: Drawer; onBack: () => void }) {
@@ -72,6 +73,8 @@ function Who({
   useFitWidth(panel.whoRef, innerRef);
   // The dot pops when the connection changes on screen, not when it is first drawn.
   const reconnected = useChanges(status.connected) > 0;
+  // While the socket is down, the line under the name says why, in place of what ky was doing.
+  const down = CONNECTION_LINE[status.kind];
 
   return (
     <button
@@ -91,10 +94,10 @@ function Who({
         <span className="who-text">
           <span className="who-name">
             {speaker}
-            <span className="status-dot" data-connected={status.connected} data-pop={reconnected} />
+            <span className="status-dot" data-connected={status.connected} data-tone={CONNECTION_TONE[status.kind]} data-pop={reconnected} />
             <CrewCount crew={crew} />
           </span>
-          <WhoSub activity={activity} idle={sub} />
+          <WhoSub activity={down === null ? activity : null} idle={down ?? sub} />
         </span>
       </span>
     </button>
@@ -131,7 +134,12 @@ export function Topbar({ open, variantId, running, status, sub, activity, drawer
       </div>
       <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} crew={crew} />
       <div className="topbar-side end">
-        {updated ? (
+        {status.kind === "signed-out" ? (
+          // Access's sign-in is a page of its own: loading the app again takes the user there and back.
+          <button type="button" className="pill pressable" onClick={() => location.reload()}>
+            Sign in
+          </button>
+        ) : updated ? (
           <button type="button" className="pill pressable" onClick={() => location.reload()}>
             Reload
           </button>

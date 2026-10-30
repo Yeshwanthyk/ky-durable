@@ -1,5 +1,4 @@
 import type { ChatRow, SettingsView, TaskRow } from "../protocol";
-import type { ConnectionStatus } from "../use-pi-session";
 
 /**
  * What to call this ky: its Worker's name, the first label of its address ("work" at
@@ -81,10 +80,8 @@ export function mainModelName(settings: SettingsView | null): string {
   return provider?.models.find((each) => each.modelId === main.modelId)?.name ?? main.modelId;
 }
 
-export function statusLabel(status: ConnectionStatus, changes = 0): string {
-  if (status === "open") return "Connected";
-  const label = status === "connecting" ? "Connecting" : "Reconnecting";
-
+/** A status line, and the changes made offline that wait for ky, once there are any. */
+export function withChanges(label: string, changes: number): string {
   // Changes made offline go once ky is back; until then this is where the panel says they wait.
   return changes === 0 ? label : `${label} · ${changes === 1 ? "1 change waits" : `${changes} changes wait`}`;
 }

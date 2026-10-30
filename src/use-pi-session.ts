@@ -10,6 +10,7 @@ import { actStore, messageStore, type StoredAct, type StoredMessage } from "./ou
 import { outgoingOf, Pending } from "./pending";
 import { uploadClip, UploadOffline } from "./ui/pick-media";
 import { EMPTY_VIEW, reduceEvents } from "./view";
+import { useConnection } from "./connection";
 import type { CardAnswer } from "./cards/contract";
 import { cachedShared, cachedView, saveView } from "./view-cache";
 import { type Answer, type Ask, ServerFrameSchema } from "./server-frames";
@@ -247,7 +248,6 @@ export function usePiSession(session: string) {
       events.flush();
       setState((current) => ({ ...current, status: "closed" }));
       asks.close();
-      void reloadIfSignedOut();
     },
     onMessage: (event) => {
       // The agents SDK's own frames, and anything else ky didn't send, aren't one.
@@ -268,6 +268,8 @@ export function usePiSession(session: string) {
   useRestore(pending, live, deliver, acts, setState);
 
   useResumeReconnect(agent);
+  // Why the socket is down, for the pill; it also catches a socket that says OPEN but is dead.
+  const connection = useConnection(agent, state.outbox.length);
   useSaveView(session, state);
 
   // Another chat starts from its cache during render, so the old chat never paints under the new one's name.
@@ -590,6 +592,7 @@ export function usePiSession(session: string) {
 
   return {
     ...state,
+    connection,
     submit,
     withdraw,
     takeReturned,
@@ -899,21 +902,6 @@ function useRestore(pending: Pending, live: { readonly current: Live | null }, d
   }, [pending, live, deliver, acts, setState]);
 }
 
-/**
- * A socket upgrade Access or the Worker refused shows the browser only a close, not its status.
- * So on each close, ask for the page: if Access redirects it to its login or the Worker refuses it,
- * reload, and Access takes the page to its login.
- */
-async function reloadIfSignedOut(): Promise<void> {
-  try {
-    const page = await fetch("/", { method: "HEAD", redirect: "manual", cache: "no-store" });
-
-    if (page.type === "opaqueredirect" || page.status === 401) location.reload();
-  } catch {
-    // Offline: the socket keeps retrying.
-  }
-}
-
 /** Activity's automation actions, sent over the socket. */
 function useAutomationActions(send: (message: ClientMessage) => void) {
   /** Pause, resume, archive, unarchive, run or delete an automation as the user. */
@@ -1078,6 +1066,9 @@ function useResumeReconnect(agent: { readonly readyState: number; reconnect(): v
 
       const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
       hiddenAt = null;
+
+      // Offline, useConnection has stopped the socket and `online` starts it again.
+      if (!navigator.onLine) return;
 
       if (away >= STALE_AFTER_MS || agent.readyState !== WebSocket.OPEN) agent.reconnect();
     };

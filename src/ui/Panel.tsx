@@ -1,6 +1,7 @@
 import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Type, { type Static } from "typebox";
 import { parseOr } from "../core/decode";
+import { CONNECTION_TONE, type ConnectionKind } from "../connection";
 import type { MachineChange, MachineFacts, MachineLogin, MachineState } from "../machines/contract";
 import type { SandboxChange, SandboxDraft } from "../runners/contract";
 import { osName } from "../protocol";
@@ -95,7 +96,7 @@ export function Panel({
   name: string;
   variantId: BlobVariantId;
   active: boolean;
-  status: { label: string; connected: boolean };
+  status: { label: string; connected: boolean; kind: ConnectionKind };
   model: string;
   tasks: readonly TaskRow[];
   machines: readonly MachineInfo[];
@@ -136,7 +137,7 @@ export function Panel({
         <BotAvatar name={name} variantId={variantId} owner={KY_AVATAR} active={active} size={72} />
         <h2 className="profile-name">{name}</h2>
         <p className="profile-status" role="status">
-          <span className="status-dot" data-connected={status.connected} />
+          <span className="status-dot" data-connected={status.connected} data-tone={CONNECTION_TONE[status.kind]} />
           {status.label}
           <span className="quiet"> · {model}</span>
         </p>

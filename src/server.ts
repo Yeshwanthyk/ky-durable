@@ -8,6 +8,7 @@ import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { PING, PONG } from "./protocol";
 import { bypassed } from "./access/contract";
 import { Access } from "./access/wiring";
 import { KY_AVATAR, type Missing as NotSetUp, preamble, type PromptConfig } from "./avatars/contract";
@@ -569,6 +570,8 @@ export class PiAgent extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // The page's liveness check (src/connection.ts): the runtime answers it without waking the object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));

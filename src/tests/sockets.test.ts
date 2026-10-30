@@ -4,6 +4,7 @@ import { OUTDATED, PROTOCOL, REVOKED } from "../machines/contract";
 import { FakeAccess } from "./fake-access";
 import { agent, call, connect, connectExecutor, connectRunner, FACTS, follow, gateStarted, inside, machineToken, prompt, shows, submit, until, wait } from "./drive";
 import { GPT_OSS } from "./stack";
+import { PING, PONG } from "../protocol";
 
 const PICTURE = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" } as const;
 
@@ -183,6 +184,28 @@ describe("the session WebSocket protocol", () => {
       text: "tool said: released after 1 runs"
     });
 
+    socket.close();
+  });
+
+  it("answers the page's ping with pong from the runtime, even with the object evicted, and never with an error frame", async () => {
+    const name = crypto.randomUUID();
+    const socket = await connect(name);
+    const client = follow(socket);
+    await client.until(() => client.frames.some((frame) => frame.type === "hello"));
+    const raw: string[] = [];
+    socket.addEventListener("message", (event) => {
+      raw.push(String(event.data));
+    });
+
+    socket.send(PING);
+    await until(async () => raw.includes(PONG), "the runtime answers pong");
+
+    await evictDurableObject(agent(name));
+    raw.length = 0;
+    socket.send(PING);
+    await until(async () => raw.includes(PONG), "the runtime answers pong");
+
+    expect(client.frames.filter((frame) => frame.type === "error")).toEqual([]);
     socket.close();
   });
 

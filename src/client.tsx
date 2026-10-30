@@ -26,7 +26,8 @@ import { LightboxProvider } from "./ui/Lightbox";
 import { TaskStepsContext } from "./ui/Timeline";
 import { useShownCrew } from "./ui/Crew";
 import { crewOf, NO_CREW, sameCrew } from "./ui/crew-of";
-import { MAIN_SESSION, mainModelName, NAME, openChat, statusLabel, whoSub, workingCount } from "./ui/open-chat";
+import { MAIN_SESSION, mainModelName, NAME, openChat, whoSub, withChanges, workingCount } from "./ui/open-chat";
+import { type ConnectionKind, CONNECTION_LABEL } from "./connection";
 import { Panel, type Theme } from "./ui/Panel";
 import { PanelSlot } from "./ui/PanelSlot";
 import { backgroundLine, isLive } from "./ui/task-progress";
@@ -156,8 +157,8 @@ function describe(ky: Ky, session: string, theme: Theme) {
 
 type View = ReturnType<typeof describe>;
 
-/** How the connection is doing, in words. */
-type Status = { readonly label: string; readonly connected: boolean };
+/** How the connection is doing, in words, and why it is down. */
+type Status = { readonly label: string; readonly connected: boolean; readonly kind: ConnectionKind };
 
 /** What every part of the page is drawn from. */
 type Parts = {
@@ -181,6 +182,8 @@ type DraftDockProps = {
   run: ComponentProps<typeof ComposerDock>["session"];
   settings: SettingsView | null;
   connected: boolean;
+  /** The browser has no network, rather than ky being out of reach. */
+  offline: boolean;
   talksToMain: boolean;
   mentions: readonly Mentionable[];
   group: boolean;
@@ -239,7 +242,7 @@ function useQueueActions(onWithdraw: (operationId: string) => Promise<boolean>, 
 }
 
 // The composer and its draft. The draft lives here rather than in App, so a keystroke renders only this.
-const DraftDock = memo(function DraftDock({ handle, run, settings, connected, talksToMain, mentions, group, history, updated, queue, waiting, changes, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
+const DraftDock = memo(function DraftDock({ handle, run, settings, connected, offline, talksToMain, mentions, group, history, updated, queue, waiting, changes, returned, onSend, onStop, onSteer, onWithdraw, onReturned }: DraftDockProps) {
   const draft = useDraft();
   const cantSee = whyCantSee(draft.images, settings, talksToMain);
 
@@ -267,6 +270,7 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
       draft={draft}
       cantSee={cantSee}
       connected={connected}
+      offline={offline}
       talksToMain={talksToMain}
       mentions={mentions}
       group={group}
@@ -454,6 +458,7 @@ function Stage(parts: Parts) {
           run={run}
           settings={ky.settings}
           connected={view.connected}
+          offline={ky.connection === "offline"}
           talksToMain={open.talksToMain}
           mentions={open.talksToMain ? ky.specialists : NONE}
           group={open.talksToMain && (ky.groups[view.session]?.length ?? 0) > 0}
@@ -656,8 +661,9 @@ function App() {
   const shell = useStableShell(useShell(go, rawPanel, ky.newChat));
   const panel = useStablePanel(rawPanel);
   const view = describe(ky, session, theme);
-  const label = statusLabel(ky.status, ky.acts.length);
-  const status = useMemo(() => ({ label, connected: view.connected }), [label, view.connected]);
+  const kind = ky.connection;
+  const label = withChanges(CONNECTION_LABEL[kind], ky.acts.length);
+  const status = useMemo(() => ({ label, connected: kind === "open", kind }), [label, kind]);
   const { setPaletteOpen } = shell;
   const onSearch = useCallback(() => setPaletteOpen(true), [setPaletteOpen]);
 

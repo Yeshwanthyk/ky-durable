@@ -251,3 +251,12 @@ export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, Ven
 export type { SetupView } from "./avatars/contract";
 
 export type { PiSessionView as SessionView } from "./view";
+
+/**
+ * The page's liveness check: it sends PING on a quiet socket, and the Durable Object's runtime answers
+ * PONG itself (setWebSocketAutoResponse), so a check never wakes a hibernating object. Neither is JSON,
+ * so neither is a frame of ky's protocol.
+ */
+export const PING = "ping";
+
+export const PONG = "pong";
