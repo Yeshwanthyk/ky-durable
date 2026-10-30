@@ -236,6 +236,16 @@ export const SkillVersion = Schema.Struct({
 
 export type SkillVersion = typeof SkillVersion.Type;
 
+/** A demo's recording made into a skill, or why not. */
+export class NoDraft extends Schema.TaggedError<NoDraft>()("NoDraft", { said: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return this.said;
+  }
+}
+
+/** What a demo's draft made: the skill it created, kept archived until the user says yes, and any other change. */
+export type Drafted = { readonly draft: string | undefined; readonly changed: ReadonlyArray<SkillVersion> };
+
 export class NoSuchAction extends Schema.TaggedError<NoSuchAction>()("NoSuchAction", { action: Schema.String }) implements Refusable {
   get refusal(): string {
     return `There is no skill action "${this.action}".`;

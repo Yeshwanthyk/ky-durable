@@ -454,6 +454,7 @@ export class Vault extends ProductionVault {
  * - A webhook whose body is `tool NAME JSON` asks ky's turn for that call, which ky says it is trying; an approval's
  *   "Make the call again" line makes it again.
  * - A prompt containing `model-refuses` gets a 400, which no retry or stand-in mends.
+ * - A skill draft from a demo (src/skills/skills.ts draftFromDemo) creates `shown-<site>`, its body the recording.
  * - `reply: TEXT` answers TEXT. A check-in's run is answered by the text after
  *   its "What to look at:" line, as if it were the prompt.
  * - `slowly tool NAME JSON` makes the same call, its arguments streamed in
@@ -834,6 +835,15 @@ function answer(prompt: string): Reply {
     if (tool) return answer(tool[0]);
 
     return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
+  }
+
+  const demo = /^\[skill from a demo\][\s\S]*?\nSite: (\S+)\n[\s\S]*?<recording>\n([\s\S]*?)\n<\/recording>$/.exec(prompt);
+
+  if (demo) {
+    const [, site = "", steps = ""] = demo;
+    const body = `${steps}\n\n## Needs\n- login: Are you signed in to ${site} in ky's browser? (yes | no)`;
+
+    return call("skill_manage", { action: "create", name: `shown-${site.replace(/[^a-z0-9]+/g, "-")}`, description: `Doing on ${site} what the user showed ky.`, body });
   }
 
   for (const [pattern, make] of CALLS) {

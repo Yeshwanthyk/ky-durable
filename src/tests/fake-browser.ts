@@ -19,6 +19,10 @@ function responseOf(url: string, status: number): Response {
 class FakeTab implements BrowserTab {
   #url = "about:blank";
   closed = false;
+  /** Whether a show-me hand-off's recorder runs here, and each frame's log, as the recorder writes it: JSON lines. */
+  recording = false;
+  logs: string[] = [];
+  readonly history: Array<{ url: string; title: string }> = [{ url: "about:blank", title: "" }];
 
   constructor(
     readonly target: string,
@@ -31,6 +35,7 @@ class FakeTab implements BrowserTab {
 
     if (page === FAILS) throw new Error("Kitesurf couldn't render the page");
     this.#url = url;
+    this.history.push({ url, title: page.title });
 
     return responseOf(url, page.status ?? 200);
   }
@@ -118,6 +123,16 @@ class FakeSession {
         const handoff = handoffOf(tab);
 
         if (handoff) handoff.done = success;
+      },
+      record: async (tab) => {
+        if (tab instanceof FakeTab) tab.recording = true;
+
+        return tab instanceof FakeTab ? tab.history.length - 1 : 0;
+      },
+      recorded: async (tab) => {
+        const history = tab instanceof FakeTab ? tab.history : [];
+
+        return { logs: tab instanceof FakeTab ? tab.logs : [], history: { currentIndex: history.length - 1, entries: [...history] } };
       },
       storageState: async () => ({ cookies: [...this.cookies], origins: [...this.origins] }),
       restore: async (state) => {
