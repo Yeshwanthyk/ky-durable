@@ -150,6 +150,10 @@ export const ClientMessageSchema = Type.Union([
   message("automation", { automation: Text, action: AutomationActionSchema }),
   /** Answers with Settings › Proactivity: the level and the look times. */
   message("proactivity", {}),
+  /** The user's 👍 or 👎 on an unasked post, decoded by its Schema (VerdictInput, src/dreaming/contract.ts); answers with the last 30 days' verdicts, or `{ refused }`. */
+  message("post-verdict", { verdict: Type.Unknown() }),
+  /** Answers with the last 30 days' verdicts on ky's unasked posts, and how many were 👍. */
+  message("post-verdicts", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */
   message("set-proactivity", { level: ProactivityLevelSchema }),
   /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */

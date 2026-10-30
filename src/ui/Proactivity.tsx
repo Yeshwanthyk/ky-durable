@@ -4,6 +4,7 @@ import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Problem } from "./Subscriptions";
 import { RowValue, Segmented, SegmentedOption, Stepper, Switch } from "./Controls";
 import { Icon } from "./Icon";
+import { UsefulRate } from "./PostVerdict";
 
 type ProactivityActions = {
   readonly open: boolean;
@@ -465,6 +466,7 @@ export function Proactivity() {
     <div id="settings-proactivity">
       <section className="group" aria-label="Unasked">
         <Levels level={view.level} onChoose={choose} />
+        <UsefulRate />
       </section>
       <section className="group">
         <h3 className="group-label">Schedule</h3>

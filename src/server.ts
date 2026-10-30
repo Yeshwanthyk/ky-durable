@@ -36,7 +36,7 @@ import { sandboxRoute } from "./sandbox-routes";
 import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
-import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
+import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary, VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/contract";
 import { Models } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
@@ -246,6 +246,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly anticipations = new Anticipations(this.ctx.storage, this.memory, (session) => this.isChat(session));
   /** What ky put in front of the user unasked, and what they did with it. */
   readonly surfaced = new Surfaced(this.ctx.storage);
+  /** The user's 👍 or 👎 on each unasked post. */
+  readonly verdicts = new Verdicts(this.ctx.storage);
   /** How proactive ky is, from Settings › Proactivity. */
   readonly proactivity = new Proactivity(this.ctx.storage);
   /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
@@ -300,13 +302,13 @@ export class PiAgent extends DurableObject<Env> {
 
       return true;
     },
-    post: async (session, text, requestId, cards) => {
+    post: async (session, text, requestId, cards, item) => {
       const conversation = await this.harness.conversation(session);
       // A write waits for no run, so a busy chat is turned away here, as submit's whenBusy does.
       const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
 
       if (busy) return false;
-      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards), requestId }, BACKGROUND_CONTEXT);
+      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards, item), requestId }, BACKGROUND_CONTEXT);
 
       return true;
     },
@@ -345,7 +347,8 @@ export class PiAgent extends DurableObject<Env> {
         .filter((each) => each.created_by === "dream" && each.status === "active")
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
     }),
-    surfaced: this.surfaced
+    surfaced: this.surfaced,
+    verdicts: this.verdicts
   });
   /** ky's looks over the user's day, at their look times while Proactivity is on. */
   readonly looks: Looks = new Looks(this.ctx.storage, {
@@ -364,7 +367,8 @@ export class PiAgent extends DurableObject<Env> {
     proactivity: this.proactivity,
     zone: () => this.automations.checkIns().zone,
     deliver: (item, now) => this.deliveries.deliver(item, now),
-    automations: this.automations
+    automations: this.automations,
+    verdicts: this.verdicts
   });
   /** Subagents browse; the main agent delegates it, since a page can take a minute. */
   readonly browse = browseExtension(this.boundary.browser, (png) => saveImage(this.env.FILES, png));
@@ -555,6 +559,7 @@ export class PiAgent extends DurableObject<Env> {
     this.automations,
     this.presence,
     this.proactivity,
+    this.verdicts,
     this.pushes,
     this.recall,
     this.setup,

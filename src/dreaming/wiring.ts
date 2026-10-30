@@ -29,6 +29,8 @@ export { Soul, TEMPLATE } from "./soul";
 
 export { Surfaced } from "./surfaced";
 
+export { Verdicts } from "./verdicts";
+
 export { Versioned, versionLine, Versions } from "./versioned";
 
 /** What the dreaming domain's tools are made from, on the agent (src/server.ts). */

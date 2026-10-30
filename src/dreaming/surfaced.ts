@@ -41,6 +41,12 @@ const decodeRefShown = Schema.decodeUnknownOption(
 
 const decodeShownItem = Schema.decodeUnknownOption(ShownItem);
 
+const ShownPost = Schema.Struct({ kind: Schema.Literals(["look", "post"]), ref: SurfacedRow.fields.ref, text: SurfacedRow.fields.text });
+
+export type ShownPost = typeof ShownPost.Type;
+
+const decodeShownPost = Schema.decodeUnknownOption(ShownPost);
+
 const decodeOutcome = Schema.decodeUnknownOption(Schema.Struct({ outcome: SurfacedRow.fields.outcome }));
 
 class NothingShown
@@ -77,6 +83,7 @@ export class SurfacedStore extends Context.Service<
     readonly outcome: (kind: SurfacedKind, item: string, outcome: SurfacedOutcome, now: number | undefined) => Effect.Effect<void, NothingShown | AlreadyOver>;
     readonly items: (kind: SurfacedKind, prefix: string, from: number, limit: number) => Effect.Effect<ShownItem[]>;
     readonly lastShown: (kind: SurfacedKind) => Effect.Effect<Map<string, number>>;
+    readonly post: (item: string) => Effect.Effect<Option.Option<ShownPost>>;
     readonly expire: (now: number | undefined) => Effect.Effect<number>;
   }
 >()("ky/dreaming/Surfaced") {
@@ -160,6 +167,10 @@ export class SurfacedStore extends Context.Service<
           Effect.map(
             exec("SELECT ref, max(shown_at) AS at FROM ky_surfaced WHERE kind = ? GROUP BY ref", kind),
             (rows) => new Map(rows.flatMap((row) => Option.toArray(decodeRefShown(row))).map((row) => [row.ref, row.at]))
+          ),
+        post: (item) =>
+          Effect.map(exec("SELECT kind, ref, text FROM ky_surfaced WHERE kind IN ('look', 'post') AND item = ? LIMIT 1", item), ([row]) =>
+            row === undefined ? Option.none() : decodeShownPost(row)
           ),
         expire
       });

@@ -31,13 +31,16 @@ export const LOOK_POST = "ky.look";
 
 const LookPostData = Schema.Struct({
   text: Schema.String,
-  cards: Schema.optionalKey(Schema.String)
+  cards: Schema.optionalKey(Schema.String),
+  /** The delivery this post is, which the user's 👍 or 👎 on it names. */
+  item: Schema.optionalKey(Schema.String)
 });
 
 type LookPostData = typeof LookPostData.Type;
 
-export function lookPost(text: string, timestamp: number, cards?: string): EntryDraft {
-  const data: LookPostData = cards === undefined ? { text } : { text, cards };
+export function lookPost(text: string, timestamp: number, cards?: string, item?: string): EntryDraft {
+  const carded: LookPostData = cards === undefined ? { text } : { text, cards };
+  const data: LookPostData = item === undefined ? carded : { ...carded, item };
 
   const content = cards === undefined ? `[ky posted to the user, unasked] ${text}` : `[ky posted cards to the user, unasked] ${cards}`;
 
@@ -105,6 +108,8 @@ export type PiMessage = {
   readonly stopReason?: string;
   readonly error?: string;
   readonly posted?: true;
+  /** A post's delivery id, which the user's 👍 or 👎 names. */
+  readonly post?: string;
 };
 
 /** The user's own parts: a late message's note is the model's (late.ts), not part of what they wrote. */
@@ -195,7 +200,9 @@ function lookPosted(entry: EntryRecord, timestamp: number): PiMessage | undefine
     Option.map(Schema.decodeUnknownOption(LookPostData)(entry.data), (data): PiMessage => {
       const text = data.text === "" ? [] : [{ type: "text" as const, text: data.text }];
 
-      return { ...projectMessage(kySays([...postedCards(String(entry.id), data.cards), ...text], timestamp), String(entry.id)), posted: true };
+      const posted: PiMessage = { ...projectMessage(kySays([...postedCards(String(entry.id), data.cards), ...text], timestamp), String(entry.id)), posted: true };
+
+      return data.item === undefined ? posted : { ...posted, post: data.item };
     })
   );
 }
