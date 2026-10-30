@@ -2,7 +2,7 @@ import { defineExtension, type Extension, GenerationTask, hook } from "@earendil
 import { textOf } from "../skills/contract";
 
 /** What a reply's push says when its answer has no text, such as one that only showed a card. */
-export const NO_TEXT = "Your answer is ready.";
+const NO_TEXT = "Your answer is ready.";
 
 export type ReplyParts = {
   /** Whether the run in `session` answers the user: their own message started it, in one of their chats. */

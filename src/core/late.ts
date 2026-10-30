@@ -24,7 +24,7 @@ export function agoText(ms: number): string {
 }
 
 /** The note for a message that waited `waited` ms on the device before it was sent. */
-export const lateNote = (waited: number) => `<ky-late>(written ${agoText(waited)} ago while offline, delivered now)</ky-late>`;
+const lateNote = (waited: number) => `<ky-late>(written ${agoText(waited)} ago while offline, delivered now)</ky-late>`;
 
 /** The message with the note after its words, when it waited long enough to need one. */
 export function withLateNote(input: UserInput, waited: number | undefined): UserInput {

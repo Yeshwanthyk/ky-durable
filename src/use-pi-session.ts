@@ -44,7 +44,7 @@ import type {
 } from "./protocol";
 import type { ApprovalAction, ApprovalView, ToolPolicy } from "./approvals/contract";
 
-export type ConnectionStatus = "connecting" | "open" | "closed";
+type ConnectionStatus = "connecting" | "open" | "closed";
 
 type State = SessionView & {
   /** Messages sent that pi has not placed yet, oldest first. */
