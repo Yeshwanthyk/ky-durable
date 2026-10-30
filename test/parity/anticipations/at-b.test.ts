@@ -7,6 +7,7 @@ import { DreamNotes, Dreaming } from "../../../src/dreaming/dreaming";
 import { Memory } from "../../../src/dreaming/memory";
 import { Presence } from "../../../src/dreaming/presence";
 import { Proactivity } from "../../../src/dreaming/proactivity";
+import { Verdicts } from "../../../src/dreaming/verdicts";
 import { Surfaced, type SurfacedKind } from "../../../src/dreaming/surfaced";
 import { StoredRow } from "../skills/storage";
 import { callTool, dreamOf, HOUR, refusalOf, storageFor } from "./world";
@@ -56,7 +57,7 @@ describe("anticipations rows written at B", () => {
     const presence = new Presence(storageFor(db));
     const notes = new DreamNotes(storageFor(db), (session) => session === "7");
     const world = { db, memory, seen: { closed: 0, changed: 0, later: [], cards: [], sessions: 0 }, said: [], answered: true, checkInsOn: false };
-    const dreaming = new Dreaming(storageFor(db), { ...dreamOf(world), anticipations, presence, surfaced });
+    const dreaming = new Dreaming(storageFor(db), { ...dreamOf(world), anticipations, presence, surfaced, verdicts: new Verdicts(storageFor(db)) });
 
     const tool = anticipateTool(
       anticipations,

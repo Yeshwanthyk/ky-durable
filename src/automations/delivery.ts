@@ -25,7 +25,8 @@ function fit(text: string): string {
 type DeliveryParts = {
   readonly surfaced: Pick<Surfaced, "shown">;
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
-  readonly post: (session: string, text: string, requestId: string, cards?: string) => Promise<boolean>;
+  /** `item` is the delivery a post is, which the user's 👍 or 👎 on it names. */
+  readonly post: (session: string, text: string, requestId: string, cards: string | undefined, item: string | undefined) => Promise<boolean>;
   readonly notify: (session: string, text: string) => Promise<void>;
   readonly idle: (session: string) => Promise<void>;
   readonly later: (work: Promise<void>) => void;
@@ -131,8 +132,14 @@ export class Deliveries {
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
       const kind = item.kind ?? "event";
-      const put = kind === "look" || kind === "post" ? this.#parts.post : this.#parts.submit;
-      const carded = !item.cards || (await this.#parts.post(session, "", `${item.id}:cards`, item.cards));
+
+      const put =
+        kind === "look" || kind === "post"
+          ? (to: string, content: string, requestId: string) => this.#parts.post(to, content, requestId, undefined, item.id)
+          : this.#parts.submit;
+
+      // Cards with words after them are one post: its words carry the verdict.
+      const carded = !item.cards || (await this.#parts.post(session, "", `${item.id}:cards`, item.cards, item.content === "" ? item.id : undefined));
 
       if (!carded || ((!item.cards || item.content !== "") && !(await put(session, item.content, item.id)))) {
         this.#retry(session);

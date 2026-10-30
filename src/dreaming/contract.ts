@@ -34,7 +34,9 @@ export const DREAMING_TABLES = {
   /** How proactive ky is: on or off. One row. */
   proactivity: "ky_proactivity",
   /** The memories each dream run noted, against its cap: one row per dream conversation. */
-  dreamNotes: "ky_dream_notes"
+  dreamNotes: "ky_dream_notes",
+  /** The user's 👍 or 👎 on each of ky's unasked posts, by the post's delivery id. */
+  postVerdicts: "ky_post_verdicts"
 } as const;
 
 // Tool names.
@@ -153,6 +155,33 @@ export type SurfacedOutcome = typeof SurfacedOutcome.Type;
 export const ShownItem = Schema.Struct({ item: Schema.String, text: Schema.String });
 
 export type ShownItem = typeof ShownItem.Type;
+
+/** The user's say on one of ky's unasked posts: it helped (👍) or it didn't (👎). */
+export const PostVerdict = Schema.Literals(["useful", "not-useful"]);
+
+export type PostVerdict = typeof PostVerdict.Type;
+
+export const VERDICT_REASON_CHARS = 200;
+
+/** A verdict as the page sends it: the post's delivery id, and a 👎's short reason, if the user gave one. */
+export const VerdictInput = Schema.Struct({
+  item: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+  verdict: PostVerdict,
+  reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(VERDICT_REASON_CHARS)))
+});
+
+export type VerdictInput = typeof VerdictInput.Type;
+
+/** A verdict as the page sent it, decoded at the socket: none when it isn't one. */
+export const decodeVerdict = Schema.decodeUnknownOption(VerdictInput);
+
+/** A post's verdict as the page shows it. */
+export const VerdictView = Schema.Struct({ item: Schema.String, verdict: PostVerdict, reason: Schema.NullOr(Schema.String) });
+
+export type VerdictView = typeof VerdictView.Type;
+
+/** The verdicts of the last 30 days, newest first, and how many of them were 👍. */
+export type PostVerdicts = { readonly verdicts: readonly VerdictView[]; readonly useful: number; readonly judged: number };
 
 const Recalled = Schema.Struct({ entry: Schema.Int, lines: Schema.Array(Schema.String) });
 

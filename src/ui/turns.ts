@@ -332,6 +332,8 @@ export function buildTurns(
         if (message.posted) {
           current = open(null);
           current.id = message.id;
+
+          if (message.post !== undefined) current.post = message.post;
         }
 
         addAssistant(message, false);

@@ -24,6 +24,8 @@ import type {
   MachineInfo,
   MemoryView,
   ModelChoice,
+  PostVerdict,
+  PostVerdicts,
   ProactivityLevel,
   Purpose,
   ServerMessage,
@@ -596,6 +598,8 @@ export function usePiSession(session: string) {
     [ask, open]
   );
 
+  const verdictActions = useVerdicts(ask, open);
+
   return {
     ...state,
     connection,
@@ -621,6 +625,7 @@ export function usePiSession(session: string) {
     proactivityActions,
     spendActions,
     ledgerActions,
+    verdictActions,
     newChat,
     archiveChat,
     renameChat,
@@ -1092,4 +1097,31 @@ function useResumeReconnect(agent: { readonly readyState: number; reconnect(): v
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [agent]);
+}
+
+/**
+ * The user's verdicts on ky's unasked posts, read on each connect, and how to give one. A verdict's answer is every
+ * verdict since, so this page shows what the server kept.
+ */
+function useVerdicts(ask: AskFn, open: boolean) {
+  const [kept, setKept] = useState<PostVerdicts | null>(null);
+
+  useEffect(() => {
+    if (open) ask("post-verdicts", {}).then(setKept, () => undefined);
+  }, [ask, open]);
+
+  return useMemo(
+    () => ({
+      verdicts: Object.fromEntries((kept?.verdicts ?? []).map((each) => [each.item, each])),
+      rate: kept === null ? null : { useful: kept.useful, judged: kept.judged },
+      onJudge: (item: string, verdict: PostVerdict, reason?: string) =>
+        ask("post-verdict", { verdict: reason === undefined ? { item, verdict } : { item, verdict, reason } }).then((answer) => {
+          if ("refused" in answer) return answer.refused;
+          setKept(answer);
+
+          return undefined;
+        }, why)
+    }),
+    [ask, kept]
+  );
 }

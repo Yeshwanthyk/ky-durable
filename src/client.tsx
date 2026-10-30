@@ -21,6 +21,7 @@ import { MailContext } from "./ui/Mail";
 import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
 import { SpendContext } from "./ui/Spend";
 import { LedgerContext } from "./ui/LastNight";
+import { VerdictContext } from "./ui/PostVerdict";
 import { PeerContext } from "./ui/Peers";
 import { OnlineContext } from "./ui/online";
 import { LightboxProvider } from "./ui/Lightbox";
@@ -451,7 +452,9 @@ function Stage(parts: Parts) {
       <div className="chat chat-surface">
         <RoutinesContext.Provider value={routines}>
           <ApprovalsContext.Provider value={approvals}>
+          <VerdictContext.Provider value={ky.verdictActions}>
           <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+          </VerdictContext.Provider>
           </ApprovalsContext.Provider>
         </RoutinesContext.Provider>
         <DraftDock
@@ -558,6 +561,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           <ProactivityContext.Provider value={ky.proactivityActions}>
           <LedgerContext.Provider value={ky.ledgerActions}>
           <SpendContext.Provider value={ky.spendActions}>
+          <VerdictContext.Provider value={ky.verdictActions}>
             <SettingsNavContext.Provider value={nav}>
               <TaskStepsContext.Provider value={ky.taskSteps}>
                 <PanelMemo
@@ -597,6 +601,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                 />
               </TaskStepsContext.Provider>
             </SettingsNavContext.Provider>
+          </VerdictContext.Provider>
           </SpendContext.Provider>
           </LedgerContext.Provider>
           </ProactivityContext.Provider>

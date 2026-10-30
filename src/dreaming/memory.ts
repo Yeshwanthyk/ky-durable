@@ -262,6 +262,8 @@ const decodeCount = Schema.decodeUnknownOption(CountRow);
 
 export type MemoryForget = { readonly block: string; readonly text: string; readonly conversation: string | null };
 
+export type MemoryNoted = { readonly id: number; readonly text: string; readonly conversation: string | null };
+
 type Deps = {
   readonly compressor: Compressor;
   readonly zone: () => string | null;
@@ -579,6 +581,7 @@ export class Memory {
   readonly #edge: Edge<Memories>;
   readonly #listeners = new Set<() => void>();
   readonly #forgets = new Set<(forget: MemoryForget) => void>();
+  readonly #notes = new Set<(noted: MemoryNoted) => void>();
   #compressing: Promise<void> | undefined;
 
   readonly zone: () => string | null;
@@ -599,6 +602,12 @@ export class Memory {
     this.#forgets.add(watcher);
 
     return () => this.#forgets.delete(watcher);
+  }
+
+  onNote(watcher: (noted: MemoryNoted) => void): () => void {
+    this.#notes.add(watcher);
+
+    return () => this.#notes.delete(watcher);
   }
 
   #run<A, E extends Refusable>(work: (memories: Memories["Service"]) => Effect.Effect<A, E>): A {
@@ -625,8 +634,14 @@ export class Memory {
     return this.#run((memories) => memories.wake);
   }
 
-  note(line: string): string {
-    return this.#run((memories) => memories.note(line));
+  /** Record one memory; `conversation` is the run that noted it, which a dream's ledger keeps. */
+  note(line: string, conversation: string | null = null): string {
+    const saved = this.#run((memories) => memories.note(line));
+    const [noted] = this.#notes.size === 0 ? [] : this.since(this.count() - 1, 1);
+
+    if (noted !== undefined) for (const watcher of this.#notes) watcher({ id: noted.id, text: noted.text, conversation });
+
+    return saved;
   }
 
   renote(summary: string): string {
@@ -722,7 +737,7 @@ export function memoryExtension(
         execute: async ({ text: line }, api) => {
           const session = String(api.conversationId);
           notes.check(session);
-          const saved = memory.note(line);
+          const saved = memory.note(line, session);
           notes.noted(session);
 
           return text(saved);

@@ -26,6 +26,7 @@ import type {
   MailView,
   PeerInvite,
   PeerView,
+  PostVerdicts,
   ProactivityView,
   SpendView,
   SettingsView,
@@ -187,6 +188,14 @@ const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
   )
 );
 
+const PostVerdictsSchema = Type.Unsafe<PostVerdicts>(
+  Type.Object({
+    verdicts: Type.Array(Type.Object({ item: Text, verdict: Type.Union([Type.Literal("useful"), Type.Literal("not-useful")]), reason: Type.Union([Text, Type.Null()]) })),
+    useful: Type.Number(),
+    judged: Type.Number()
+  })
+);
+
 /** What the server answers each ask with, by the ask's message type. */
 export const ANSWERS = {
   withdraw: Type.Boolean(),
@@ -239,6 +248,8 @@ export const ANSWERS = {
   "push-unsubscribe": Type.Null(),
   watching: Type.Null(),
   "dream-ledger": Ledger,
+  "post-verdict": Type.Union([PostVerdictsSchema, Refused]),
+  "post-verdicts": PostVerdictsSchema,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 
