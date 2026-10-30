@@ -5,7 +5,7 @@ import { MAX_BYTES, MAX_COLLECTIONS, MAX_FILES, MAX_ITEM_BYTES, MAX_ITEMS, MAX_S
 import type { LivingSites } from "./living";
 import { act } from "./sites";
 
-export { LivingSites, type SiteDesk } from "./living";
+export { LivingSites } from "./living";
 
 export { publicSiteRoute, siteRoute } from "./routes";
 

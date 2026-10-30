@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
+  ChatOnly,
   HtmlOrDir,
   type LinkMode,
   MAX_BYTES,
@@ -12,7 +13,6 @@ import {
   metaOr,
   NoFiles,
   NoSite,
-  NotAChat,
   NotAFolder,
   NotJson,
   publicKey,
@@ -383,31 +383,22 @@ const remove = ({ bucket }: SiteHost, id: string) =>
     return `Deleted the site ${id}.`;
   });
 
+const ACTIONS = {
+  publish: (host: SiteHost, args: SiteArgs, _id: string, session: string) => publish(host, args, session),
+  list: (host: SiteHost) => list(host),
+  make_public: (host: SiteHost, _args: SiteArgs, id: string) => makePublic(host, id),
+  make_private: (host: SiteHost, _args: SiteArgs, id: string) => makePrivate(host, id),
+  share: (host: SiteHost, args: SiteArgs) => shared(host, args),
+  revoke: (host: SiteHost, args: SiteArgs, id: string) => revoked(host, id, args.token ?? ""),
+  read_data: (host: SiteHost, args: SiteArgs) => readData(host, args),
+  write_data: (host: SiteHost, args: SiteArgs) => writeData(host, args),
+  remove_data: (host: SiteHost, args: SiteArgs) => removeData(host, args),
+  delete: (host: SiteHost, _args: SiteArgs, id: string) => remove(host, id)
+} as const;
+
 export const act = (host: SiteHost, args: SiteArgs, session: string, chat: boolean) =>
   Effect.gen(function* () {
-    if (!chat) return yield* new NotAChat();
-    const id = args.id ?? "";
+    if (!chat) return yield* new ChatOnly();
 
-    switch (args.action) {
-      case "publish":
-        return { text: yield* publish(host, args, session) };
-      case "list":
-        return { text: yield* list(host) };
-      case "make_public":
-        return { text: yield* makePublic(host, id) };
-      case "make_private":
-        return { text: yield* makePrivate(host, id) };
-      case "share":
-        return { text: yield* shared(host, args) };
-      case "revoke":
-        return { text: yield* revoked(host, id, args.token ?? "") };
-      case "read_data":
-        return { text: yield* readData(host, args) };
-      case "write_data":
-        return { text: yield* writeData(host, args) };
-      case "remove_data":
-        return { text: yield* removeData(host, args) };
-      case "delete":
-        return { text: yield* remove(host, id) };
-    }
+    return { text: yield* ACTIONS[args.action](host, args, args.id ?? "", session) };
   });

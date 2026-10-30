@@ -15,17 +15,17 @@ const POLICIES = APPROVAL_TABLES.policies;
 
 const INPUTS = APPROVAL_TABLES.inputs;
 
-const pausedOf = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      status: Schema.Literals(["approval-required", "input-required"]),
-      requestId: Schema.String,
-      message: Schema.optionalKey(Schema.String),
-      toolPath: Schema.optionalKey(Schema.String),
-      tool: Schema.optionalKey(Schema.String)
-    })
-  )
-);
+const Paused = Schema.Struct({
+  status: Schema.Literals(["approval-required", "input-required"]),
+  requestId: Schema.String,
+  message: Schema.optionalKey(Schema.String),
+  toolPath: Schema.optionalKey(Schema.String),
+  tool: Schema.optionalKey(Schema.String)
+});
+
+type Paused = typeof Paused.Type;
+
+const pausedOf = Schema.decodeUnknownOption(Schema.fromJsonString(Paused));
 
 const PolicyRow = Schema.Struct({ tool: Schema.String, policy: Schema.Literals(["allow", "ask", "block"]) });
 
@@ -157,25 +157,26 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return result;
     }
 
+    return this.#gated(result, paused, conversation, call, present);
+  }
+
+  /** An approval Executor paused on, settled by the tool's policy: declined, accepted, or asked of the user on a card. */
+  async #gated(result: CallResult, paused: Paused, conversation: string, call: ExecutorCall, present: boolean): Promise<CallResult> {
     const tool = paused.toolPath ?? paused.tool ?? "";
-    const message = paused.message?.trim() || "an action in your apps";
 
     if (tool !== "" && this.#edge.run(Store.use((store) => store.asked(tool)))) this.#changed();
     const decided = verdict(tool === "" ? "ask" : this.policyFor(tool), present);
+    const decline = async () => resultText(await call("resume", { requestId: paused.requestId, response: { action: "decline" } }));
 
     if (decided === "block") {
-      const declined = await call("resume", { requestId: paused.requestId, response: { action: "decline" } });
-
-      return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${resultText(declined)}\nTell the user it was blocked, and don't try it another way.`);
+      return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${await decline()}\nTell the user it was blocked, and don't try it another way.`);
     }
 
     // A background run would sit on a card nobody is there to tap: refused now, so its report says what it needs.
     if (decided === "ask" && this.#deps.unattended(conversation)) {
-      const declined = await call("resume", { requestId: paused.requestId, response: { action: "decline" } });
-
       return note(
         result,
-        `ky declined this request: this is a background run, and nobody is here to approve ${tool || "it"}. Executor answered: ${resultText(declined)}\n` +
+        `ky declined this request: this is a background run, and nobody is here to approve ${tool || "it"}. Executor answered: ${await decline()}\n` +
           "Don't try it another way. Say in your report that it needs the user's OK; they can ask for it from a chat."
       );
     }
@@ -186,6 +187,12 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);
     }
 
+    return note(result, this.#carded(paused, tool, conversation, present));
+  }
+
+  #carded(paused: Paused, tool: string, conversation: string, present: boolean): string {
+    const message = paused.message?.trim() || "an action in your apps";
+
     const id = this.#approvals.requestApproval({
       kind: "executor",
       ref: paused.requestId,
@@ -195,12 +202,9 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       conversation
     });
 
-    return note(
-      result,
-      present
-        ? `ky showed the user a card for this request (approval ${id}); only their tap on it approves it, and you can't. In a sentence or two, tell them what it will do: what is sent, changed or deleted, where, and to whom, decoding what they can't read. Then stop: you'll hear here what they chose.`
-        : `Nobody here can approve this. It waits for the user as a card in their chat (approval ${id}), and they were notified; you can't approve it. Say it waits for the user, and finish.`
-    );
+    return present
+      ? `ky showed the user a card for this request (approval ${id}); only their tap on it approves it, and you can't. In a sentence or two, tell them what it will do: what is sent, changed or deleted, where, and to whom, decoding what they can't read. Then stop: you'll hear here what they chose.`
+      : `Nobody here can approve this. It waits for the user as a card in their chat (approval ${id}), and they were notified; you can't approve it. Say it waits for the user, and finish.`;
   }
 
   #ownsInput(requestId: string, conversation: string): boolean {

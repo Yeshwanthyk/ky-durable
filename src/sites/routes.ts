@@ -1,5 +1,6 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { isRefusal, type Result } from "../core/refusal";
 import { capped } from "../inbound/routes";
 import {
   type DataCaller,
@@ -15,6 +16,7 @@ import {
   ShareBody,
   SITE_ID,
   type SiteBucket,
+  type SiteBody,
   siteKey,
   type SiteObject
 } from "./contract";
@@ -145,35 +147,44 @@ function sitePath(rest: string): string | undefined {
 
 const isApp = async (bucket: SiteBucket, id: string) => (await (await bucket.get(siteKey(id, META)))?.text().then(metaOr))?.app === true;
 
-async function serve(request: Request, bucket: SiteBucket, id: string, rest: string, open: boolean, embed: boolean, live: (() => Promise<Dressing["live"]>) | undefined): Promise<Response> {
-  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
-  const path = sitePath(rest);
+async function headOf(bucket: SiteBucket, id: string, path: string, open: boolean): Promise<Response> {
+  const head = await bucket.head(siteKey(id, path));
 
-  if (path === undefined) return notFound();
+  return head ? new Response(null, { headers: headersFor(path, head, open) }) : notFound();
+}
 
-  if (request.method === "HEAD") {
-    const head = await bucket.head(siteKey(id, path));
-
-    return head ? new Response(null, { headers: headersFor(path, head, open) }) : notFound();
-  }
-
-  const object = await bucket.get(siteKey(id, path));
-
-  if (!object) return notFound();
-  const headers = headersFor(path, object, open);
-
-  if (!headers.get("Content-Type")?.startsWith("text/html")) return new Response(object.body, { headers });
-  const dressing: Dressing = { embed, live: live && (await isApp(bucket, id)) ? await live() : undefined };
-
+/** A page as stored, or dressed: themed for an embed, with the living helper for an app. */
+async function dressedPage(object: SiteBody, headers: Headers, dressing: Dressing, open: boolean): Promise<Response> {
   if (!dressing.embed && !dressing.live) return new Response(object.body, { headers });
   const html = new TextEncoder().encode(dressed(await object.text(), dressing));
   headers.set("Content-Length", String(html.byteLength));
-  headers.set("ETag", `W/"${embed ? "embed-" : ""}${dressing.live ? "live-" : ""}${object.etag}"`);
+  headers.set("ETag", `W/"${dressing.embed ? "embed-" : ""}${dressing.live ? "live-" : ""}${object.etag}"`);
 
   // A living page reloads when it's republished, so it never keeps a copy; the owner's carries their key.
   if (dressing.live) headers.set("Cache-Control", open ? "no-cache" : "private, no-store");
 
   return new Response(html, { headers });
+}
+
+type Live = (() => Promise<Dressing["live"]>) | undefined;
+
+const dressingFor = async (bucket: SiteBucket, id: string, embed: boolean, live: Live): Promise<Dressing> => ({ embed, live: live && (await isApp(bucket, id)) ? await live() : undefined });
+
+const isHtml = (headers: Headers) => headers.get("Content-Type")?.startsWith("text/html") === true;
+
+async function serve(request: Request, bucket: SiteBucket, id: string, rest: string, open: boolean, embed: boolean, live: Live): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
+  const path = sitePath(rest);
+
+  if (path === undefined) return notFound();
+
+  if (request.method === "HEAD") return headOf(bucket, id, path, open);
+  const object = await bucket.get(siteKey(id, path));
+
+  if (!object) return notFound();
+  const headers = headersFor(path, object, open);
+
+  return isHtml(headers) ? dressedPage(object, headers, await dressingFor(bucket, id, embed, live), open) : new Response(object.body, { headers });
 }
 
 function headersFor(path: string, object: SiteObject, open: boolean): Headers {
@@ -196,22 +207,12 @@ function headersFor(path: string, object: SiteObject, open: boolean): Headers {
 
 const decodeItem = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Json));
 
-/** The data operation a request to `<site>/_data<rest>` asks for, or the response that turns it away. */
-async function dataOp(request: Request, rest: string, open: boolean): Promise<DataOp | Response> {
-  const parts = rest.split("/").slice(1);
+const notAllowed = (open: boolean) => answered(405, { error: "Method not allowed" }, open);
 
-  if (rest === "" || rest === "/") return request.method === "GET" ? { op: "collections" } : answered(405, { error: "Method not allowed" }, open);
-  const [collection, key, ...more] = parts.map(unescaped);
+const onlyGet = (request: Request, op: DataOp, open: boolean): DataOp | Response => (request.method === "GET" ? op : notAllowed(open));
 
-  if (collection === undefined || more.length > 0 || parts.length > 2) return answered(404, { error: "Not found" }, open);
-
-  if (key === undefined) return request.method === "GET" ? { op: "list", collection } : answered(405, { error: "Method not allowed" }, open);
-
-  if (request.method === "GET") return { op: "get", collection, key };
-
-  if (request.method === "DELETE") return { op: "remove", collection, key };
-
-  if (request.method !== "PUT" && request.method !== "POST") return answered(405, { error: "Method not allowed" }, open);
+/** A PUT's or POST's body, as the item's new JSON value. */
+async function putOp(request: Request, collection: string, key: string, open: boolean): Promise<DataOp | Response> {
   const text = Number(request.headers.get("Content-Length") ?? 0) > MAX_ITEM_BYTES * 2 ? null : await capped(request.body, MAX_ITEM_BYTES * 2);
 
   if (text === null) return answered(413, { error: `An item holds at most ${MAX_ITEM_BYTES / 1024} KB of JSON.` }, open);
@@ -220,58 +221,91 @@ async function dataOp(request: Request, rest: string, open: boolean): Promise<Da
   return Option.isSome(value) ? { op: "put", collection, key, value: value.value } : answered(400, { error: "An item is a JSON value." }, open);
 }
 
+async function itemOp(request: Request, collection: string, key: string, open: boolean): Promise<DataOp | Response> {
+  if (request.method === "GET") return { op: "get", collection, key };
+
+  if (request.method === "DELETE") return { op: "remove", collection, key };
+
+  return request.method === "PUT" || request.method === "POST" ? putOp(request, collection, key, open) : notAllowed(open);
+}
+
+/** The data operation a request to `<site>/_data<rest>` asks for, or the response that turns it away. */
+async function dataOp(request: Request, rest: string, open: boolean): Promise<DataOp | Response> {
+  const parts = rest.split("/").slice(1);
+
+  if (rest === "" || rest === "/") return onlyGet(request, { op: "collections" }, open);
+  const [collection, key, ...more] = parts.map(unescaped);
+
+  if (collection === undefined || more.length > 0 || parts.length > 2) return answered(404, { error: "Not found" }, open);
+
+  return key === undefined ? onlyGet(request, { op: "list", collection }, open) : itemOp(request, collection, key, open);
+}
+
+async function versionOf(request: Request, env: SiteEnv, site: string, open: boolean): Promise<Response> {
+  if (request.method !== "GET") return notAllowed(open);
+  const { published, data } = await agent(env).siteVersion(site);
+
+  return answered(200, { published, data }, open);
+}
+
+/** A link's change past its address's share of HOOK_LIMIT; the owner's own are never limited. */
+async function overLimit(request: Request, env: SiteEnv, op: DataOp, open: boolean): Promise<boolean> {
+  if (!open || (op.op !== "put" && op.op !== "remove")) return false;
+  const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
+
+  return !(await env.HOOK_LIMIT.limit({ key: `site:${address}` })).success;
+}
+
+const isData = (rest: string) => rest === "/_data" || rest.startsWith("/_data/");
+
 /** `_data` and `_version` under a site, for the owner signed in or a link, the only routes a link to the owner's key opens. */
 async function siteApi(request: Request, env: SiteEnv, site: string, rest: string, caller: DataCaller): Promise<Response | undefined> {
   const open = caller.kind === "link";
 
-  if (rest === "/_version") {
-    if (request.method !== "GET") return answered(405, { error: "Method not allowed" }, open);
-    const { published, data } = await agent(env).siteVersion(site);
+  if (rest === "/_version") return versionOf(request, env, site, open);
 
-    return answered(200, { published, data }, open);
-  }
-
-  if (rest !== "/_data" && !rest.startsWith("/_data/")) return undefined;
+  if (!isData(rest)) return undefined;
   const op = await dataOp(request, rest.slice("/_data".length), open);
 
   if (op instanceof Response) return op;
 
-  if (open && (op.op === "put" || op.op === "remove")) {
-    const address = request.headers.get("CF-Connecting-IP") ?? "unknown";
-
-    if (!(await env.HOOK_LIMIT.limit({ key: `site:${address}` })).success) return answered(429, { error: "Too many changes; wait a minute." }, open);
-  }
-
+  if (await overLimit(request, env, op, open)) return answered(429, { error: "Too many changes; wait a minute." }, open);
   const { status, body } = await agent(env).siteData(site, caller, op);
 
   return answered(status, body, open);
 }
 
-async function owners(request: Request, env: SiteEnv, url: URL): Promise<Response> {
-  const [, id, token] = /^\/api\/sites(?:\/([0-9a-f]{32})\/links(?:\/([A-Za-z0-9_-]{22}))?)?$/.exec(url.pathname) ?? [];
+const SITES = "/api/sites";
 
-  if (id === undefined) return url.pathname === "/api/sites" && request.method === "GET" ? Response.json(await listSites(env.FILES)) : new Response(null, { status: url.pathname === "/api/sites" ? 405 : 404 });
+const replied = <A extends object>(result: Result<A>, status: number) => (isRefusal(result) ? Response.json({ error: result.refused }, { status }) : Response.json(result));
 
-  if (token === undefined && request.method === "GET") {
-    const listed = await agent(env).siteLinks(id);
+async function allSites(request: Request, env: SiteEnv, url: URL): Promise<Response> {
+  if (url.pathname !== SITES) return new Response(null, { status: 404 });
 
-    return "refused" in listed ? Response.json({ error: listed.refused }, { status: 404 }) : Response.json(listed);
-  }
+  return request.method === "GET" ? Response.json(await listSites(env.FILES)) : new Response(null, { status: 405 });
+}
 
-  if (token !== undefined) {
-    if (request.method !== "DELETE") return new Response(null, { status: 405 });
-    const done = await agent(env).siteRevoke(id, token);
+async function revoke(request: Request, env: SiteEnv, id: string, token: string): Promise<Response> {
+  return request.method === "DELETE" ? replied(await agent(env).siteRevoke(id, token), 404) : new Response(null, { status: 405 });
+}
 
-    return "refused" in done ? Response.json({ error: done.refused }, { status: 404 }) : Response.json(done);
-  }
-
+async function share(request: Request, env: SiteEnv, id: string): Promise<Response> {
   if (request.method !== "POST") return new Response(null, { status: 405 });
   const body = Schema.decodeUnknownOption(Schema.fromJsonString(ShareBody))(await request.text());
 
   if (Option.isNone(body)) return Response.json({ error: "A link is { label?, mode?: view | edit }." }, { status: 400 });
-  const made = await agent(env).siteShare(id, body.value.label ?? "", body.value.mode ?? "view");
 
-  return "refused" in made ? Response.json({ error: made.refused }, { status: 400 }) : Response.json(made);
+  return replied(await agent(env).siteShare(id, body.value.label ?? "", body.value.mode ?? "view"), 400);
+}
+
+async function owners(request: Request, env: SiteEnv, url: URL): Promise<Response> {
+  const [, id, token] = /^\/api\/sites(?:\/([0-9a-f]{32})\/links(?:\/([A-Za-z0-9_-]{22}))?)?$/.exec(url.pathname) ?? [];
+
+  if (id === undefined) return allSites(request, env, url);
+
+  if (token !== undefined) return revoke(request, env, id, token);
+
+  return request.method === "GET" ? replied(await agent(env).siteLinks(id), 404) : share(request, env, id);
 }
 
 export function siteRoute(request: Request, env: SiteEnv, url: URL): Promise<Response> | undefined {

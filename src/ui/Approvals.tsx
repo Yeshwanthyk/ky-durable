@@ -60,31 +60,37 @@ function handoffCard(approval: ApprovalView): UiCard {
   };
 }
 
+// One nobody answered stays a day as expired, with nothing left to tap.
+const lapsedCard = (approval: ApprovalView): UiCard => ({
+  title: APPROVAL_KINDS[approval.kind].title,
+  blocks: [{ type: "text", text: approval.summary }],
+  note: `Expired · ${NOBODY_ANSWERED}, so nothing was done. Ask ky again if it still matters.`
+});
+
+const askingCard = (approval: ApprovalView): UiCard => ({
+  title: APPROVAL_KINDS[approval.kind].title,
+  blocks: [
+    { type: "text", text: approval.summary },
+    {
+      type: "buttons",
+      buttons: [
+        { label: "Approve", reply: "accept", tone: "primary" },
+        { label: "Decline", reply: "decline", tone: "danger" }
+      ]
+    }
+  ],
+  note: "Only your tap approves it: ky can't, and nobody else can."
+});
+
+const titled = (approval: ApprovalView, card: UiCard): UiCard => (approval.subject ? { ...card, subtitle: approval.subject, icon: approval.subject } : card);
+
 /** The card an approval shows as: its blocks are the ui tool's own, so it looks and taps like any card. */
 function cardOf(approval: ApprovalView): UiCard {
-  if (approval.kind === "browser-handoff" && approval.lapsedAt === undefined) return handoffCard(approval);
+  const lapsed = approval.lapsedAt !== undefined;
 
-  // One nobody answered stays a day as expired, with nothing left to tap.
-  const card: UiCard = approval.lapsedAt !== undefined ? {
-    title: APPROVAL_KINDS[approval.kind].title,
-    blocks: [{ type: "text", text: approval.summary }],
-    note: `Expired · ${NOBODY_ANSWERED}, so nothing was done. Ask ky again if it still matters.`
-  } : {
-    title: APPROVAL_KINDS[approval.kind].title,
-    blocks: [
-      { type: "text", text: approval.summary },
-      {
-        type: "buttons",
-        buttons: [
-          { label: "Approve", reply: "accept", tone: "primary" },
-          { label: "Decline", reply: "decline", tone: "danger" }
-        ]
-      }
-    ],
-    note: "Only your tap approves it: ky can't, and nobody else can."
-  };
+  if (approval.kind === "browser-handoff" && !lapsed) return handoffCard(approval);
 
-  return approval.subject ? { ...card, subtitle: approval.subject, icon: approval.subject } : card;
+  return titled(approval, lapsed ? lapsedCard(approval) : askingCard(approval));
 }
 
 /** The approvals waiting in chat `chat`, after its thread. */

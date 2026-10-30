@@ -743,40 +743,34 @@ const make = Effect.gen(function* () {
     return last !== undefined && last.id !== task && isLive(last.status);
   };
 
+  const rebooks = (row: AutomationRow, fired: Fire, schedule: Schedule<Fire>) => row.cron !== null && fired.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id;
+
+  // A run the user asked for always starts; a scheduled one only when spend allows it.
+  const allowed = (row: AutomationRow, fired: Fire) => fired.slot !== undefined || host.allows(isCheckIn(row) ? "check-in" : "automation");
+
+  const runDue = (row: AutomationRow, fired: Fire, slot: number, task: string) =>
+    Effect.gen(function* () {
+      if (!(yield* Effect.sync(() => allowed(row, fired))) || ran(task)) return;
+      const admitted = yield* admit(row, task, fired.slot !== undefined);
+
+      if (admitted === null) return;
+      yield* start({ ...row, prompt: `${admitted.prefix}${row.prompt}` }, slot, task);
+
+      if (admitted.found !== undefined) yield* keepFound(row.id, { hash: admitted.found, task });
+    });
+
   const fire = (fired: Fire, schedule: Schedule<Fire>) =>
     Effect.gen(function* () {
       const row = yield* get(fired.id);
 
       if (row?.status !== "active") return;
 
-      if (row.cron !== null && fired.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id) {
-        yield* keepBooking(row.id, yield* bookNext(row, schedule.time * 1000));
-      }
-
+      if (rebooks(row, fired, schedule)) yield* keepBooking(row.id, yield* bookNext(row, schedule.time * 1000));
       const slot = slotOf(fired, schedule, row);
       const task = `a-${row.id}-${slot}`;
 
       if (overlaps(row.id, task)) return;
-
-      if (fired.slot === undefined && !(yield* Effect.sync(() => host.allows(isCheckIn(row) ? "check-in" : "automation")))) {
-        if (row.at !== null) yield* done(row.id, schedule.id);
-
-        return;
-      }
-
-      if (!ran(task)) {
-        const admitted = yield* admit(row, task, fired.slot !== undefined);
-
-        if (admitted === null) {
-          if (row.at !== null) yield* done(row.id, schedule.id);
-
-          return;
-        }
-
-        yield* start({ ...row, prompt: `${admitted.prefix}${row.prompt}` }, slot, task);
-
-        if (admitted.found !== undefined) yield* keepFound(row.id, { hash: admitted.found, task });
-      }
+      yield* runDue(row, fired, slot, task);
 
       if (row.at !== null) yield* done(row.id, schedule.id);
     });

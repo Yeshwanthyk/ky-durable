@@ -7,7 +7,7 @@ type Side = {
     handle(kind: ApprovalKind, handler: ApprovalHandler): void;
     get(id: string): Approval | undefined;
     byRef(kind: ApprovalKind, ref: string): Approval | undefined;
-    pending(): unknown[];
+    cards(): unknown[];
     recover(): void;
   };
   readonly executor: Pick<ExecutorApprovals, "policies" | "policyFor" | "beforeResume">;
@@ -47,7 +47,7 @@ export function readsOf(side: Side) {
   return {
     byRef: before,
     get: before.map((approval) => shown(side.approvals.get(approval?.id ?? "none"))),
-    pending: side.approvals.pending(),
+    pending: side.approvals.cards(),
     policies: side.executor.policies(),
     policyFor: TOOLS.map((tool) => side.executor.policyFor(tool)),
     beforeResume: [

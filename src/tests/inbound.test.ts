@@ -50,7 +50,7 @@ async function asked(session = ROOT_SESSION): Promise<string[]> {
 /** What a guarded call answers the model: it waits for the user. */
 const WAITS = "waits for the user's approval, asked for in the chat";
 
-const pending = () => inside("me", (instance) => instance.approvals.pending());
+const pending = () => inside("me", (instance) => instance.approvals.cards());
 
 /** The card waiting on the user for `subject`, its summary holding `summary`, once it shows. */
 async function card(subject: string, summary = ""): Promise<ApprovalView> {

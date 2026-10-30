@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { Sql } from "../core/sql";
 import {
-  BadName,
+  BadDataName,
   COLLECTION,
   EDIT_BATCH_MS,
   ITEM_KEY,
@@ -55,11 +55,11 @@ export type Editor = { readonly kind: "ky" } | { readonly kind: "owner" } | { re
 
 export type Batch = { readonly site: string; readonly lines: ReadonlyArray<string>; readonly collections: ReadonlyArray<string>; readonly last: number };
 
-export type Written<A> = A & { readonly version: number; readonly book: boolean };
+type Written<A> = A & { readonly version: number; readonly book: boolean };
 
 const itemOf = (row: typeof ItemRow.Type): SiteItem => ({ key: row.key, value: row.value, updated: row.updated_at });
 
-export const linkOf = (row: LinkRow): SiteLink | undefined =>
+const linkOf = (row: LinkRow): SiteLink | undefined =>
   isLinkMode(row.mode) ? { token: row.token, label: row.label, mode: row.mode, created: row.created_at, revoked: row.revoked === 1 } : undefined;
 
 const plain = (text: string) => text.replace(/[[\]\r\n]/g, " ").replace(/\s+/g, " ").trim();
@@ -68,9 +68,9 @@ const clip = (text: string, chars: number) => (text.length > chars ? `${text.sli
 
 const named = (collection: string, key?: string) =>
   Effect.gen(function* () {
-    if (!COLLECTION.test(collection)) return yield* new BadName({ what: "collection", name: collection });
+    if (!COLLECTION.test(collection)) return yield* new BadDataName({ what: "collection", name: collection });
 
-    if (key !== undefined && !ITEM_KEY.test(key)) return yield* new BadName({ what: "key", name: key });
+    if (key !== undefined && !ITEM_KEY.test(key)) return yield* new BadDataName({ what: "key", name: key });
   });
 
 export class SiteStore extends Context.Service<
@@ -86,10 +86,10 @@ export class SiteStore extends Context.Service<
     addLink(site: string, token: string, label: string, mode: RouteMode, created?: number): Effect.Effect<LinkRow, TooManyLinks>;
     revoke(site: string, token: string): Effect.Effect<void, NoLink>;
     collections(site: string): Effect.Effect<ReadonlyArray<typeof CollectionRow.Type>>;
-    items(site: string, collection: string): Effect.Effect<ReadonlyArray<SiteItem>, BadName>;
-    item(site: string, collection: string, key: string): Effect.Effect<SiteItem | undefined, BadName>;
-    put(site: string, collection: string, key: string, value: Schema.Json, by: Editor): Effect.Effect<Written<{ item: SiteItem }>, BadName | ItemTooBig | TooManyItems | TooManyCollections>;
-    remove(site: string, collection: string, key: string, by: Editor): Effect.Effect<Written<{ removed: boolean }>, BadName>;
+    items(site: string, collection: string): Effect.Effect<ReadonlyArray<SiteItem>, BadDataName>;
+    item(site: string, collection: string, key: string): Effect.Effect<SiteItem | undefined, BadDataName>;
+    put(site: string, collection: string, key: string, value: Schema.Json, by: Editor): Effect.Effect<Written<{ item: SiteItem }>, BadDataName | ItemTooBig | TooManyItems | TooManyCollections>;
+    remove(site: string, collection: string, key: string, by: Editor): Effect.Effect<Written<{ removed: boolean }>, BadDataName>;
     readonly batches: Effect.Effect<ReadonlyArray<Batch>>;
     told(site: string, last: number): Effect.Effect<void>;
     forget(site: string): Effect.Effect<void>;

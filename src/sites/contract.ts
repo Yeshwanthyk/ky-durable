@@ -73,15 +73,15 @@ export const routeText = (route: Route) => JSON.stringify(route);
 export const routeOr = (text: string): Route | undefined =>
   SITE_ID.test(text) ? { site: text, mode: "view" } : Option.getOrUndefined(Option.filter(decodeRoute(text), (route) => SITE_ID.test(route.site)));
 
-export const SiteLink = Schema.Struct({ token: Schema.String, label: Schema.String, mode: LinkMode, created: Schema.Number, revoked: Schema.Boolean });
+const SiteLink = Schema.Struct({ token: Schema.String, label: Schema.String, mode: LinkMode, created: Schema.Number, revoked: Schema.Boolean });
 
 export type SiteLink = typeof SiteLink.Type;
 
-export const SiteItem = Schema.Struct({ key: Schema.String, value: Schema.Json, updated: Schema.Number });
+const SiteItem = Schema.Struct({ key: Schema.String, value: Schema.Json, updated: Schema.Number });
 
 export type SiteItem = typeof SiteItem.Type;
 
-export const SiteVersion = Schema.Struct({ published: Schema.Number, data: Schema.Number });
+const SiteVersion = Schema.Struct({ published: Schema.Number, data: Schema.Number });
 
 export type SiteVersion = typeof SiteVersion.Type;
 
@@ -159,7 +159,7 @@ export interface SiteBucket {
   list(options: { prefix: string; delimiter?: string }): Promise<{ readonly objects: ReadonlyArray<SiteObject>; readonly delimitedPrefixes: ReadonlyArray<string> }>;
 }
 
-export class NotAChat extends Schema.TaggedError<NotAChat>()("NotAChat", {}) implements Refusable {
+export class ChatOnly extends Schema.TaggedError<ChatOnly>()("ChatOnly", {}) implements Refusable {
   get refusal(): string {
     return "Not done: only a chat with the user may publish sites.";
   }
@@ -225,7 +225,7 @@ export class ViewOnly extends Schema.TaggedError<ViewOnly>()("ViewOnly", {}) imp
   }
 }
 
-export class BadName extends Schema.TaggedError<BadName>()("BadName", { what: Schema.Literals(["collection", "key"]), name: Schema.String }) implements Refusable {
+export class BadDataName extends Schema.TaggedError<BadDataName>()("BadDataName", { what: Schema.Literals(["collection", "key"]), name: Schema.String }) implements Refusable {
   get refusal(): string {
     return this.what === "collection"
       ? `A collection's name is 1 to 64 lowercase letters, digits, _ and -, starting with a letter or digit, not ${JSON.stringify(this.name)}.`

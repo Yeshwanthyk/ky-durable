@@ -622,7 +622,7 @@ export class PiAgent extends DurableObject<Env> {
     if (this.machines.cloud) this.sandboxes.migrate();
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
-    meter(this.spend, { models: this.models, feed: this.feed });
+    meter(this.spend, { answers: (listener) => this.models.onAnswer(listener), spent: (listener) => this.feed.onSpend(listener) });
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
     });

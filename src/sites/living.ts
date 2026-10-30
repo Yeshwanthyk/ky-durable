@@ -23,7 +23,7 @@ const STATUS = new Map([
   ["NoLink", 404],
   ["NoSite", 404],
   ["ViewOnly", 403],
-  ["BadName", 400],
+  ["BadDataName", 400],
   ["NotJson", 400],
   ["ItemTooBig", 413],
   ["TooManyItems", 409],

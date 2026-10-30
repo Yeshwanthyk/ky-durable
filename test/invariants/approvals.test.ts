@@ -296,6 +296,18 @@ describe("an input request", () => {
 
 const STILL = (chat: string, summary: string) => [chat, `Still waiting for your OK: ${summary}`];
 
+/** What a card asked at START has had by `at`, swept first at `first`: its reminder, once, unless it lapsed by then. */
+function swept(first: number, at: number) {
+  const lapsed = at >= APPROVAL_EXPIRE_MS;
+  const reminded = first >= APPROVAL_REMIND_MS ? first < APPROVAL_EXPIRE_MS : !lapsed && at >= APPROVAL_REMIND_MS;
+
+  return { lapsed, reminded };
+}
+
+const sweepTimes = (approvals: Approvals, times: number) => {
+  for (let i = 0; i < times; i++) approvals.sweep();
+};
+
 describe("a card nobody answers", () => {
   it("is reminded once, at APPROVAL_REMIND_MS, and lapses at APPROVAL_EXPIRE_MS; the chat that asked is told, and the alarm is booked for what is due next", async () => {
     const around = (at: number) => fc.constantFrom(at - 1, at, at + 1);
@@ -312,17 +324,12 @@ describe("a card nobody answers", () => {
 
           const at = Math.max(first, second);
           ky.advance(first);
-
-          for (let i = 0; i < sweeps; i++) ky.approvals.sweep();
-
+          sweepTimes(ky.approvals, sweeps);
           ky.advance(at - first);
-
-          for (let i = 0; i < sweeps; i++) ky.approvals.sweep();
-
+          sweepTimes(ky.approvals, sweeps);
           await ky.settle();
 
-          const lapsed = at >= APPROVAL_EXPIRE_MS;
-          const reminded = first >= APPROVAL_REMIND_MS ? first < APPROVAL_EXPIRE_MS : !lapsed && at >= APPROVAL_REMIND_MS;
+          const { lapsed, reminded } = swept(first, at);
 
           expect(ky.seen.notified.filter((each) => JSON.stringify(each).includes("Still waiting"))).toEqual(reminded ? [STILL("here", "Post it")] : []);
           expect(ky.row("webhook-action", "w1").status).toBe(lapsed ? "expired" : "pending");
@@ -342,7 +349,7 @@ describe("a card nobody answers", () => {
     ky.advance(APPROVAL_EXPIRE_MS);
     ky.approvals.sweep();
 
-    expect(ky.approvals.pending()).toEqual([]);
+    expect(ky.approvals.cards().filter((card) => card.lapsedAt === undefined)).toEqual([]);
     expect(ky.approvals.cards()).toEqual([expect.objectContaining({ subject: "subject", lapsedAt: START + APPROVAL_EXPIRE_MS })]);
 
     ky.advance(APPROVAL_EXPIRE_MS + 1);
@@ -365,6 +372,16 @@ describe("a card nobody answers", () => {
   });
 });
 
+/** What a background run's reply does, by its tool's policy and where it runs: it asks on a card only from a chat. */
+function backgroundRun(policy: ToolPolicy, conversation: Conversation) {
+  const asks = policy === "ask" || (policy === "allow" && conversation !== "here");
+  const refused = asks && conversation === "routine";
+
+  return { carded: asks && !refused, refused, resumed: policy === "allow" && !asks ? "accept" : "decline" };
+}
+
+const textOf = (result: CallResult) => result.output.map((part) => (part.type === "text" ? part.text : "")).join("");
+
 describe("a background run", () => {
   it("is refused at once where it would ask, and parks no card; a chat still asks", async () => {
     await fc.assert(
@@ -373,14 +390,12 @@ describe("a background run", () => {
         ky.executor.setPolicy("gmail.send", policy);
         const result = await ky.replied("approval-required", "q1", conversation, "gmail.send");
 
-        const asks = policy === "ask" || (policy === "allow" && conversation !== "here");
-        const refused = asks && conversation === "routine";
-        const text = result.output.map((part) => (part.type === "text" ? part.text : "")).join("");
+        const { carded, refused, resumed } = backgroundRun(policy, conversation);
 
-        expect(ky.count(APPROVAL_TABLES.approvals)).toBe(asks && !refused ? 1 : 0);
-        expect(ky.seen.notified).toEqual(asks && !refused && conversation === "away" ? [["away", "Waiting for your OK: Send the mail"]] : []);
-        expect(ky.seen.calls).toEqual(asks && !refused ? [] : [["resume", JSON.stringify({ requestId: "q1", response: { action: policy === "allow" && !asks ? "accept" : "decline" } })]]);
-        expect(text.includes("this is a background run")).toBe(refused);
+        expect(ky.count(APPROVAL_TABLES.approvals)).toBe(carded ? 1 : 0);
+        expect(ky.seen.notified).toEqual(carded && conversation === "away" ? [["away", "Waiting for your OK: Send the mail"]] : []);
+        expect(ky.seen.calls).toEqual(carded ? [] : [["resume", JSON.stringify({ requestId: "q1", response: { action: resumed } })]]);
+        expect(textOf(result).includes("this is a background run")).toBe(refused);
         vi.restoreAllMocks();
       }),
       { numRuns: budget().numRuns * 4, seed: budget().seed }

@@ -40,7 +40,7 @@ export function UsefulRate() {
 }
 
 /** 👍 or 👎 under one of ky's unasked posts; a 👎 asks why, in a line the user may leave blank. */
-export function PostVerdict({ item }: { readonly item: string }) {
+export function JudgePost({ item }: { readonly item: string }) {
   const { verdicts, onJudge } = useContext(VerdictContext);
   const kept = verdicts[item];
   const [asking, setAsking] = useState(false);

@@ -44,7 +44,7 @@ function cards(client: Follower): readonly ApprovalView[] {
 
 const resumes = (name: string) => inside(name, (instance) => instance.boundary.executorFake.resumes.map((each) => structuredClone(each)));
 
-const pending = (name: string) => inside(name, (instance) => instance.approvals.pending());
+const pending = (name: string) => inside(name, (instance) => instance.approvals.cards().filter((card) => card.lapsedAt === undefined));
 
 type Push = { session: string; text: string };
 

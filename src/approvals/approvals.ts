@@ -120,7 +120,7 @@ class Gone extends Schema.TaggedError<Gone>()("Gone", {}) implements Refusable {
 
 type Claim<H> = { readonly approval: Approval; readonly decidedAt: number; readonly handler: H };
 
-export type Swept = { readonly reminded: ReadonlyArray<Approval>; readonly lapsed: ReadonlyArray<Approval> };
+type Swept = { readonly reminded: ReadonlyArray<Approval>; readonly lapsed: ReadonlyArray<Approval> };
 
 export class ApprovalStore extends Context.Service<
   ApprovalStore,
@@ -132,7 +132,6 @@ export class ApprovalStore extends Context.Service<
     readonly cut: Effect.Effect<ReadonlyArray<Approval>>;
     get(id: string): Effect.Effect<Approval | undefined>;
     byRef(kind: ApprovalKind, ref: string): Effect.Effect<Approval | undefined>;
-    readonly pending: Effect.Effect<ReadonlyArray<Row>>;
     /** The pending rows and those that lapsed in the last APPROVAL_EXPIRE_MS, each shown as its card. */
     readonly cards: Effect.Effect<ReadonlyArray<Row>>;
     /** Lapses each approval asked APPROVAL_EXPIRE_MS ago or more, and marks reminded each asked APPROVAL_REMIND_MS ago or more. */
@@ -251,7 +250,6 @@ export class ApprovalStore extends Context.Service<
         }),
         get: (id) => one("id = ?", id),
         byRef,
-        pending: select("status = 'pending' ORDER BY created_at"),
         cards: Effect.flatMap(Clock.currentTimeMillis, (now) =>
           select("status = 'pending' OR (status = 'expired' AND lapsed_at >= ?) ORDER BY created_at", now - APPROVAL_EXPIRE_MS)
         ),
@@ -396,10 +394,6 @@ export class Approvals implements Asker {
 
   byRef(kind: ApprovalKind, ref: string): Approval | undefined {
     return this.#edge.run(ApprovalStore.use((store) => store.byRef(kind, ref)));
-  }
-
-  pending(): ApprovalView[] {
-    return this.#viewed(this.#edge.run(ApprovalStore.use((store) => store.pending)));
   }
 
   /** What the chats show: each pending card, and each that lapsed in the last day, as expired. */

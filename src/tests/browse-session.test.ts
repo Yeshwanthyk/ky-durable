@@ -43,7 +43,7 @@ const stored = (name: string) =>
 
 const logins = async () => (await env.Vault.getByName("owner").status()).filter((secret) => secret.kind === LOGIN_KIND);
 
-const pending = (name: string) => inside(name, (instance) => instance.approvals.pending());
+const pending = (name: string) => inside(name, (instance) => instance.approvals.cards());
 
 const decide = (name: string, id: string, action: "accept" | "decline") => inside(name, (instance) => instance.approvals.onDecision(id, action));
 

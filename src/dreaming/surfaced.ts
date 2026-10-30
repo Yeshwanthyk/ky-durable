@@ -43,7 +43,7 @@ const decodeShownItem = Schema.decodeUnknownOption(ShownItem);
 
 const ShownPost = Schema.Struct({ kind: Schema.Literals(["look", "post"]), ref: SurfacedRow.fields.ref, text: SurfacedRow.fields.text });
 
-export type ShownPost = typeof ShownPost.Type;
+type ShownPost = typeof ShownPost.Type;
 
 const decodeShownPost = Schema.decodeUnknownOption(ShownPost);
 

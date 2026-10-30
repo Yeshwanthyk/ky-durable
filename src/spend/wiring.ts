@@ -41,7 +41,7 @@ export function attribution(whose: Whose, session: string): Attribution {
   return { purpose: "worker", source: "subagent" };
 }
 
-export const usageOf = (message: AssistantMessage, { purpose, source }: Attribution): Usage => ({
+const usageOf = (message: AssistantMessage, { purpose, source }: Attribution): Usage => ({
   purpose,
   source,
   provider: message.provider,
@@ -92,14 +92,14 @@ export async function noticeIn(spend: Spend, conversation: Pick<Conversation, "s
 }
 
 type Meters = {
-  readonly models: { readonly onAnswer: (listener: (purpose: Purpose, answer: AssistantMessage) => void) => () => void };
-  readonly feed: { readonly onSpend: (listener: (task: TaskRow, costUsd: number) => void) => () => void };
+  readonly answers: (listener: (purpose: Purpose, answer: AssistantMessage) => void) => () => void;
+  readonly spent: (listener: (task: TaskRow, costUsd: number) => void) => () => void;
 };
 
 /** A direct ask's answer, and what a machine reports a task cost, into the ledger; pi's own answers come through spendExtension. */
-export function meter(spend: Spend, { models, feed }: Meters): void {
-  models.onAnswer((purpose, answer) => spend.record(usageOf(answer, { purpose, source: "call" })));
-  feed.onSpend((task, costUsd) => {
+export function meter(spend: Spend, { answers, spent }: Meters): void {
+  answers((purpose, answer) => spend.record(usageOf(answer, { purpose, source: "call" })));
+  spent((task, costUsd) => {
     if (task.kind !== "machine") return;
     const source = task.source.startsWith(AUTOMATION_SOURCE) ? "automation" : "machine-task";
 

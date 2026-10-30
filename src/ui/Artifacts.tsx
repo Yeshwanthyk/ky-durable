@@ -192,12 +192,74 @@ type Link = Type.Static<typeof Links>["links"][number];
 
 const Refused = Type.Object({ error: Type.String() });
 
+/** What a refused link change says; null when it went through. */
+async function refusalOf(response: Response | null): Promise<string | null> {
+  if (response?.ok) return null;
+  const text = response ? await response.text().catch(() => "") : "";
+
+  return parseOr(Refused, text, { error: "ky couldn't reach the site's links." }).error;
+}
+
+function LinkItem({ link, base, onDone }: { link: Link; base: string; onDone: (response: Response | null) => void }) {
+  const named = link.label || "Link";
+
+  return (
+    <li data-link={link.token}>
+      <a href={`/p/${link.token}/`} target="_blank" rel="noreferrer">
+        {named}
+      </a>
+      <span className="artifact-badge">{link.mode === "edit" ? "Can edit" : "View only"}</span>
+      <CopyButton text={`${location.origin}/p/${link.token}/`} label={`Copy ${link.label || "the"} link`} />
+      <button type="button" className="automation-text pressable" onClick={() => void fetch(`${base}/${link.token}`, { method: "DELETE" }).catch(() => null).then(onDone)}>
+        Revoke
+      </button>
+    </li>
+  );
+}
+
+function LinkForm({ title, onMake }: { title: string; onMake: (label: string, mode: "view" | "edit") => Promise<void> }) {
+  const [label, setLabel] = useState("");
+  const [mode, setMode] = useState<"view" | "edit">("view");
+
+  const make = async (event: FormEvent) => {
+    event.preventDefault();
+    await onMake(label, mode);
+    setLabel("");
+  };
+
+  return (
+    <form className="artifact-link-form" aria-label={`Share ${title}`} onSubmit={(event) => void make(event)}>
+      <input className="field-input" value={label} placeholder="Who it's for" maxLength={80} aria-label="Who it's for" onChange={(event) => setLabel(event.currentTarget.value)} />
+      <select className="field-select" value={mode} aria-label="What they can do" onChange={(event) => setMode(event.currentTarget.value === "edit" ? "edit" : "view")}>
+        <option value="view">View only</option>
+        <option value="edit">Can edit</option>
+      </select>
+      <button type="submit" className="pill primary pressable">
+        Make link
+      </button>
+    </form>
+  );
+}
+
+function LinkList({ links, base, onDone }: { links: readonly Link[] | null; base: string; onDone: (response: Response | null) => void }) {
+  if (links === null) return <p className="field-hint">Loading…</p>;
+
+  return (
+    <>
+      {links.length === 0 ? <p className="field-hint">No links: only you can open it.</p> : null}
+      <ul className="artifact-link-list">
+        {links.map((link) => (
+          <LinkItem key={link.token} link={link} base={base} onDone={onDone} />
+        ))}
+      </ul>
+    </>
+  );
+}
+
 /** A site's share links: each opens it at /p/<token>/, a view link only reading its data, an edit link writing it too; made and revoked here. */
 function SiteLinks({ site }: { site: Site }) {
   const [links, setLinks] = useState<readonly Link[] | null>(null);
   const [open, setOpen] = useState(false);
-  const [label, setLabel] = useState("");
-  const [mode, setMode] = useState<"view" | "edit">("view");
   const [refused, setRefused] = useState<string | null>(null);
   const base = `/api/sites/${site.id}/links`;
 
@@ -207,16 +269,11 @@ function SiteLinks({ site }: { site: Site }) {
   };
 
   const said = async (response: Response | null) => {
-    const text = response?.ok === false ? await response.text().catch(() => "") : "";
-    setRefused(response?.ok ? null : parseOr(Refused, text, { error: "ky couldn't reach the site's links." }).error);
+    setRefused(await refusalOf(response));
     await load();
   };
 
-  const make = async (event: FormEvent) => {
-    event.preventDefault();
-    await said(await fetch(base, { method: "POST", body: JSON.stringify({ label, mode }) }).catch(() => null));
-    setLabel("");
-  };
+  const make = async (label: string, mode: "view" | "edit") => said(await fetch(base, { method: "POST", body: JSON.stringify({ label, mode }) }).catch(() => null));
 
   const toggle = () => {
     if (!open && links === null) void load();
@@ -230,32 +287,8 @@ function SiteLinks({ site }: { site: Site }) {
       </button>
       {open ? (
         <>
-          {links === null ? <p className="field-hint">Loading…</p> : null}
-          {links?.length === 0 ? <p className="field-hint">No links: only you can open it.</p> : null}
-          <ul className="artifact-link-list">
-            {(links ?? []).map((link) => (
-              <li key={link.token} data-link={link.token}>
-                <a href={`/p/${link.token}/`} target="_blank" rel="noreferrer">
-                  {link.label || "Link"}
-                </a>
-                <span className="artifact-badge">{link.mode === "edit" ? "Can edit" : "View only"}</span>
-                <CopyButton text={`${location.origin}/p/${link.token}/`} label={`Copy ${link.label || "the"} link`} />
-                <button type="button" className="automation-text pressable" onClick={() => void fetch(`${base}/${link.token}`, { method: "DELETE" }).catch(() => null).then(said)}>
-                  Revoke
-                </button>
-              </li>
-            ))}
-          </ul>
-          <form className="artifact-link-form" aria-label={`Share ${site.title}`} onSubmit={(event) => void make(event)}>
-            <input className="field-input" value={label} placeholder="Who it's for" maxLength={80} aria-label="Who it's for" onChange={(event) => setLabel(event.currentTarget.value)} />
-            <select className="field-select" value={mode} aria-label="What they can do" onChange={(event) => setMode(event.currentTarget.value === "edit" ? "edit" : "view")}>
-              <option value="view">View only</option>
-              <option value="edit">Can edit</option>
-            </select>
-            <button type="submit" className="pill primary pressable">
-              Make link
-            </button>
-          </form>
+          <LinkList links={links} base={base} onDone={(response) => void said(response)} />
+          <LinkForm title={site.title} onMake={make} />
           {refused ? <p className="field-hint">{refused}</p> : null}
         </>
       ) : null}

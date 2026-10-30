@@ -50,7 +50,7 @@ class BadVerdict extends Schema.TaggedError<BadVerdict>()("BadVerdict", {}) impl
 
 const nowOr = (now: number | undefined) => (now === undefined ? Clock.currentTimeMillis : Effect.succeed(now));
 
-export class VerdictStore extends Context.Service<
+class VerdictStore extends Context.Service<
   VerdictStore,
   {
     readonly judge: (input: Option.Option<VerdictInput>, now: number | undefined) => Effect.Effect<PostVerdicts, NotAPost | BadVerdict>;

@@ -246,7 +246,7 @@ export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
 export type { FileRow } from "./files/contract";
 
-export type { SpendLine, SpendTotals, SpendView } from "./spend/contract";
+export type { SpendTotals, SpendView } from "./spend/contract";
 
 export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 

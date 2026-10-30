@@ -5,17 +5,17 @@ import type { Purpose } from "../settings/contract";
 
 export const SPEND_TABLES = Object.freeze({ ledger: "ky_spend", cap: "ky_spend_cap", held: "ky_spend_held" } as const);
 
-export const SpendPurpose = Schema.Literals(["main", "worker", "background", "fallback"] as const satisfies readonly Purpose[]);
+const SpendPurpose = Schema.Literals(["main", "worker", "background", "fallback"] as const satisfies readonly Purpose[]);
 
-export const SpendSource = Schema.Literals(["chat", "subagent", "automation", "look", "dream", "episode", "skill-review", "mail", "peer", "machine-task", "call", "other"]);
+const SpendSource = Schema.Literals(["chat", "subagent", "automation", "look", "dream", "episode", "skill-review", "mail", "peer", "machine-task", "call", "other"]);
 
 export type SpendSource = typeof SpendSource.Type;
 
-export const BackgroundWork = Schema.Literals(["look", "dream", "episode", "skill-review", "automation", "check-in"]);
+const BackgroundWork = Schema.Literals(["look", "dream", "episode", "skill-review", "automation", "check-in"]);
 
 export type BackgroundWork = typeof BackgroundWork.Type;
 
-export const Usage = Schema.Struct({
+const Usage = Schema.Struct({
   purpose: SpendPurpose,
   source: SpendSource,
   provider: Schema.String,
@@ -39,21 +39,17 @@ export const LedgerRow = Schema.Struct({
   calls: Schema.Number
 });
 
-export type LedgerRow = typeof LedgerRow.Type;
-
 export const CapRow = Schema.Struct({ cap_usd: Schema.NullOr(Schema.Number), noticed_day: Schema.NullOr(Schema.String) });
 
 export const HeldRow = Schema.Struct({ work: Schema.String, why: Schema.String, at: Schema.Number });
 
-export const SpendTotals = Schema.Struct({ costUsd: Schema.Number, tokensIn: Schema.Number, tokensOut: Schema.Number, calls: Schema.Number });
+const SpendTotals = Schema.Struct({ costUsd: Schema.Number, tokensIn: Schema.Number, tokensOut: Schema.Number, calls: Schema.Number });
 
 export type SpendTotals = typeof SpendTotals.Type;
 
-export const SpendLine = Schema.Struct({ ...SpendTotals.fields, purpose: Schema.String, source: Schema.String });
+const SpendLine = Schema.Struct({ ...SpendTotals.fields, purpose: Schema.String, source: Schema.String });
 
-export type SpendLine = typeof SpendLine.Type;
-
-export const SpendView = Schema.Struct({
+const SpendView = Schema.Struct({
   day: Schema.String,
   today: SpendTotals,
   month: SpendTotals,

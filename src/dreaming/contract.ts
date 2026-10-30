@@ -164,7 +164,7 @@ export type PostVerdict = typeof PostVerdict.Type;
 export const VERDICT_REASON_CHARS = 200;
 
 /** A verdict as the page sends it: the post's delivery id, and a 👎's short reason, if the user gave one. */
-export const VerdictInput = Schema.Struct({
+const VerdictInput = Schema.Struct({
   item: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
   verdict: PostVerdict,
   reason: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(VERDICT_REASON_CHARS)))
@@ -176,7 +176,7 @@ export type VerdictInput = typeof VerdictInput.Type;
 export const decodeVerdict = Schema.decodeUnknownOption(VerdictInput);
 
 /** A post's verdict as the page shows it. */
-export const VerdictView = Schema.Struct({ item: Schema.String, verdict: PostVerdict, reason: Schema.NullOr(Schema.String) });
+const VerdictView = Schema.Struct({ item: Schema.String, verdict: PostVerdict, reason: Schema.NullOr(Schema.String) });
 
 export type VerdictView = typeof VerdictView.Type;
 
