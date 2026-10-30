@@ -2085,6 +2085,26 @@ test("sends a message again after its socket drops before the answer, and pi tak
   await expect(page.getByText("resent but taken once", { exact: true })).toHaveCount(1);
 });
 
+test("takes a message while offline and sends it when the socket opens again", async ({ page, context }) => {
+  const { connections } = await network(page);
+  await open(page);
+
+  await context.setOffline(true);
+  await connections[0]!.route.close();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toHaveCount(0);
+
+  // The composer still writes and sends; the message waits in the thread.
+  await expect(composer(page)).toBeEnabled();
+  await expect(composer(page)).toHaveAttribute("placeholder", "Offline · sends on reconnect");
+  await send(page, "typed with no network");
+  await expect(composer(page)).toHaveValue("");
+  await expect(page.getByText("typed with no network", { exact: true })).toBeVisible();
+
+  await context.setOffline(false);
+  await expect(page.getByText("echo: typed with no network")).toBeVisible();
+  await expect(page.getByText("typed with no network", { exact: true })).toHaveCount(1);
+});
+
 test("keeps an unanswered message for its own chat when the page switches chats", async ({ page }) => {
   const { connections, faults } = await network(page);
   await open(page);

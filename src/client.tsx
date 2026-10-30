@@ -103,8 +103,8 @@ function whyCantSee(images: readonly PendingImage[], settings: SettingsView | nu
   return imageSupport(settings, talksToMain ? "main" : "worker");
 }
 
-const canSend = (connected: boolean, reading: number, cantSee: string | null) =>
-  connected && reading === 0 && !cantSee;
+// Not whether the socket is open: a message sent offline waits and goes when it opens (src/use-pi-session.ts).
+const canSend = (reading: number, cantSee: string | null) => reading === 0 && !cantSee;
 
 /** A live task whose clock is running; a queued one that has not started shows no time to tick. */
 const clockRunning = (task: TaskRow) => isLive(task) && task.started_at !== null;
@@ -246,7 +246,7 @@ const DraftDock = memo(function DraftDock({ handle, run, settings, connected, ta
   const seesImages = settings === null || imageSupport(settings, talksToMain ? "main" : "worker") === null;
 
   const submit = () => {
-    const input = canSend(connected, draft.reading, cantSee) ? draft.take(seesImages) : null;
+    const input = canSend(draft.reading, cantSee) ? draft.take(seesImages) : null;
 
     if (input !== null) onSend(input);
   };

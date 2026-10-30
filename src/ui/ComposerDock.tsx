@@ -51,7 +51,9 @@ function ErrorNote({ error }: { error: string | null }) {
   ) : null;
 }
 
-function placeholder(running: boolean, talksToMain: boolean, group: boolean) {
+function placeholder(running: boolean, connected: boolean, talksToMain: boolean, group: boolean) {
+  if (!connected) return "Offline · sends on reconnect";
+
   if (running) return "Steer the running turn";
 
   if (group) return "Message the group, or @ a specialist";
@@ -118,9 +120,10 @@ export function ComposerDock({
         value={draft.prompt}
         onChange={draft.setPrompt}
         onSubmit={onSubmit}
-        onStop={onStop}
+        // Offline the composer still takes a message: it waits in the thread and goes when the socket opens.
+        // Stop can't wait like that, so it isn't offered.
+        onStop={connected ? onStop : undefined}
         working={session.running}
-        disabled={!connected}
         busy={draft.reading > 0 || cantSee !== null}
         images={draft.images}
         clips={draft.clips}
@@ -131,7 +134,7 @@ export function ComposerDock({
         label="Message"
         mentions={mentions}
         history={history}
-        placeholder={placeholder(session.running, talksToMain, group)}
+        placeholder={placeholder(session.running, connected, talksToMain, group)}
       />
     </div>
   );
