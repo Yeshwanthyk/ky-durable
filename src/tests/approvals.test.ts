@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
-import type { ApprovalView } from "../approvals/contract";
+import { APPROVAL_EXPIRE_MS, APPROVAL_REMIND_MS, type ApprovalView } from "../approvals/contract";
 import type { PiClientMessage } from "../protocol";
 import { agent, connect, connectExecutor, follow, type Follower, inside, prompt, promptTool, said, until } from "./drive";
 
@@ -48,17 +48,20 @@ const pending = (name: string) => inside(name, (instance) => instance.approvals.
 
 type Push = { session: string; text: string };
 
-/** The pushes `name`'s ky sends from now on that ask for the user's OK. */
-async function okPushes(name: string): Promise<Push[]> {
+/** The pushes `name`'s ky sends from now on that ask for the user's OK, or remind them it still waits. */
+async function okPushes(name: string, prefix = "Waiting for your OK"): Promise<Push[]> {
   const sent: Push[] = [];
   await inside(name, (instance) => {
     instance.pushes.notify = async (session, text) => {
-      if (text.startsWith("Waiting for your OK")) sent.push({ session, text });
+      if (text.startsWith(prefix)) sent.push({ session, text });
     };
   });
 
   return sent;
 }
+
+/** Moves every approval's ask `ms` into the past, as if that long went by. */
+const backdate = (name: string, ms: number) => inside(name, (_instance, state) => void state.storage.sql.exec("UPDATE ky_approvals SET created_at = created_at - ?", ms));
 
 const ASK = { kind: "executor", subject: "gmail.send", summary: "send the old mail", payload: { tool: "gmail.send", message: "send the old mail" }, conversation: ROOT_SESSION } as const;
 
@@ -133,7 +136,7 @@ describe("an approval is the user's tap", () => {
 });
 
 describe("with nobody there to approve", () => {
-  it("a routine that hits an approval leaves it waiting as a card in its chat, with a push, and approves nothing", async () => {
+  it("a routine that hits an approval is refused at once: no card and no push, Executor is told no, and the run reads why", async () => {
     const name = crypto.randomUUID();
     await connectExecutor(name);
     const pushes = await okPushes(name);
@@ -148,10 +151,40 @@ describe("with nobody there to approve", () => {
       "the run to finish"
     );
 
-    expect(await pending(name)).toEqual([expect.objectContaining({ kind: "executor", subject: "gmail.send", chat: ROOT_SESSION })]);
-    // Besides the routine's own result, one push asks for the OK.
-    expect(pushes).toEqual([{ session: ROOT_SESSION, text: "Waiting for your OK: send mail to sam" }]);
-    expect(await resumes(name)).toEqual([]);
+    expect(await pending(name)).toEqual([]);
+    expect(pushes).toEqual([]);
+    expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "decline" } }]);
+    // The run's report, delivered to main, carries the refusal it read.
+    await said(name, "ky declined this request: this is a background run, and nobody is here to approve gmail.send");
+  });
+
+  it("a card nobody answers is pushed once more after 4 hours, and after 24 shows expired while its chat is told", async () => {
+    const name = crypto.randomUUID();
+    await connectExecutor(name);
+    const { client } = await page(name);
+    const reminders = await okPushes(name, "Still waiting");
+
+    await prompt(name, PAUSE);
+    await client.until(() => cards(client).length === 1);
+    const booked = await inside(name, async (instance) => (await instance.automations.scheduler.list()).filter((job) => job.callback === "approvals").map((job) => job.time * 1000));
+    const [card] = cards(client);
+    // The scheduler books whole seconds: rounded up, so the alarm never fires before the card is due.
+    expect(booked).toEqual([Math.ceil((card!.createdAt + APPROVAL_REMIND_MS) / 1000) * 1000]);
+
+    await backdate(name, APPROVAL_REMIND_MS);
+    await inside(name, (instance) => instance.approvals.sweep());
+    await inside(name, (instance) => instance.approvals.sweep());
+    expect(reminders).toEqual([{ session: ROOT_SESSION, text: "Still waiting for your OK: send mail to sam" }]);
+    expect(await pending(name)).toHaveLength(1);
+
+    await backdate(name, APPROVAL_EXPIRE_MS - APPROVAL_REMIND_MS);
+    await inside(name, (instance) => instance.approvals.sweep());
+    await said(name, 'Nobody answered within 24 hours to approve "send mail to sam" (gmail.send)');
+    await client.until(() => cards(client)[0]?.lapsedAt !== undefined);
+
+    expect(await pending(name)).toEqual([]);
+    expect(reminders).toHaveLength(1);
+    expect(await resumes(name)).toEqual([{ requestId: "request-1", response: { action: "decline" } }]);
   });
 });
 

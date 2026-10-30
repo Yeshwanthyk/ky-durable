@@ -20,7 +20,7 @@ import { uiExtension } from "./cards/wiring";
 import { ChatList, chatActivityExtension } from "./chats/chats";
 import type { Opener } from "./chats/contract";
 import { chatsExtension } from "./chats/tool";
-import { CHECK_IN_TOOLS } from "./automations/contract";
+import { AUTOMATION_SOURCE, CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
 import { browseExtension } from "./browse/wiring";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
@@ -227,6 +227,7 @@ export class PiAgent extends DurableObject<Env> {
     dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
     peers: () => this.sweepPeers(),
+    approvals: () => this.approvals.sweep(),
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
     }
@@ -276,12 +277,14 @@ export class PiAgent extends DurableObject<Env> {
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
     home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
     notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
-    defer: (work) => this.ctx.waitUntil(work)
+    defer: (work) => this.ctx.waitUntil(work),
+    later: (at) => this.ctx.waitUntil(this.automations.sweepApprovalsAt(at))
   });
   /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
   readonly executorApprovals = new ExecutorApprovals(this.ctx.storage, this.approvals, {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
+    unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
@@ -649,6 +652,22 @@ export class PiAgent extends DurableObject<Env> {
       startedByUser(this.ctx.storage.sql, session) &&
       !this.inbound.guarded(session)
     );
+  }
+
+  /**
+   * Whether nobody can answer a card for the turn in `session`: an automation's run, or a background one (a look, a
+   * dream, a review, a mail's triage), or a subagent one of those started. A chat always has the user; a peer's
+   * question leaves its card in main for the user's tap (src/peers).
+   */
+  unattended(session: string, depth = 0): boolean {
+    const asked = this.isChat(session) || this.peerAsks.peerConversation(session) || depth > 4;
+    const task = asked ? undefined : this.feed.working(session);
+
+    if (!task) return false;
+
+    if (task.source === BACKGROUND_SOURCE || task.source.startsWith(AUTOMATION_SOURCE)) return true;
+
+    return task.chat !== null && task.chat !== session && this.unattended(task.chat, depth + 1);
   }
 
   /** Whether the user is looking at ky now, on any device: a page of it shown and in focus (src/sockets.ts watching). */

@@ -193,7 +193,8 @@ export function world(db: DatabaseSync) {
     present: () => false,
     home: (session) => session,
     notify: () => {},
-    defer: (job) => void work.push(job.catch(() => {}))
+    defer: (job) => void work.push(job.catch(() => {})),
+    later: () => {}
   });
 
   const fetcher = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {

@@ -62,6 +62,7 @@ export type AutomationDeps = {
   readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   readonly peers: () => Promise<void>;
+  readonly approvals: () => void;
   readonly unwatched: (anticipation: number) => void;
 };
 
@@ -77,6 +78,7 @@ export type Callbacks = {
   look: (payload: LookFire) => Promise<void>;
   peers: () => Promise<void>;
   machines: () => Promise<void>;
+  approvals: () => Promise<void>;
 };
 
 export type GateCheck =
@@ -1036,6 +1038,21 @@ const make = Effect.gen(function* () {
       }),
 
     bookAt: (callback: "machines" | "peers", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+
+    // One alarm, at the earliest card due a reminder or its lapse.
+    approvalsAt: (at: number) =>
+      Effect.gen(function* () {
+        const booked = (yield* scheduled((scheduler) => scheduler.list())).filter((each) => each.callback === "approvals" && each.type !== "cron");
+
+        // The scheduler keeps whole seconds; rounded down, the alarm would fire before the card is due.
+        const second = Math.ceil(at / 1000) * 1000;
+
+        if (booked.some((each) => each.time * 1000 <= second)) return;
+
+        for (const old of booked) yield* cancel(old.id);
+
+        yield* scheduled((scheduler) => scheduler.set(new Date(second), "approvals"));
+      }),
 
     dreamAt: (at: number) =>
       Effect.gen(function* () {
