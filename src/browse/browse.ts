@@ -5,18 +5,22 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { Sql } from "../core/sql";
+import { Sql, type SqlStatements } from "../core/sql";
+import { KY } from "../skills/contract";
 import {
   BROWSE_TABLES,
   type Browsers,
   Failed,
   type Handoff,
   LOGIN_KIND,
+  loginId,
   LoginsUnknown,
   type LoginVault,
   NoBrowser,
+  NoLogin,
   type Recorded,
   NoPage,
+  ownedLogin,
   SavedLogin,
   type Seat,
   type StorageState,
@@ -33,11 +37,31 @@ const HANDOFF_MS = 30 * 60_000;
 
 const Row = Schema.Struct({ session: Schema.String });
 
+const Column = Schema.Struct({ name: Schema.String });
+
+/** Each owner's one session; the single row from before owners becomes ky's. */
+const tableFor = (sql: SqlStatements) =>
+  Effect.gen(function* () {
+    const create = (table: string) => sql.exec(`CREATE TABLE IF NOT EXISTS ${table} (owner TEXT PRIMARY KEY, session TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
+    yield* create(TABLE);
+    const columns = yield* sql.rows(Column, `PRAGMA table_info(${TABLE})`);
+
+    if (columns.some((column) => column.name === "owner")) return;
+    yield* sql.transaction(
+      Effect.gen(function* () {
+        yield* create(`${TABLE}_owned`);
+        yield* sql.exec(`INSERT INTO ${TABLE}_owned (owner, session, updated_at) SELECT ?, session, updated_at FROM ${TABLE}`, KY);
+        yield* sql.exec(`DROP TABLE ${TABLE}`);
+        yield* sql.exec(`ALTER TABLE ${TABLE}_owned RENAME TO ${TABLE}`);
+      })
+    );
+  });
+
 export class Sessions extends Context.Service<
   Sessions,
   {
-    readonly current: Effect.Effect<string | undefined>;
-    keep(session: string): Effect.Effect<void>;
+    current(owner: string): Effect.Effect<string | undefined>;
+    keep(owner: string, session: string): Effect.Effect<void>;
     drop(session: string): Effect.Effect<void>;
   }
 >()("ky/browse/Sessions") {
@@ -46,15 +70,16 @@ export class Sessions extends Context.Service<
     Effect.gen(function* () {
       const sql = yield* Sql;
 
-      yield* Effect.orDie(sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (id INTEGER PRIMARY KEY CHECK (id = 1), session TEXT NOT NULL, updated_at INTEGER NOT NULL)`));
+      yield* Effect.orDie(tableFor(sql));
 
       return Sessions.of({
-        current: Effect.map(Effect.orDie(sql.rows(Row, `SELECT session FROM ${TABLE} WHERE id = 1`)), ([row]) => row?.session),
-        keep: (session) =>
+        current: (owner) => Effect.map(Effect.orDie(sql.rows(Row, `SELECT session FROM ${TABLE} WHERE owner = ?`, owner)), ([row]) => row?.session),
+        keep: (owner, session) =>
           Effect.flatMap(Clock.currentTimeMillis, (now) =>
             Effect.orDie(
               sql.exec(
-                `INSERT INTO ${TABLE} (id, session, updated_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET session = excluded.session, updated_at = excluded.updated_at`,
+                `INSERT INTO ${TABLE} (owner, session, updated_at) VALUES (?, ?, ?) ON CONFLICT (owner) DO UPDATE SET session = excluded.session, updated_at = excluded.updated_at`,
+                owner,
                 session,
                 now
               )
@@ -99,13 +124,14 @@ function loginOf(state: StorageState, site: string): StorageState {
   };
 }
 
-export const savedSites = (vault: () => LoginVault) =>
+/** Every saved login, by owner and site; never its value. */
+export const savedLogins = (vault: () => LoginVault) =>
   Effect.tryPromise({ try: () => vault().status(), catch: () => new LoginsUnknown() }).pipe(
-    Effect.map((secrets) => new Set(secrets.flatMap((secret) => (secret.kind === LOGIN_KIND ? [secret.id] : []))))
+    Effect.map((secrets) => secrets.flatMap((secret) => (secret.kind === LOGIN_KIND ? [ownedLogin(secret.id)] : [])))
   );
 
-const restore = (desk: Desk, seat: Seat) =>
-  Effect.tryPromise(() => desk.vault().browserLogins()).pipe(
+const restore = (desk: Desk, owner: string, seat: Seat) =>
+  Effect.tryPromise(() => desk.vault().browserLogins(owner)).pipe(
     Effect.flatMap((logins) =>
       Effect.forEach(logins, (login) =>
         Schema.decodeUnknownEffect(SavedLogin)(login).pipe(Effect.flatMap(({ state }) => timed("restoring a login", () => seat.restore(state), NAVIGATION_TIMEOUT_MS)), Effect.ignore)
@@ -116,21 +142,22 @@ const restore = (desk: Desk, seat: Seat) =>
 
 const connected = (desk: Desk, session: string) => timed("connecting to ky's browser", () => desk.browsers.connect(session));
 
-const existing = (desk: Desk) =>
+const existing = (desk: Desk, owner: string) =>
   Effect.gen(function* () {
-    const session = yield* (yield* Sessions).current;
+    const session = yield* (yield* Sessions).current(owner);
 
     if (session === undefined) return Option.none<Seat>();
 
     return yield* Effect.option(connected(desk, session));
   });
 
-export const seat = (desk: Desk): Effect.Effect<Seat, NoBrowser, Sessions> =>
+/** `owner`'s one session, found again or started with its logins and no other owner's. */
+export const seat = (desk: Desk, owner: string): Effect.Effect<Seat, NoBrowser, Sessions> =>
   Semaphore.withPermit(
     desk.lock,
     Effect.gen(function* () {
       const sessions = yield* Sessions;
-      const current = yield* sessions.current;
+      const current = yield* sessions.current(owner);
 
       if (current !== undefined) {
         const again = yield* Effect.option(connected(desk, current));
@@ -143,8 +170,8 @@ export const seat = (desk: Desk): Effect.Effect<Seat, NoBrowser, Sessions> =>
         Effect.flatMap((session) => Effect.map(connected(desk, session), (opened) => ({ session, opened })))
       );
 
-      yield* sessions.keep(fresh.session);
-      yield* restore(desk, fresh.opened);
+      yield* sessions.keep(owner, fresh.session);
+      yield* restore(desk, owner, fresh.opened);
 
       return fresh.opened;
     }).pipe(Effect.mapError((error) => new NoBrowser({ said: error._tag === "Failed" ? error.said : error.refusal })))
@@ -152,8 +179,8 @@ export const seat = (desk: Desk): Effect.Effect<Seat, NoBrowser, Sessions> =>
 
 const disconnect = (opened: Seat) => Effect.ignore(timed("closing ky's browser", () => opened.close()));
 
-export const handOff = (desk: Desk, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) =>
-  Effect.acquireUseRelease(seat(desk), (opened) =>
+export const handOff = (desk: Desk, owner: string, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) =>
+  Effect.acquireUseRelease(seat(desk, owner), (opened) =>
     Effect.gen(function* () {
       const tab = args.url === undefined ? yield* timed("finding the open page", () => opened.lastTab()) : yield* timed("opening a page", () => opened.newTab());
 
@@ -169,7 +196,7 @@ export const handOff = (desk: Desk, args: { readonly url?: string | undefined; r
       const link = yield* timed("making the live view", () => opened.liveView(tab, HANDOFF_MS));
       const at = tab.url();
 
-      const view: Handoff = { target, site: siteOfUrl(at) ?? at, url: at, link, instructions: args.instructions };
+      const view: Handoff = { target, site: siteOfUrl(at) ?? at, url: at, link, instructions: args.instructions, owner };
 
       return { handoff, view: Option.match(from, { onNone: () => view, onSome: (index) => ({ ...view, teach: { from: index } }) }) };
     }),
@@ -180,7 +207,8 @@ export type Finished = { readonly title: string; readonly url: string; readonly 
 
 export const finish = (desk: Desk, handoff: Handoff, success: boolean) =>
   Effect.gen(function* () {
-    const found = yield* existing(desk);
+    const owner = handoff.owner ?? KY;
+    const found = yield* existing(desk, owner);
 
     if (Option.isNone(found)) return Option.none<Finished>();
     const opened = found.value;
@@ -193,14 +221,14 @@ export const finish = (desk: Desk, handoff: Handoff, success: boolean) =>
       yield* Effect.ignore(timed("ending the hand-off", () => opened.complete(tab, success)));
       const url = tab.url();
       const title = yield* Effect.orElseSucceed(timed("reading the title", () => tab.title()), () => "");
-      const saved = success ? yield* keepLogins(desk, opened, [handoff.site, siteOfUrl(url) ?? handoff.site]) : [];
+      const saved = success ? yield* keepLogins(desk, owner, opened, [handoff.site, siteOfUrl(url) ?? handoff.site]) : [];
       yield* Effect.ignore(timed("closing the page", () => tab.close()));
 
       return Option.some({ title, url, saved, recorded });
     }).pipe(Effect.ensuring(disconnect(opened)));
   });
 
-const keepLogins = (desk: Desk, opened: Seat, sites: readonly string[]) =>
+const keepLogins = (desk: Desk, owner: string, opened: Seat, sites: readonly string[]) =>
   timed("reading the login", () => opened.storageState()).pipe(
     Effect.flatMap((state) =>
       Effect.forEach([...new Set(sites)], (site) => {
@@ -208,7 +236,7 @@ const keepLogins = (desk: Desk, opened: Seat, sites: readonly string[]) =>
 
         if (login.cookies.length === 0 && login.origins.length === 0) return Effect.succeed([]);
 
-        return Effect.tryPromise(() => desk.vault().put(LOGIN_KIND, site, login, { cookies: login.cookies.length })).pipe(
+        return Effect.tryPromise(() => desk.vault().put(LOGIN_KIND, loginId(owner, site), login, { cookies: login.cookies.length })).pipe(
           Effect.as([site]),
           Effect.orElseSucceed(() => [])
         );
@@ -218,14 +246,28 @@ const keepLogins = (desk: Desk, opened: Seat, sites: readonly string[]) =>
     Effect.orElseSucceed((): string[] => [])
   );
 
-export const forget = (desk: Desk) =>
+/** `owner`'s session ends, and its next one restores the logins `owner` still keeps. */
+export const forget = (desk: Desk, owner: string) =>
+  Semaphore.withPermit(
+    desk.lock,
+    Effect.gen(function* () {
+      const sessions = yield* Sessions;
+      const current = yield* sessions.current(owner);
+
+      if (current === undefined) return;
+      yield* sessions.drop(current);
+      const opened = yield* Effect.option(connected(desk, current));
+
+      if (Option.isSome(opened)) yield* Effect.ignore(timed("ending ky's browser", () => opened.value.end()));
+    })
+  );
+
+/** A login moves to another owner: the session that held it ends, and so does the new owner's, whose next one restores it. */
+export const move = (desk: Desk, from: string, site: string, to: string) =>
   Effect.gen(function* () {
-    const sessions = yield* Sessions;
-    const current = yield* sessions.current;
+    const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, loginId(from, site), loginId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
 
-    if (current === undefined) return;
-    yield* sessions.drop(current);
-    const opened = yield* Effect.option(connected(desk, current));
-
-    if (Option.isSome(opened)) yield* Effect.ignore(timed("ending ky's browser", () => opened.value.end()));
+    if (!moved) return yield* new NoLogin({ owner: from, site });
+    yield* forget(desk, from);
+    yield* forget(desk, to);
   });

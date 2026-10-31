@@ -108,6 +108,10 @@ export type BrowseDesk = {
   readonly workspace: Pick<Workspace, "fs">;
   readonly reads: (conversation: ConversationId) => boolean;
   readonly chat: (session: string) => boolean;
+  /** Whose the conversation `session` is: "ky", or a specialist's id (src/skills/profiles.ts). */
+  readonly owner: (session: string) => string;
+  /** "ky" and each specialist: whom a login can move to. */
+  readonly owners: () => readonly string[];
   readonly asker: Pick<Asker, "requestApproval">;
   /** Whether nobody can answer a card for the turn in `session` (src/server.ts unattended). */
   readonly unattended: (session: string) => boolean;
@@ -168,20 +172,24 @@ export class Browsing {
     this.#edge.run(Effect.void);
   }
 
-  readonly #chromium: Launch = async () => {
-    const opened = await this.#edge.runPromise(seat(this.#desk));
+  #chromium(owner: string): Launch {
+    return async () => {
+      const opened = await this.#edge.runPromise(seat(this.#desk, owner));
 
-    if (isRefusal(opened)) throw new Error(opened.refused);
+      if (isRefusal(opened)) throw new Error(opened.refused);
 
-    return seated(opened, false);
-  };
+      return seated(opened, false);
+    };
+  }
 
   /** A Chromium session of its own, with no login in it, ended after the call: where a site with no saved login runs. */
   readonly #fresh: Launch = async () => seated(await this.#desk.browsers.connect(await this.#desk.browsers.acquire()), true);
 
   /**
-   * One browse call. A site with a saved login is read signed in, and steps that click, fill or press there wait for
-   * the user's OK on a card; any other site's page is outside content: framed as such, and the conversation marked.
+   * One browse call, in the browser of whoever owns the conversation. A site that owner keeps a login for is read
+   * signed in, and steps that click, fill or press there wait for the user's OK on a card; any other site's page is
+   * outside content: framed as such, and the conversation marked. Another owner's login is never used: the frame
+   * says whom to ask.
    */
   browse(args: Args, conversation: ConversationId, call: string, signal?: AbortSignal) {
     return this.#edge.runPromise(this.#browse(args, conversation, call, signal));
@@ -190,30 +198,38 @@ export class Browsing {
   #browse(args: Args, conversation: ConversationId, call: string, signal?: AbortSignal) {
     const site = siteOfUrl(args.url) ?? args.url;
     const session = String(conversation);
+    const owner = this.#keep.owner(session);
 
-    const outside = OutsideContent.use((marks) => marks.mark(session, "web")).pipe(
-      Effect.andThen(this.#read(args, conversation, call, undefined, signal)),
-      Effect.map((read) => framed(read, site))
-    );
+    const outside = (holders: readonly string[]) =>
+      OutsideContent.use((marks) => marks.mark(session, "web")).pipe(
+        Effect.andThen(this.#read(args, conversation, call, undefined, signal)),
+        Effect.map((read) => framed(read, site, holders))
+      );
 
-    return savedSites(this.#desk.vault).pipe(
+    return savedLogins(this.#desk.vault).pipe(
       // Not knowing which sites are signed in, a call that acts runs nowhere; a plain read runs as outside content.
-      Effect.catchTag("LoginsUnknown", (unknown) => (acts(args) ? Effect.fail(unknown) : Effect.succeed(new Set<string>()))),
+      Effect.catchTag("LoginsUnknown", (unknown) => (acts(args) ? Effect.fail(unknown) : Effect.succeed([]))),
       Effect.flatMap((saved) => {
-        if (!saved.has(site)) return outside;
+        const holders = saved.flatMap((login) => (login.site === site ? [login.owner] : []));
 
-        return acts(args) ? Effect.try({ try: () => this.#ask(args, site, session, call), catch: failed }) : this.#read(args, conversation, call, site, signal);
+        if (!holders.includes(owner)) return outside(holders);
+        const signedIn = { owner, site };
+
+        return acts(args) ? Effect.try({ try: () => this.#ask(args, signedIn, session, call), catch: failed }) : this.#read(args, conversation, call, signedIn, signal);
       })
     );
   }
 
   /**
-   * On ky's own session, holding every saved login, for `signedIn` (its steps act there only); else Kitesurf first, then a
-   * session of its own with no login. A long page's whole text goes to a file only for a `conversation` that may read it.
+   * On its owner's session, holding that owner's logins, for `signedIn` (its steps act on that site only); else Kitesurf
+   * first, then a session of its own with no login. A long page's whole text goes to a file only for a `conversation`
+   * that may read it.
    */
-  #read(args: Args, conversation: ConversationId | undefined, call: string, signedIn: string | undefined, signal?: AbortSignal) {
+  #read(args: Args, conversation: ConversationId | undefined, call: string, signedIn: SignedIn | undefined, signal?: AbortSignal) {
     const read =
-      signedIn === undefined ? fallback(browse(this.#desk.browsers.kitesurf, args, true, undefined), browse(this.#fresh, args, true, undefined)) : browse(this.#chromium, args, true, signedIn);
+      signedIn === undefined
+        ? fallback(browse(this.#desk.browsers.kitesurf, args, true, undefined), browse(this.#fresh, args, true, undefined))
+        : browse(this.#chromium(signedIn.owner), args, true, signedIn.site);
 
     return read.pipe(
       Effect.timeoutOrElse({ duration: CALL_TIMEOUT_MS, orElse: tookTooLong(CALL_TIMEOUT_MS, "the whole browse call") }),
@@ -224,7 +240,7 @@ export class Browsing {
   }
 
   /** Steps that act on a signed-in site: a card for the user, or, with nobody there to tap it, nothing at all. */
-  #ask(args: Args, site: string, session: string, call: string): Reply {
+  #ask(args: Args, { owner, site }: SignedIn, session: string, call: string): Reply {
     if (this.#keep.unattended(session)) {
       return reply(
         `ky didn't run these steps: this is a background run, and nobody is here to approve acting on ${site}, where ky's browser is signed in. ` +
@@ -234,7 +250,7 @@ export class Browsing {
     }
 
     const steps = args.steps ?? [];
-    const asked: StepsAsked = { url: args.url, steps, screenshot: args.screenshot === true };
+    const asked: StepsAsked = { url: args.url, owner, steps, screenshot: args.screenshot === true };
 
     const id = this.#keep.asker.requestApproval({
       kind: "browse-steps",
@@ -294,15 +310,21 @@ export class Browsing {
     ]
   });
 
-  /** A hand-off: the page opened in ky's browser, handed to the user, and a card in the chat to take it over. */
+  /**
+   * A hand-off: the page opened in the owner's browser, handed to the user, and a card in the chat to take it over. A
+   * specialist asks for a login this way too, from its own conversation; the card says it is for that specialist.
+   */
   async handOff(session: string, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) {
-    if (!this.#keep.chat(session)) return reply(new OnlyInChat().refusal, true);
-    const started = await this.#edge.runPromise(handOff(this.#desk, args));
+    const owner = this.#keep.owner(session);
+
+    if (!this.#keep.chat(session) && (owner === KY || this.#keep.unattended(session))) return reply(new OnlyInChat().refusal, true);
+    const started = await this.#edge.runPromise(handOff(this.#desk, owner, args));
 
     if (isRefusal(started)) return reply(`Could not hand the browser over: ${started.refused}`, true);
     const { handoff, view } = started;
 
-    const summary = view.teach === undefined ? view.instructions : `${view.instructions} ${RECORDING_NOTE}`;
+    const asked = owner === KY ? view.instructions : `For @${owner}: ${view.instructions}`;
+    const summary = view.teach === undefined ? asked : `${asked} ${RECORDING_NOTE}`;
     this.#keep.asker.requestApproval({ kind: "browser-handoff", ref: handoff, subject: view.site, summary, payload: view, conversation: session });
     const after = view.teach === undefined ? "you're told the page they end on once they're done" : "once they're done, ky drafts a skill from what they did and tells you its name";
 
@@ -353,9 +375,9 @@ export class Browsing {
     }
 
     if (action !== "accept") return this.#stepsTold(approval, `${head} Nothing ran. Don't try it another way.`);
-    const { url, steps, screenshot } = asked.value;
+    const { url, owner = KY, steps, screenshot } = asked.value;
     const args: Args = { url, steps: steps.map((step) => ({ ...step })), screenshot };
-    const ran = await this.#edge.runPromise(this.#read(args, undefined, `approval-${approval.id}`, approval.subject));
+    const ran = await this.#edge.runPromise(this.#read(args, undefined, `approval-${approval.id}`, { owner, site: approval.subject }));
 
     if (isRefusal(ran)) return this.#stepsTold(approval, `${head} ky couldn't browse ${url}: ${ran.refused}. The steps may have run in part: read the page without steps to check.`);
 
