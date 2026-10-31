@@ -3247,3 +3247,33 @@ test("Routines sit by Skills in the sidebar: a row a routine, opened in place fo
   await expect(triageRow.getByRole("switch")).toHaveAttribute("aria-checked", "false");
   await expect(triageRow).toContainText("Paused");
 });
+
+test("lists browser logins by owner, and Move to gives one to another owner", async ({ page }) => {
+  const kept = {
+    logins: [
+      { owner: "ky", site: "mail.test", cookies: 2, updatedAt: Date.now() },
+      { owner: "fin", site: "bank.test", cookies: 1, updatedAt: Date.now() }
+    ],
+    owners: ["ky", "fin"]
+  };
+
+  const moves: string[] = [];
+
+  await page.route("**/api/browse/logins", (route) => route.fulfill({ json: kept }));
+  await page.route("**/api/browse/logins/*/*/move", async (route) => {
+    moves.push(`${new URL(route.request().url()).pathname} ${route.request().postData() ?? ""}`);
+    await route.fulfill({ json: { said: "mail.test's login is @fin's now." } });
+  });
+  await open(page);
+  await settings(page, "Webhooks");
+  const logins = panel(page).locator("#settings-browser-logins");
+
+  await expect(logins.locator('[data-owner="ky"] [data-login="mail.test"]')).toBeVisible();
+  await expect(logins.locator('[data-owner="fin"] [data-login="bank.test"]')).toBeVisible();
+  await expect(logins.getByText("@fin's browser")).toBeVisible();
+  await logins.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/web/browser-logins-owners.png" });
+
+  await logins.getByRole("combobox", { name: "Move mail.test to" }).selectOption("fin");
+  await expect.poll(() => moves).toEqual(['/api/browse/logins/ky/mail.test/move {"to":"fin"}']);
+});

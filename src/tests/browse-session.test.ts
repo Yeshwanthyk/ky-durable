@@ -1,4 +1,5 @@
-import { env, runDurableObjectAlarm } from "cloudflare:test";
+import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import type { ConversationId } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { Args, Cookie } from "../browse/contract";
@@ -169,8 +170,8 @@ describe("a hand-off of ky's browser", () => {
     expect(view).not.toContain("token=abc");
     expect(liveSession(await fake(name))?.handoffs[0]?.done).toBe(true);
     expect(liveSession(await fake(name))?.tabs).toEqual([]);
-    expect((await logins()).find((login) => login.id === "handoff.test")?.meta).toEqual({ cookies: 1 });
-    const [kept] = (await env.Vault.getByName("owner").browserLogins()).filter((login) => login.site === "handoff.test");
+    expect((await logins()).find((login) => login.id === "ky:handoff.test")?.meta).toEqual({ cookies: 1 });
+    const [kept] = (await env.Vault.getByName("owner").browserLogins("ky")).filter((login) => login.site === "handoff.test");
     expect(Schema.decodeUnknownSync(Schema.fromJsonString(StorageState))(kept!.state).cookies).toEqual([cookie(".handoff.test")]);
 
     // Signed in, the site reads on Chromium alone; a new session has the login put back.
@@ -206,8 +207,8 @@ describe("a hand-off of ky's browser", () => {
 });
 
 describe("Settings' browser logins", () => {
-  it("lists each site by name and count, never a value, and Remove ends the session that held it", async () => {
-    await env.Vault.getByName("owner").put(LOGIN_KIND, "kept.test", { cookies: [cookie("kept.test")], origins: [] }, { cookies: 1 });
+  it("lists each site by owner and name with its cookie count, never a value, and Remove ends that owner's session", async () => {
+    await env.Vault.getByName("owner").put(LOGIN_KIND, "ky:kept.test", { cookies: [cookie("kept.test")], origins: [] }, { cookies: 1 });
     await using("me", (browsers) => browsers.pages.set("https://kept.test/", { title: "Kept", text: WORDS }));
     await read("me", { url: "https://kept.test/" });
     const session = liveSession(await fake("me"))!;
@@ -215,17 +216,17 @@ describe("Settings' browser logins", () => {
 
     const listed = await (await call("/api/browse/logins")).text();
     expect(listed).not.toContain(SECRET);
-    expect(Schema.decodeUnknownSync(Schema.fromJsonString(Logins))(listed).logins).toContainEqual(expect.objectContaining({ site: "kept.test", cookies: 1 }));
+    expect(Schema.decodeUnknownSync(Schema.fromJsonString(Logins))(listed).logins).toContainEqual(expect.objectContaining({ owner: "ky", site: "kept.test", cookies: 1 }));
 
-    expect((await call("/api/browse/logins/kept.test", { method: "DELETE" })).status).toBe(204);
-    expect((await logins()).map((login) => login.id)).not.toContain("kept.test");
+    expect((await call("/api/browse/logins/ky/kept.test", { method: "DELETE" })).status).toBe(204);
+    expect((await logins()).map((login) => login.id)).not.toContain("ky:kept.test");
     expect((await fake("me")).sessions.get(session.id)?.ended).toBe(true);
     expect(await stored("me")).toEqual([]);
   });
 });
 
 describe("outside content and ky's signed-in browser", () => {
-  const signedIn = (site: string) => env.Vault.getByName("owner").put(LOGIN_KIND, site, { cookies: [cookie(site)], origins: [] }, { cookies: 1 });
+  const signedIn = (site: string) => env.Vault.getByName("owner").put(LOGIN_KIND, `ky:${site}`, { cookies: [cookie(site)], origins: [] }, { cookies: 1 });
 
   const where = / in \S+$/;
 
@@ -353,5 +354,180 @@ describe("outside content and ky's signed-in browser", () => {
     await said(name, `ky didn't run these steps: this is a background run, and nobody is here to approve acting on ${site}`);
     expect(await pending(name)).toEqual([]);
     expect(await acted(name)).toEqual([]);
+  });
+});
+
+describe("each owner's own browser and logins", () => {
+  const signIn = (owner: string, site: string) =>
+    env.Vault.getByName("owner").put(LOGIN_KIND, `${owner}:${site}`, { cookies: [cookie(`.${site}`)], origins: [] }, { cookies: 1 });
+
+  // SAFETY: browse reads only whose a conversation is, by its id; no conversation of that id has to run.
+  const FIN = 4242 as ConversationId;
+
+  /** A conversation of @fin's, made a specialist for the test; its id. */
+  const finChat = (name: string) =>
+    inside(name, (instance) => {
+      if (!instance.specialists.has("fin")) instance.specialists.create("fin", { description: "The fin.", brief: "# @fin\nKeep the books." }, "user");
+      instance.specialists.attach(String(FIN), "fin", "home");
+
+      return FIN;
+    });
+
+  async function readIn(name: string, conversation: ConversationId, args: Args): Promise<string> {
+    return inside(name, async (instance) => {
+      const result = await instance.browsing.browse(args, conversation, crypto.randomUUID());
+
+      return "refused" in result ? result.refused : textOf(result);
+    });
+  }
+
+  /** Each owner's kept session, and the cookie domains each live session was given back. */
+  const owners = (name: string) =>
+    inside(name, (_instance, state) => state.storage.sql.exec(`SELECT owner FROM ${BROWSE_TABLES.session} ORDER BY owner`).toArray().map((row) => row.owner));
+
+  /** The cookie domains each owner's kept session was given back. */
+  const givenBack = async (name: string) => {
+    const kept = await inside(name, (_instance, state) =>
+      state.storage.sql.exec<{ owner: string; session: string }>(`SELECT owner, session FROM ${BROWSE_TABLES.session}`).toArray()
+    );
+
+    const { sessions } = await fake(name);
+
+    return Object.fromEntries(kept.map(({ owner, session }) => [owner, sessions.get(session)?.restored.flatMap((state) => state.cookies.map((each) => each.domain)) ?? []]));
+  };
+
+  const restoredIn = async (name: string) =>
+    [...(await fake(name)).sessions.values()].flatMap((session) => (session.alive ? [session.restored.flatMap((state) => state.cookies.map((each) => each.domain))] : []));
+
+  it("ky doesn't use a site @fin is signed in to, and is told to ask @fin; @fin reads it signed in, in a session of its own", async () => {
+    const name = crypto.randomUUID();
+    await signIn("fin", "bank.test");
+    await using(name, (browsers) => browsers.pages.set("https://bank.test/", { title: "Account", text: WORDS }));
+    const fin = await finChat(name);
+
+    const kys = await read(name, { url: "https://bank.test/" });
+    expect(kys).toContain("@fin is signed in to bank.test; ask @fin.");
+    expect(kys.startsWith("[a page of bank.test, read without a saved login")).toBe(true);
+    expect(await restoredIn(name)).toEqual([]);
+
+    const fins = await readIn(name, fin, { url: "https://bank.test/" });
+    expect(fins).not.toContain("read without a saved login");
+    expect(fins).not.toContain(SECRET);
+    expect(await restoredIn(name)).toEqual([[".bank.test"]]);
+    expect(await owners(name)).toEqual(["fin"]);
+  });
+
+  it("keeps one session per owner, each given back only its own logins", async () => {
+    const name = crypto.randomUUID();
+    await signIn("ky", "mine.test");
+    await signIn("fin", "books.test");
+    await using(name, (browsers) => {
+      browsers.pages.set("https://mine.test/", { title: "Mine", text: WORDS });
+      browsers.pages.set("https://books.test/", { title: "Books", text: WORDS });
+    });
+    const fin = await finChat(name);
+
+    await read(name, { url: "https://mine.test/" });
+    await readIn(name, fin, { url: "https://books.test/" });
+    await read(name, { url: "https://mine.test/" });
+
+    expect(await owners(name)).toEqual(["fin", "ky"]);
+    const given = await givenBack(name);
+    // The Vault is shared by the file's tests: each owner has others' logins of its own too, never the other's.
+    expect(given.fin).toContain(".books.test");
+    expect(given.fin).not.toContain(".mine.test");
+    expect(given.ky).toContain(".mine.test");
+    expect(given.ky).not.toContain(".books.test");
+  });
+
+  it("Move to gives a login to another owner: both sessions end, and the new owner reads the site signed in", async () => {
+    // Settings reaches ky's one agent, "me".
+    const name = "me";
+    await signIn("fin", "moved.test");
+    await using(name, (browsers) => browsers.pages.set("https://moved.test/", { title: "Moved", text: WORDS }));
+    const fin = await finChat(name);
+    await readIn(name, fin, { url: "https://moved.test/" });
+    const held = liveSession(await fake(name))!;
+    const moving = (to: string) => call("/api/browse/logins/fin/moved.test/move", { method: "POST", body: JSON.stringify({ to }) });
+
+    expect(await (await moving("nobody")).text()).toBe("No specialist @nobody.");
+    const moved = await moving("ky");
+    expect(await moved.json()).toEqual({ said: "moved.test's login is ky's now." });
+    expect(held.ended).toBe(true);
+    expect((await logins()).map((login) => login.id)).toContain("ky:moved.test");
+    expect((await logins()).map((login) => login.id)).not.toContain("fin:moved.test");
+
+    expect(await read(name, { url: "https://moved.test/" })).not.toContain("read without a saved login");
+    expect(await readIn(name, fin, { url: "https://moved.test/" })).toContain("ky is signed in to moved.test; ask ky.");
+  });
+
+  it("Move to never replaces a login the new owner keeps for the site, and moves one off an owner that is gone", async () => {
+    const moving = (from: string, site: string, to: string) => call(`/api/browse/logins/${from}/${site}/move`, { method: "POST", body: JSON.stringify({ to }) });
+
+    await signIn("fin", "both.test");
+    await signIn("ky", "both.test");
+    const taken = await moving("fin", "both.test", "ky");
+
+    expect([taken.status, await taken.text()]).toEqual([409, "ky already keeps a login for both.test: remove that one first."]);
+    expect((await logins()).map((login) => login.id)).toEqual(expect.arrayContaining(["fin:both.test", "ky:both.test"]));
+
+    await signIn("gone", "left.test");
+    const moved = await moving("gone", "left.test", "ky");
+
+    expect(await moved.json()).toEqual({ said: "left.test's login is ky's now." });
+    expect((await logins()).map((login) => login.id)).toContain("ky:left.test");
+  });
+
+  it("a hand-off from @fin's conversation says it is for @fin, and keeps the login as @fin's", async () => {
+    const name = crypto.randomUUID();
+    await using(name, (browsers) => browsers.pages.set("https://fin.bankhand.test/login", { title: "Sign in", text: WORDS }));
+    const fin = await finChat(name);
+
+    await inside(name, (instance) => instance.browsing.handOff(String(fin), { url: "https://fin.bankhand.test/login", instructions: "Sign in to the bank." }));
+    const [card] = await pending(name);
+    expect(card).toMatchObject({ kind: "browser-handoff", summary: "For @fin: Sign in to the bank." });
+    await using(name, (browsers) => liveSession(browsers)!.signIn([cookie(".bankhand.test")]));
+
+    expect(await decide(name, card!.id, "accept")).toEqual({});
+    await until(async () => (await logins()).some((login) => login.id === "fin:bankhand.test"), "@fin's login to be kept");
+    expect((await logins()).map((login) => login.id)).not.toContain("ky:bankhand.test");
+  });
+
+  it("the one session from before owners is ky's once, however often ky starts, and its old table is left empty", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec(`CREATE TABLE IF NOT EXISTS ${BROWSE_TABLES.beforeOwners} (id INTEGER PRIMARY KEY CHECK (id = 1), session TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
+      state.storage.sql.exec(`INSERT INTO ${BROWSE_TABLES.beforeOwners} (id, session, updated_at) VALUES (1, 'before-owners', 0)`);
+      state.storage.sql.exec(`DELETE FROM ${BROWSE_TABLES.session}`);
+    });
+
+    for (let start = 0; start < 2; start++) {
+      await evictDurableObject(agent(name));
+      await inside(name, () => undefined);
+    }
+
+    const rows = await inside(name, (_instance, state) => ({
+      owned: state.storage.sql.exec(`SELECT owner, session FROM ${BROWSE_TABLES.session}`).toArray(),
+      left: state.storage.sql.exec(`SELECT session FROM ${BROWSE_TABLES.beforeOwners}`).toArray()
+    }));
+
+    expect(rows).toEqual({ owned: [{ owner: "ky", session: "before-owners" }], left: [] });
+  });
+
+  it("a login kept by site alone, from before owners, is ky's once, however often the Vault starts", async () => {
+    const vault = env.Vault.getByName("owner");
+    await runInDurableObject(vault, (_instance, state) =>
+      state.storage.sql.exec("INSERT INTO ky_vault_secrets (kind, id, value, meta, updated_at) VALUES ('browser-login', 'old.test', '{}', NULL, 0)")
+    );
+
+    for (let start = 0; start < 2; start++) {
+      await vault.status();
+      await evictDurableObject(vault);
+    }
+
+    const ids = (await logins()).map((login) => login.id);
+
+    expect(ids).toContain("ky:old.test");
+    expect(ids.filter((id) => id.endsWith("old.test"))).toEqual(["ky:old.test"]);
   });
 });
