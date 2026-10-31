@@ -1,5 +1,5 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
+import { env, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
 import { agent, connect, connectExecutor, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
@@ -475,6 +475,29 @@ describe("a specialist's automations", () => {
 
     const after = await inside(name, (instance) => ({ owner: instance.automations.get(id)?.owner, run: instance.specialists.profileOf(run?.id ?? "") }));
     expect([after.owner, after.run.owner, after.run.sandboxes.map((each) => each.name)]).toEqual(["ky", "eng", ["eng"]]);
+    socket.close();
+  });
+
+  it("goes to ky, paused, when the user deletes its specialist, whose runs stop and whose own logins and keys go (R3)", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", owner: "eng", machine: "eng" }))).text ?? "");
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, id)).length > 0, "the run to start");
+    const vault = env.Vault.getByName("owner");
+    const site = `${crypto.randomUUID()}.test`;
+    const kept = async () => (await vault.status()).flatMap((each) => (each.id.endsWith(site) ? [`${each.kind} ${each.id}`] : [])).sort();
+    await vault.put("browser-login", `eng:${site}`, { cookies: [], origins: [] }, { cookies: 0 });
+    await vault.put("http", `eng:${site}`, "its key");
+    await vault.put("http", `*:${site}`, "a shared key");
+    await vault.put("http", `ky:${site}`, "ky's key");
+
+    expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: {} });
+    await until(async () => (await runsOf(name, id)).every((run) => run.status === "stopped"), "@eng's run to stop");
+    expect(await inside(name, (instance) => [instance.automations.get(id)?.owner, instance.automations.get(id)?.status])).toEqual(["ky", "paused"]);
+    expect(await kept()).toEqual([`http *:${site}`, `http ky:${site}`]);
     socket.close();
   });
 

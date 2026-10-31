@@ -888,6 +888,15 @@ const make = Effect.gen(function* () {
 
     checkIns,
 
+    /** A deleted specialist's workflows become ky's, paused: whatever their machine, chat or model has become since, so none is left owned by no one. */
+    handOver: (owner: string) =>
+      Effect.gen(function* () {
+        for (const row of yield* rows("SELECT * FROM ky_automations WHERE owner = ?", owner)) {
+          if (row.status === "active") yield* halt(row, "paused");
+          yield* set(row.id, { owner: KY });
+        }
+      }),
+
     setCheckIns: (on: boolean) =>
       Effect.gen(function* () {
         yield* exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, ?, NULL) ON CONFLICT (id) DO UPDATE SET off = excluded.off", on ? 0 : 1);

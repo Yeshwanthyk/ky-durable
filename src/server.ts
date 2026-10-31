@@ -621,6 +621,10 @@ export class PiAgent extends DurableObject<Env> {
     this.spend,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
+    {
+      kept: { status: () => this.env.Vault.getByName("owner").status(), remove: (kind, id) => this.env.Vault.getByName("owner").remove(kind, id) },
+      browser: (owner) => this.browsing.forget(owner)
+    },
     this.env.CF_VERSION_METADATA.id
   );
   readonly webSockets = new WebSockets(this.sockets.options());

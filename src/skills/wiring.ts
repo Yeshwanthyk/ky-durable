@@ -1,9 +1,11 @@
 import type { Extension } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { Automations, Delivery, TaskFeed } from "../automations/contract";
+import type { Automations, Delivery, TaskFeed, TaskRow } from "../automations/contract";
+import { LOGIN_KIND } from "../browse/contract";
 import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
+import { HTTP_KIND } from "../inbound/credentials";
 import type { Models } from "../providers/wiring";
 import { Versioned, Versions } from "../dreaming/wiring";
 import type {
@@ -20,6 +22,7 @@ import type {
   SpecialistRow,
   SpecialistView
 } from "./contract";
+import { ownedOf } from "./contract";
 import { Machines, Profiles } from "./profiles";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
@@ -355,4 +358,41 @@ export function delegationTools(
   );
 
   return { specialists, subagents: subagents.extension, spawn: subagents.spawn, progress: subagentProgressExtension(feed) };
+}
+
+/** What deleting a specialist reaches beyond its row and grants; src/sockets.ts wires it. */
+export type Leftovers = {
+  /** The task list: a live run is the specialist's when its conversation is. */
+  readonly tasks: () => readonly TaskRow[];
+  readonly stop: (ids: readonly string[]) => Promise<void>;
+  /** The logins and keys ky keeps: the Vault's. */
+  readonly kept: {
+    readonly status: () => Promise<ReadonlyArray<{ readonly kind: string; readonly id: string }>>;
+    readonly remove: (kind: string, id: string) => Promise<void>;
+  };
+  /** Ends the owner's browser session. */
+  readonly browser: (owner: string) => Promise<void>;
+  readonly workflows: Pick<Automations, "handOver">;
+};
+
+/**
+ * The user deletes `id` (R3): its workflows become ky's, paused, before anything can fire them; its runs stop; the
+ * logins and keys it kept go (shared ones stay); its browser session ends. Its sandbox stays, and is ky's now.
+ * Refuses one that isn't; once it is deleted, a cleanup that fails is logged, not refused.
+ */
+export async function deleteSpecialist(specialists: Specialists, id: string, left: Leftovers): Promise<void> {
+  const its = (conversation: string | null) => conversation !== null && specialists.profileOf(conversation).owner === id;
+  const runs = left.tasks().flatMap((task) => ((task.status === "queued" || task.status === "working") && (its(task.id) || its(task.session)) ? [task.id] : []));
+  specialists.delete(id);
+
+  try {
+    await left.workflows.handOver(id);
+    await left.stop(runs);
+    const owned = (await left.kept.status()).filter(({ kind, id: each }) => (kind === LOGIN_KIND || kind === HTTP_KIND) && ownedOf(each).owner === id);
+
+    await Promise.all(owned.map(({ kind, id: each }) => left.kept.remove(kind, each)));
+    await left.browser(id);
+  } catch (error) {
+    console.warn(`@${id} is deleted, but what it left wasn't all cleaned up`, error);
+  }
 }
