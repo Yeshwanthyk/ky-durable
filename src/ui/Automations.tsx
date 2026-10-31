@@ -21,6 +21,7 @@ import type {
   TaskRow,
 } from "../protocol";
 import { nextLocals } from "../automations/contract";
+import { KY } from "../skills/contract";
 import { byNextRun } from "./automation-order";
 import { Icon } from "./Icon";
 import { MAIN_SESSION } from "./open-chat";
@@ -672,7 +673,7 @@ function blank(now: number, zone: string): Form {
     model: "",
     thinking: "",
     machine: "",
-    owner: "ky",
+    owner: KY,
     chat: MAIN_SESSION,
     gate: "",
   };
@@ -1182,13 +1183,13 @@ export function ModelPicks({
 function PlaceFields({ form, set }: FieldProps) {
   const { machines, specialists, chats } = useContext(AutomationsContext);
   const listed = chats.filter((chat) => chat.archived_at === null || chat.session === form.chat);
-  const owners = specialists.some((each) => each.id === form.owner) || form.owner === "ky" ? specialists : [...specialists, { id: form.owner }];
+  const owners = specialists.some((each) => each.id === form.owner) || form.owner === KY ? specialists : [...specialists, { id: form.owner }];
 
   return (
     <>
       {owners.length > 0 && (
         <Pick label="Owner" value={form.owner} onChange={(owner) => set({ owner })}>
-          <option value="ky">ky</option>
+          <option value={KY}>{KY}</option>
           {owners.map((each) => (
             <option key={each.id} value={each.id}>
               @{each.id}

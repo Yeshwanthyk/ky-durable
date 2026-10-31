@@ -425,6 +425,25 @@ describe("a specialist's automations", () => {
     socket.close();
   });
 
+  it("an @eng run going on its sandbox stays @eng's, with its sandbox, after the user gives the automation to ky", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", owner: "eng", machine: "eng" }))).text ?? "");
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, id)).length > 0, "the run to start");
+    const [run] = await runsOf(name, id);
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: null, chat: "1", gate: null, owner: "ky" };
+
+    expect(run).toMatchObject({ kind: "machine", worker: "eng", status: "queued" });
+    expect(await command(socket, client, { type: "automation-save", automation: id, draft })).toMatchObject({ result: {} });
+
+    const after = await inside(name, (instance) => ({ owner: instance.automations.get(id)?.owner, run: instance.specialists.profileOf(run?.id ?? "") }));
+    expect([after.owner, after.run.owner, after.run.sandboxes.map((each) => each.name)]).toEqual(["ky", "eng", ["eng"]]);
+    socket.close();
+  });
+
   it("reads one from before owners as ky's", async () => {
     const name = crypto.randomUUID();
     const id = created((await prompt(name, automation({ action: "create" }))).text ?? "");

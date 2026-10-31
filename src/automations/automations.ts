@@ -452,16 +452,16 @@ const make = Effect.gen(function* () {
     return `No chat ${chat}. Use main, or one of: ${known.join(", ") || "no side chats"}.`;
   };
 
-  /** Why `owner` may not run on `machine`, if it may not: it is gone, or the machine isn't in its profile. */
-  const ownerProblem = (owner: string, machine: string | null) => {
+  /** `owner`, when it may run on `machine`; refused when it is gone or the machine isn't in its profile. */
+  const ownerOn = (owner: string, machine: string | null): Effect.Effect<Owner, NoSuchOwner | NotItsMachine> => {
     const found = host.owners(owner);
 
-    if (found === undefined) return new NoSuchOwner({ owner });
+    if (found === undefined) return Effect.fail(new NoSuchOwner({ owner }));
 
-    if (machine === null || mayUse(found.profile, machine, machines.machine(machine)?.sandbox)) return undefined;
+    if (machine === null || mayUse(found.profile, machine, machines.machine(machine)?.sandbox)) return Effect.succeed(found);
     const { macs, sandboxes } = found.profile;
 
-    return new NotItsMachine({ owner, machine, allowed: [...sandboxes.map((each) => each.name), ...macs] });
+    return Effect.fail(new NotItsMachine({ owner, machine, allowed: [...sandboxes.map((each) => each.name), ...macs] }));
   };
 
   const check = (draft: AutomationDraft) =>
@@ -469,9 +469,7 @@ const make = Effect.gen(function* () {
       const problem = draftProblem(draft) ?? machineProblem(draft.machine, draft.post) ?? chatProblem(draft.chat);
 
       if (problem !== undefined) return yield* new NotSaved({ problem });
-      const owned = ownerProblem(draft.owner ?? KY, draft.machine);
-
-      if (owned !== undefined) return yield* owned;
+      yield* ownerOn(draft.owner ?? KY, draft.machine);
 
       if (draft.model === null) return draft;
       const model = models.valid(draft.model);
@@ -768,28 +766,25 @@ const make = Effect.gen(function* () {
       yield* tell(chat, row, `not-started:${task}`, `did not run: ${why}`);
     });
 
-  /** Who a run starts as: a specialist's profile, read now and kept to the run's end; refused when it may not run as it is. */
-  const ownerOf = (row: AutomationRow) => {
-    if (row.owner === KY) return Effect.succeed(undefined);
-    const problem = ownerProblem(row.owner, row.machine);
-
-    return problem === undefined ? Effect.succeed(host.owners(row.owner)) : Effect.fail(problem.refusal);
-  };
-
   const start = (row: AutomationRow, slot: number, task: string) => {
     const chat = reportTo(row.chat);
     const { machine } = row;
 
     return Effect.gen(function* () {
-      const owner = yield* ownerOf(row);
+      // Checked for ky too: a sandbox ky's automation ran on may since have become a specialist's.
+      const found = yield* ownerOn(row.owner, machine);
+      // A specialist's run starts as its profile, read now and kept to the run's end; ky's runs as ky always has.
+      const owner = row.owner === KY ? undefined : found;
 
       if (machine === null) return yield* runInCloud(row, { slot, task, chat }, owner);
       runOnMachine(row, machine, { task, chat }, owner);
 
-      if (owner !== undefined && machines.machine(machine)?.online === false) {
+      const there = machines.machine(machine);
+
+      if (owner !== undefined && there?.online === false && !there.sandbox) {
         yield* tell(chat, row, `waits:${task}`, `waits for ${machine}, which is offline: it runs there when ${machine} is back, and nowhere else`);
       }
-    }).pipe(Effect.catch((why) => notStarted(row, { task, chat }, why)));
+    }).pipe(Effect.catch((refused) => notStarted(row, { task, chat }, refused.refusal)));
   };
 
   const ran = (task: string): boolean => {

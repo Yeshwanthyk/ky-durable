@@ -158,7 +158,7 @@ function workflows() {
   const spawned: Array<Parameters<Spawn>[2]> = [];
   const info = (name: string): MachineInfo => ({ name, online: online.has(name), seenAt: 0, reason: null, active: 0, state: "on", note: "", facts: null, login: "own", cloud: null, sandbox: null });
 
-  const { world, side, scheduler } = wired({ now: () => Date.now() }, (base, { feed }) => {
+  const { world, side, scheduler } = wired({ now: () => T }, (base, { feed }) => {
     const machines: Pick<MachineHub, "machines" | "machine" | "defaultAgent" | "start" | "stop" | "recheck"> = {
       machines: () => MACS.map(info),
       machine: (name) => (MACS.some((mac) => mac === name) ? info(name) : undefined),
@@ -226,7 +226,7 @@ const workflow = (owner: string, machine: string | null) => ({
   title: "Digest",
   prompt: "digest the news",
   cron: null,
-  at: Date.now() + 3_600_000,
+  at: T + 3_600_000,
   model: null,
   machine,
   chat: "1",
@@ -514,6 +514,7 @@ describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
         try {
           for (const mac of MACS) tried(ky.specialists, owner, { mac, grant: true });
           const id = await ky.save(workflow(owner, machine));
+          const before = structuredClone(ky.specialists.profile(owner));
           await ky.run(id);
           const at = ky.runAs();
 
@@ -522,9 +523,17 @@ describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
             else tried(ky.specialists, move.change.id, move.change.change);
           }
 
-          expect([at?.owner, ky.runAs()?.owner]).toEqual([owner, owner]);
+          const now = ky.specialists.profile(owner);
+          const live = (sandbox: { readonly id: string }) => now.sandboxes.some((each) => each.id === sandbox.id);
 
-          if (machine === null) expect(ky.spawned[0]?.as).toEqual(at);
+          // A cloud run carries the profile read as it started; a machine task's is that, less what the user took back since.
+          const expected =
+            machine === null
+              ? before
+              : { ...before, home: before.home && live(before.home) ? before.home : null, sandboxes: before.sandboxes.filter(live), macs: before.macs.filter((mac) => now.macs.includes(mac)) };
+
+          expect(at).toEqual(before);
+          expect(ky.runAs()).toEqual(expected);
         } finally {
           ky.world.db.close();
         }

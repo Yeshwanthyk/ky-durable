@@ -176,7 +176,7 @@ export function automationExtension(
   worker: () => ModelChoice,
   dreaming: (session: string) => boolean,
   /** Whose conversation `session` is: "ky", or a specialist's id (src/skills/profiles.ts). */
-  ownerOf: (session: string) => string
+  whoseSession: (session: string) => string
 ): Extension {
   return defineExtension({
     name: EXTENSIONS.automations,
@@ -212,7 +212,7 @@ export function automationExtension(
               fallback: worker(),
               caller: String(api.conversationId),
               dream: dreaming(String(api.conversationId)),
-              by: ownerOf(String(api.conversationId))
+              by: whoseSession(String(api.conversationId))
             })
           )
       })
