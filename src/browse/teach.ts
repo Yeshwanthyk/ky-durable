@@ -213,13 +213,24 @@ export function readRecording(fs: Workspace["fs"], path: string) {
 
 const quoted = (text: string | undefined) => (text ? `"${text}"` : "");
 
+type Described = NonNullable<TeachEvent["el"]>;
+
+function kindOf(el: Described): string {
+  if (el.role) return el.role;
+
+  if (el.tag === "input" && el.type) return `${el.type} field`;
+
+  return el.tag === "a" ? "link" : (el.tag ?? "element");
+}
+
+const idsOf = (el: Described) =>
+  [["name", el.name], ["id", el.id], ["href", el.href]].flatMap(([key, value]) => (value ? [`${key}=${value}`] : [])).join(", ");
+
 function elementText(event: TeachEvent): string {
   const el = event.el ?? {};
-  const named = [el.label, el.text, el.placeholder].find(Boolean);
-  const kind = el.role ?? (el.tag === "input" && el.type ? `${el.type} field` : el.tag === "a" ? "link" : (el.tag ?? "element"));
-  const ids = [el.name ? `name=${el.name}` : "", el.id ? `id=${el.id}` : "", el.href ? `href=${el.href}` : ""].filter(Boolean).join(", ");
+  const ids = idsOf(el);
 
-  return [kind, quoted(named), ids ? `(${ids})` : ""].filter(Boolean).join(" ");
+  return [kindOf(el), quoted([el.label, el.text, el.placeholder].find(Boolean)), ids ? `(${ids})` : ""].filter(Boolean).join(" ");
 }
 
 function stepText(event: TeachEvent): string {

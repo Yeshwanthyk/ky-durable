@@ -813,6 +813,30 @@ const FORWARDS: Array<[RegExp, string?]> = [
 /** `reply`, with `say` written before it when it is a tool call. */
 const narrated = (reply: Reply, say: string | undefined): Reply => (say !== undefined && "tool" in reply ? { ...reply, say } : reply);
 
+/** A triage reads a mail (src/mail.ts mailTriage): a newsletter needs nobody; a `tool` line in it is tried, as a mail
+ * that talks the model round would; anything else is summed up by its subject. */
+function mailAnswer(prompt: string): Reply | undefined {
+  const mail = /^\[a mail to ky from [^\]]+\][\s\S]*?\nSubject: (.*)\n\n([\s\S]*)$/.exec(prompt);
+
+  if (!mail) return undefined;
+  const tool = /^tool \S+ \{.*\}$/m.exec(mail[2]!);
+
+  if (tool) return answer(tool[0]);
+
+  return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
+}
+
+/** A skill draft from a demo (src/skills/skills.ts draftFromDemo): `shown-<site>`, its body the recording. */
+function demoAnswer(prompt: string): Reply | undefined {
+  const demo = /^\[skill from a demo\][\s\S]*?\nSite: (\S+)\n[\s\S]*?<recording>\n([\s\S]*?)\n<\/recording>$/.exec(prompt);
+
+  if (!demo) return undefined;
+  const [, site = "", steps = ""] = demo;
+  const body = `${steps}\n\n## Needs\n- login: Are you signed in to ${site} in ky's browser? (yes | no)`;
+
+  return call("skill_manage", { action: "create", name: `shown-${site.replace(/[^a-z0-9]+/g, "-")}`, description: `Doing on ${site} what the user showed ky.`, body });
+}
+
 /** The answer to a user's prompt: the tool call it asks for, or an echo. */
 function answer(prompt: string): Reply {
   const forward = FORWARDS.map(([pattern, say]) => ({ match: pattern.exec(prompt), say })).find(({ match }) => match !== null);
@@ -825,26 +849,9 @@ function answer(prompt: string): Reply {
 
   if (prompt.includes("model-refuses")) return { status: 400, error: "The fake model refuses this prompt." };
 
-  // A triage reads a mail (src/mail.ts mailTriage): a newsletter needs nobody; a `tool` line in it is tried, as a mail
-  // that talks the model round would; anything else is summed up by its subject.
-  const mail = /^\[a mail to ky from [^\]]+\][\s\S]*?\nSubject: (.*)\n\n([\s\S]*)$/.exec(prompt);
+  const read = mailAnswer(prompt) ?? demoAnswer(prompt);
 
-  if (mail) {
-    const tool = /^tool \S+ \{.*\}$/m.exec(mail[2]!);
-
-    if (tool) return answer(tool[0]);
-
-    return { text: /newsletter/i.test(mail[2]!) ? "NOTHING_NEW" : `Mail says: ${mail[1]}` };
-  }
-
-  const demo = /^\[skill from a demo\][\s\S]*?\nSite: (\S+)\n[\s\S]*?<recording>\n([\s\S]*?)\n<\/recording>$/.exec(prompt);
-
-  if (demo) {
-    const [, site = "", steps = ""] = demo;
-    const body = `${steps}\n\n## Needs\n- login: Are you signed in to ${site} in ky's browser? (yes | no)`;
-
-    return call("skill_manage", { action: "create", name: `shown-${site.replace(/[^a-z0-9]+/g, "-")}`, description: `Doing on ${site} what the user showed ky.`, body });
-  }
+  if (read) return read;
 
   for (const [pattern, make] of CALLS) {
     const match = pattern.exec(prompt);
