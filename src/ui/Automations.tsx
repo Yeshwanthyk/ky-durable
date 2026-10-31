@@ -81,6 +81,8 @@ export const AutomationsContext = createContext<{
   automations: readonly AutomationInfo[];
   providers: readonly ProviderInfo[];
   machines: readonly MachineInfo[];
+  /** Who an automation may run as besides ky. */
+  specialists: readonly { readonly id: string }[];
   chats: readonly ChatRow[];
   onAction: (automation: string, action: AutomationAction) => void;
   /** Create (no id) or change an automation; resolves with why it was refused, if it was. */
@@ -95,6 +97,7 @@ export const AutomationsContext = createContext<{
   automations: [],
   providers: [],
   machines: [],
+  specialists: [],
   chats: [],
   onAction: () => {},
   onSave: async () => undefined,
@@ -645,6 +648,8 @@ type Form = {
   thinking: string;
   /** A machine's name, or empty for the cloud. */
   machine: string;
+  /** "ky", or the id of the specialist it runs as. */
+  owner: string;
   chat: string;
   /** An Executor program each fire runs first, or empty for none. */
   gate: string;
@@ -667,6 +672,7 @@ function blank(now: number, zone: string): Form {
     model: "",
     thinking: "",
     machine: "",
+    owner: "ky",
     chat: MAIN_SESSION,
     gate: "",
   };
@@ -718,6 +724,7 @@ function formOf(automation: AutomationInfo | undefined, now: number, zone: strin
     prompt,
     chat,
     machine: automation.machine ?? "",
+    owner: automation.owner,
     gate: automation.gate ?? "",
     ...timing,
     ...modelFields(automation.model),
@@ -807,6 +814,7 @@ function draftOf(form: Form, choices: readonly Pickable[], zone: string): Automa
     ...timing,
     model: choiceOf(form, choices),
     machine: form.machine || null,
+    owner: form.owner,
     chat: form.chat,
     gate: form.gate.trim() || null,
   };
@@ -1172,11 +1180,22 @@ export function ModelPicks({
 }
 
 function PlaceFields({ form, set }: FieldProps) {
-  const { machines, chats } = useContext(AutomationsContext);
+  const { machines, specialists, chats } = useContext(AutomationsContext);
   const listed = chats.filter((chat) => chat.archived_at === null || chat.session === form.chat);
+  const owners = specialists.some((each) => each.id === form.owner) || form.owner === "ky" ? specialists : [...specialists, { id: form.owner }];
 
   return (
     <>
+      {owners.length > 0 && (
+        <Pick label="Owner" value={form.owner} onChange={(owner) => set({ owner })}>
+          <option value="ky">ky</option>
+          {owners.map((each) => (
+            <option key={each.id} value={each.id}>
+              @{each.id}
+            </option>
+          ))}
+        </Pick>
+      )}
       <Pick label="Runs on" value={form.machine} onChange={(machine) => set({ machine })}>
         <option value="">The cloud</option>
         {machines.map((machine) => (

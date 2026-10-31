@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 import { NoSandbox } from "../runners/contract";
-import { type AccessChange, KY, type Machinery, type Profile, ProfileStored, SKILL_TABLES, SpecialistSession } from "./contract";
+import { type AccessChange, KY, type Machinery, type Profile, ProfileSchema, ProfileStored, SKILL_TABLES, SpecialistSession } from "./contract";
 import { storage } from "./skills";
 import { NoSpecialist, Roster } from "./specialists";
 
@@ -13,7 +13,9 @@ import { NoSpecialist, Roster } from "./specialists";
  * Profiles: what each owner may use. ky's is what ky always had: the default sandbox, every other one
  * no specialist calls home, and every paired Mac. A specialist's is its own sandbox and the Macs the user
  * lets it use. Only the user changes one (Settings, or a card they answer), and every scoped tool reads
- * it through `of`. A specialist made before profiles gets its row once, at boot (`migrate`).
+ * it through `of`. A specialist made before profiles gets its row once, at boot (`migrate`). A run of an
+ * automation a specialist owns is pinned to the profile it started with: what the user grants later
+ * isn't added to it, and what they take away is taken from it too.
  */
 
 const PROFILES = SKILL_TABLES.specialistProfiles;
@@ -44,7 +46,9 @@ const asStored = Schema.decodeUnknownOption(ProfileStored);
 
 const HomeRow = Schema.Struct({ specialist: Schema.String, home: Schema.String });
 
-const OwnedRow = Schema.Struct({ specialist: Schema.String });
+const OwnedRow = Schema.Struct({ specialist: Schema.String, profile: Schema.NullOr(Schema.String) });
+
+const asPinned = Schema.decodeUnknownOption(Schema.fromJsonString(ProfileSchema));
 
 export class Machines extends Context.Service<Machines, Machinery>()("ky/skills/Machines") {}
 
@@ -59,6 +63,8 @@ interface SpecialistProfiles {
   readonly provide: (id: string) => Effect.Effect<void>;
   /** `conversation`, started from `parent`, belongs to whoever owns `parent`: a subagent, a machine task, a run. */
   readonly adopt: (conversation: string, parent: string) => Effect.Effect<void>;
+  /** `conversation` is a run of `profile.owner`'s, and keeps `profile` (a snapshot) to its end. */
+  readonly pin: (conversation: string, profile: Profile) => Effect.Effect<void>;
   /** The user grants or revokes a Mac, or moves the specialist to another sandbox. */
   readonly change: (id: string, change: AccessChange) => Effect.Effect<string, NoSpecialist | NotAMac | NoSandbox | NotItsSandbox>;
   /** A Mac removed from ky: no grant of it survives a different computer paired under its name. */
@@ -84,7 +90,8 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
           tools TEXT NOT NULL DEFAULT '{}')`);
         yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.specialistOwned} (
           conversation TEXT PRIMARY KEY,
-          specialist TEXT NOT NULL)`);
+          specialist TEXT NOT NULL,
+          profile TEXT)`);
 
         const ref = ({ id, name }: { readonly id: string; readonly name: string }) => ({ id, name });
 
@@ -131,13 +138,38 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
             return { owner, home: live ? ref(live) : null, sandboxes: live ? [ref(live)] : [], macs: [...macs], tools: { ...tools } } satisfies Profile;
           });
 
+        const ownedRow = (conversation: string) =>
+          Effect.map(rows(OwnedRow, `SELECT specialist, profile FROM ${OWNED} WHERE conversation = ?`, conversation), ([row]) => row);
+
+        /** A run's snapshot, less what its owner no longer has: a damaged one grants nothing. */
+        const pinned = (owner: string, stored: string) =>
+          Effect.gen(function* () {
+            const now = yield* get(owner);
+            const kept = Option.getOrUndefined(Option.filter(asPinned(stored), (profile) => profile.owner === owner));
+
+            if (kept === undefined) return { owner, home: null, sandboxes: [], macs: [], tools: {} } satisfies Profile;
+            const live = (sandbox: { readonly id: string }) => now.sandboxes.some((each) => each.id === sandbox.id);
+
+            return {
+              ...kept,
+              home: kept.home && live(kept.home) ? kept.home : null,
+              sandboxes: kept.sandboxes.filter(live),
+              macs: kept.macs.filter((mac) => now.macs.includes(mac))
+            } satisfies Profile;
+          });
+
         const of = (conversation: string) =>
           Effect.gen(function* () {
-            const [own] = yield* rows(SpecialistSession, `SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, conversation);
-            const [owned] = own ? [own] : yield* rows(OwnedRow, `SELECT specialist FROM ${OWNED} WHERE conversation = ?`, conversation);
+            const owned = yield* ownedRow(conversation);
 
-            return yield* get(owned?.specialist ?? KY);
+            if (owned?.profile != null) return yield* pinned(owned.specialist, owned.profile);
+            const [own] = yield* rows(SpecialistSession, `SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, conversation);
+
+            return yield* get(own?.specialist ?? owned?.specialist ?? KY);
           });
+
+        const own = (conversation: string, owner: string, profile: string | null) =>
+          exec(`INSERT OR REPLACE INTO ${OWNED} (conversation, specialist, profile) VALUES (?, ?, ?)`, conversation, owner, profile);
 
         /** Change the specialist `id`'s settings; refused for one that isn't. */
         const edit = (id: string, next: (current: Settings) => Settings) =>
@@ -191,10 +223,14 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
           provide,
           adopt: (conversation, parent) =>
             Effect.gen(function* () {
+              const owned = yield* ownedRow(parent);
+
+              if (owned?.profile != null) return yield* own(conversation, owned.specialist, owned.profile);
               const { owner } = yield* of(parent);
 
-              if (owner !== KY) yield* exec(`INSERT OR REPLACE INTO ${OWNED} (conversation, specialist) VALUES (?, ?)`, conversation, owner);
+              if (owner !== KY) yield* own(conversation, owner, null);
             }),
+          pin: (conversation, profile) => Effect.asVoid(own(conversation, profile.owner, JSON.stringify(profile))),
           change: (id, change) => ("home" in change ? setHome(id, change.home) : change.grant ? grantMac(id, change.mac) : revokeMac(id, change.mac)),
           dropMac: (mac) =>
             Effect.gen(function* () {

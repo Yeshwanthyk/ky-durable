@@ -28,7 +28,7 @@ import { type Delivery, summarize, type TaskFeed } from "../automations/contract
 import { must } from "../core/must";
 import { endStep, startStep } from "../step-labels";
 import { RunCards } from "../cards/wiring";
-import { setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
+import { type Profile, setUp, type SpecialistRow, type SubagentAction, SubagentInput, textOf, TOOLS } from "./contract";
 
 type Outcome = { status: "done" | "failed" | "stopped"; summary: string };
 
@@ -88,6 +88,8 @@ type SpawnRequest = {
   checkIn?: boolean;
   deliver?: boolean;
   post?: boolean;
+  /** A run of an automation a specialist owns: it runs as that specialist, keeping this profile, its owner's at the start. */
+  as?: Profile | undefined;
 };
 
 export type Spawn = (tx: Tx, owner: ConversationId, request: SpawnRequest) => Promise<ConversationId>;
@@ -98,6 +100,8 @@ type SpecialistDeps = {
   readonly store: Specialists;
   readonly tools: Specialist;
   readonly remove: readonly Extension[];
+  /** What a run of a specialist's automation goes without. */
+  readonly run: readonly Extension[];
   readonly model: (own: ModelChoice | null) => ModelChoice;
 };
 
@@ -337,8 +341,18 @@ export function subagentExtension(
 
   const desk: Desk = { feed, specialists, model, models, register, deliver };
 
-  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered, post }) => {
-    const conversationId = await register(tx, owner, name, delivered === true);
+  /** A run as the specialist `as.owner`: its brief, its model unless the automation names one, and `as` to the end. */
+  async function runAs(tx: Tx, as: Profile): Promise<ConversationId> {
+    const deps = must(specialists, "There are no specialists.");
+    const conversationId = await fresh(deps, tx, as.owner, "run");
+    deps.store.pin(String(conversationId), as);
+    (await tx.doc(RunCards, conversationId)).run = true;
+
+    return conversationId;
+  }
+
+  const spawn: Spawn = async (tx, owner, { name, message, model, feedId, label, checkIn, deliver: delivered, post, as }) => {
+    const conversationId = as === undefined ? await register(tx, owner, name, delivered === true) : await runAs(tx, as);
     await deliver(tx, owner, { name, conversationId, message, followUp: false, feedId, label, checkIn, deliver: delivered, post }, model);
 
     return conversationId;
@@ -519,9 +533,9 @@ function message(action: "spawn" | "send"): Act {
   };
 }
 
-async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss"): Promise<ConversationId> {
+async function fresh(deps: SpecialistDeps, tx: Tx, id: string, kind: "home" | "consult" | "discuss" | "run"): Promise<ConversationId> {
   const child = await tx.createConversation({ ownership: { kind: "ownerless" } });
-  await setUp(tx, child.id, deps.remove, deps.model(must(deps.store.get(id), `No specialist @${id}.`).model));
+  await setUp(tx, child.id, kind === "run" ? deps.run : deps.remove, deps.model(must(deps.store.get(id), `No specialist @${id}.`).model));
   deps.store.attach(String(child.id), id, kind);
 
   return child.id;

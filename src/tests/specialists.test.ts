@@ -1,7 +1,8 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { agent, connect, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -352,5 +353,84 @@ describe("a specialist's machines", () => {
     await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
     mbp.socket.close();
     socket.close();
+  });
+});
+
+describe("a specialist's automations", () => {
+  const automation = (args: Record<string, JsonValue>) => tool("automation", { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", ...args });
+
+  const created = (text: string) => /Created automation (\w+),/.exec(text)?.[1] ?? "";
+
+  /** The automation's runs, as the task list shows them. */
+  const runsOf = (name: string, id: string) => inside(name, (instance) => instance.feed.list().filter((task) => task.source === `automation:${id}`));
+
+  it("is the specialist's own when it makes one, runs as it, and it can't change ky's", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const kys = created((await prompt(name, automation({ action: "create" }))).text ?? "");
+    await prompt(name, ask("eng", automation({ action: "create" })));
+    const all = await inside(name, async (instance) => (await instance.automations.list(true)).map((each) => [each.id, each.owner] as const));
+    const engs = all.find(([id]) => id !== kys)?.[0] ?? "";
+
+    expect(all.map(([, owner]) => owner).sort()).toEqual(["eng", "ky"]);
+    await prompt(name, ask("eng", tool("automation", { action: "pause", id: kys })));
+    await said(name, `tool said: "Digest" is ky's; you may change only your own.`);
+    await prompt(name, ask("eng", tool("automation", { action: "list" })));
+    await said(name, `${engs} "Digest"`);
+
+    expect(await prompt(name, tool("automation", { action: "run", id: engs })).then((result) => result.text)).toMatch(/^tool said: Running "Digest" now/);
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, engs)).some((task) => task.session !== null), "the run to start");
+    const [run] = await runsOf(name, engs);
+
+    expect(await inside(name, (instance) => instance.specialists.profileOf(run?.session ?? "").owner)).toBe("eng");
+  });
+
+  it("refuses a machine its owner may not use, for a specialist's and for ky's", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    await prompt(name, ask("eng", automation({ action: "create", machine: "mbp" })));
+    await said(name, "tool said: @eng may not use mbp; it may use eng. Only the user gives it another.");
+    expect((await prompt(name, automation({ action: "create", machine: "eng" }))).text).toBe("tool said: eng is a specialist's own sandbox: ky can't use it.");
+    expect((await prompt(name, automation({ action: "create", owner: "eng", machine: "mbp" }))).text).toBe(
+      "tool said: @eng may not use mbp; it may use eng. Only the user gives it another."
+    );
+    expect(await inside(name, async (instance) => (await instance.automations.list(true)).length)).toBe(0);
+  });
+
+  it("moves to another owner only by the user's save, and a run going keeps the owner it started with", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", machine: "mbp" }))).text ?? "");
+
+    expect((await prompt(name, tool("automation", { action: "update", id, owner: "eng" }))).text).toBe(
+      "tool said: Only the user moves an automation to another owner, in Settings."
+    );
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    const [run] = await runsOf(name, id);
+
+    expect(run).toMatchObject({ kind: "machine", worker: "mbp", status: "queued" });
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: "mbp", chat: "1", gate: null, owner: "eng" };
+
+    expect(JSON.stringify(await command(socket, client, { type: "automation-save", automation: id, draft }))).toContain("@eng may not use mbp");
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
+    expect(await command(socket, client, { type: "automation-save", automation: id, draft })).toMatchObject({ result: {} });
+
+    expect(await inside(name, (instance) => [instance.automations.get(id)?.owner, instance.specialists.profileOf(run?.id ?? "").owner])).toEqual(["eng", "ky"]);
+    socket.close();
+  });
+
+  it("reads one from before owners as ky's", async () => {
+    const name = crypto.randomUUID();
+    const id = created((await prompt(name, automation({ action: "create" }))).text ?? "");
+    await inside(name, (_instance, state) => state.storage.sql.exec("ALTER TABLE ky_automations DROP COLUMN owner"));
+
+    await evictDurableObject(agent(name));
+    expect(await inside(name, (instance) => instance.automations.get(id)?.owner)).toBe("ky");
   });
 });

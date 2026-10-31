@@ -1758,6 +1758,35 @@ test.describe("automations in Activity", () => {
     await expect(sheet.getByRole("listitem", { name: title })).toBeHidden();
   });
 
+  test("gives an automation to a specialist with Owner: it saves as that specialist's and opens on it again", async ({ page }) => {
+    await open(page);
+    const id = `own-${crypto.randomUUID().slice(0, 8)}`;
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+    const made = page.getByRole("dialog", { name: "New specialist" });
+    await made.getByRole("textbox", { name: "Id" }).fill(id);
+    await made.getByRole("textbox", { name: "Description" }).fill("Watches the money.");
+    await made.getByRole("textbox", { name: "Brief" }).fill("Be careful.");
+    await made.getByRole("button", { name: "Save" }).click();
+    await expect(made).toBeHidden();
+
+    const title = `Budget ${crypto.randomUUID().slice(0, 8)}`;
+    const sheet = await routines(page);
+    await sheet.getByRole("button", { name: "New", exact: true }).click();
+    const form = panel(page).getByRole("form", { name: "New automation" });
+    await form.getByLabel("Title").fill(title);
+    await form.getByLabel("Prompt").fill("check the budget");
+    await expect(form.getByLabel("Owner")).toHaveValue("ky");
+    await form.getByLabel("Owner").selectOption(id);
+    await page.screenshot({ path: "test-results/web/automation-owner.png" });
+    await form.getByRole("button", { name: "Save" }).click();
+    const automation = sheet.getByRole("listitem", { name: title });
+    await expect(automation).toBeVisible();
+
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await expect(panel(page).getByRole("form", { name: "Edit automation" }).getByLabel("Owner")).toHaveValue(id);
+  });
+
   test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
     await open(page);
     await connectExecutor(page);
