@@ -40,8 +40,8 @@ import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
-import { agentModel, type ModelsBoundary, VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/contract";
-import { Models } from "./providers/wiring";
+import { agentModel, type ModelsBoundary } from "./providers/contract";
+import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
@@ -93,9 +93,9 @@ export type Boundary = ModelsBoundary & {
   readonly extensions: readonly Extension[];
 };
 
-/** What a deploy lacks: VibeProxy unless a paired machine shares it (one of `providers`). Executor is connected in Settings instead. */
-export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
-  return vibeProxy.tunnel || providers.includes(VIBEPROXY_PROVIDER) ? [] : [VIBEPROXY_NOT_SET_UP];
+/** What a deploy lacks, as each model source says, given the providers ky has. Executor is connected in Settings instead. */
+export function notSetUp(boundary: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
+  return modelsNotSetUp(boundary, providers);
 }
 
 /** The user's one agent, one Durable Object. */
@@ -884,19 +884,17 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /**
-   * Production's boundary: Workers AI, the internet, Browser Rendering, and VibeProxy's tunnel
-   * when this deploy has its vars and secret (wrangler.local.example.jsonc).
+   * Production's boundary: Workers AI, the internet, Browser Rendering, and the model sources' own
+   * bindings when this deploy has them (wrangler.local.example.jsonc).
    */
   boundaryFor(env: Env): Boundary {
-    const { VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VIBEPROXY_KEY: key } = env;
-
     const { EMAIL: email, KY_MAIL_ADDRESS: address } = env;
 
     return {
       ai: env.AI,
       fetch: (input, init) => fetch(input, init),
       mail: email && address ? { address: addressOf(address), send: (message) => email.send(message) } : undefined,
-      vibeProxy: { port: VIBEPROXY_PORT, key: key || undefined, tunnel: binding && origin && key ? { binding, origin } : undefined },
+      vibeProxy: vibeProxyFrom(env),
       browser: env.BROWSER,
       extensions: [],
       seeds: true

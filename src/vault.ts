@@ -276,6 +276,13 @@ export class Vault extends DurableObject<Env> {
     return creds[agent] ?? null;
   }
 
+  /** The ChatGPT login's access token for ky's own chat, refreshed as a Codex task's is; null when signed out. */
+  async chatgptToken(): Promise<{ accessToken: string } | null> {
+    const creds = await this.#codexCreds();
+
+    return creds ? { accessToken: creds.accessToken } : null;
+  }
+
   /** Start a ChatGPT sign-in: the user enters `userCode` at `verificationUrl`, and the Vault's alarm polls until they have. */
   async chatgptLogin(): Promise<ChatGptCode> {
     const device = await startDevice(this.openai);

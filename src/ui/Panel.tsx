@@ -1796,6 +1796,9 @@ const LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = {
   max: "Max",
 };
 
+/** Each level's label in the thinking switch, short enough that all of them fit the panel's width; its full name stays its name. */
+const SHORT_LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = { minimal: "Min", medium: "Med", xhigh: "XHigh" };
+
 const PURPOSE_ICONS: Record<Purpose, IconName> = { main: "chat", worker: "nodes", background: "pencil", fallback: "cloud" };
 
 // What a purpose runs, as its row shows it: the model, its provider and, when the model has a choice, how hard it thinks.
@@ -1864,7 +1867,9 @@ function ThinkingPicker({
 
   return (
     <section className="group">
-      <h4 className="group-label">Thinking</h4>
+      <h4 className="group-label">
+        Thinking <span className="thinking-chosen">· {LEVELS[current.thinkingLevel] ?? current.thinkingLevel}</span>
+      </h4>
       <div className="card">
         <div className="row thinking">
           <Segmented small role="radiogroup" aria-label={`${PURPOSE_TEXT[purpose].label} thinking`} chosen={current.thinkingLevel}>
@@ -1874,10 +1879,11 @@ function ThinkingPicker({
                 type="button"
                 role="radio"
                 aria-checked={current.thinkingLevel === each}
+                aria-label={LEVELS[each] ?? each}
                 className="pressable"
                 onClick={() => onSet(purpose, { ...current, thinkingLevel: each })}
               >
-                {LEVELS[each] ?? each}
+                {SHORT_LEVELS[each] ?? LEVELS[each] ?? each}
               </button>
             ))}
           </Segmented>

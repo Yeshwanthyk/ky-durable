@@ -1,13 +1,26 @@
-diff --git a/src/providers/models.ts b/src/providers/models.ts
-index cb3be71..ed4aed6 100644
---- a/src/providers/models.ts
-+++ b/src/providers/models.ts
-@@ -56,7 +56,7 @@ type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true; readonly
+diff --git a/src/providers/sources/api-keys.ts b/src/providers/sources/api-keys.ts
+index e3894ad..4669382 100644
+--- a/src/providers/sources/api-keys.ts
++++ b/src/providers/sources/api-keys.ts
+@@ -86,7 +86,7 @@ export function apiKey(vendor: Vendor, fetch: FetchFunction, key: (providerId: s
+ /** The vendors the user pasted a key for: a record each, added and removed in Settings, never placed. */
+ export const apiKeys: Source = {
+   kind: "api-key",
+-  priority: 1,
++  priority: 0,
+   start: ({ boundary, vault, now }) => ({
+     place: () => [],
+     build: (record) => {
+diff --git a/src/providers/sources/vibeproxy.ts b/src/providers/sources/vibeproxy.ts
+index b70bea7..75a101a 100644
+--- a/src/providers/sources/vibeproxy.ts
++++ b/src/providers/sources/vibeproxy.ts
+@@ -153,7 +153,7 @@ function endpoint({ machine, transport, online, ...way }: Way, host: SourceHost)
  
- export type Resolved = { readonly choice: ModelChoice; readonly model: Model<Api> };
- 
--const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 0, "api-key": 1, "workers-ai": 2 };
-+const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 1, "api-key": 0, "workers-ai": 2 };
- 
- export class Host extends Context.Service<
-   Host,
+ export const vibeProxy: Source = {
+   kind: "runner-local",
+-  priority: 0,
++  priority: 1,
+   missing: ({ vibeProxy: { tunnel } }, providers) => (tunnel || providers.includes(VIBEPROXY_PROVIDER) ? [] : [VIBEPROXY_NOT_SET_UP]),
+   start: (host) => ({
+     // The machine that shares the port, online first; else the tunnel. The record stays when both go, so a reboot finds it.

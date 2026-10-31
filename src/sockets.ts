@@ -398,7 +398,7 @@ export class PiSessionSockets {
     };
 
     models.settings.onChange(broadcastSettings);
-    // A machine that shares VibeProxy sets it up.
+    // A model source coming or going changes what Settings lists as set up.
     models.onChange(() => {
       broadcastSettings();
       broadcastSetup();
@@ -406,6 +406,8 @@ export class PiSessionSockets {
     setup.onChange(broadcastSetup);
     subscriptions.onChange(() => {
       this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
+      // A sign-in or sign-out can change what the model sources place, ChatGPT's above all.
+      models.refresh().catch((error) => console.warn("models not refreshed", error));
     });
   }
 
@@ -786,7 +788,7 @@ export class PiSessionSockets {
 
     if (report.type !== "hello") return;
     this.broadcastTasks();
-    // The ports it shares, and its coming online, may move a runner-local provider to it.
+    // What it shares, and its coming online, can change what the model sources place.
     await this.#models.refresh();
   }
 
