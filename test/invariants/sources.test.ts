@@ -103,9 +103,9 @@ function sources(dir: string): string[] {
 const VIBEPROXY = /"vibeproxy"|VIBEPROXY_(PROVIDER|PORT|NAME|NOT_SET_UP|OFFER)|\b8317\b|vibeProxyRecord|tunnelPort/;
 
 /** Files that still know it, each with why. Keep this short; it should only shrink. */
-const KNOWN: Readonly<Record<string, string>> = {
+const KNOWN = {
   "src/ui/Panel.tsx": "the Settings Status card names VibeProxy until it shows the main model's provider instead"
-};
+} as const satisfies Readonly<Record<string, string>>;
 
 it("keeps VibeProxy's id, port and constants inside its source", () => {
   const leaks = sources("src").filter((file) => file !== "src/providers/sources/vibeproxy.ts" && !(file in KNOWN) && VIBEPROXY.test(readFileSync(path.join(REPO, file), "utf8")));

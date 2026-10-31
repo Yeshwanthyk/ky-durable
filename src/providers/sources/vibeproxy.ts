@@ -16,15 +16,15 @@ import { sending } from "../transport";
  * and the VIBEPROXY_KEY secret). This file is the only one in ky that knows either.
  */
 
-export const VIBEPROXY_PROVIDER = "vibeproxy";
+const VIBEPROXY_PROVIDER = "vibeproxy";
 
-export const VIBEPROXY_PORT = 8317;
+const VIBEPROXY_PORT = 8317;
 
-export const VIBEPROXY_NAME = "Claude via VibeProxy";
+const VIBEPROXY_NAME = "Claude via VibeProxy";
 
 export const VIBEPROXY_OFFER: Offer = { featured: ["claude-opus-5-5", "claude-haiku-5-5"], light: "claude-haiku-5-5" };
 
-export const VIBEPROXY_NOT_SET_UP: NotSetUp = {
+const VIBEPROXY_NOT_SET_UP: NotSetUp = {
   id: VIBEPROXY_PROVIDER,
   name: VIBEPROXY_NAME,
   needs: `a paired machine whose runner shares port ${VIBEPROXY_PORT} (KY_RUNNER_PORTS=${VIBEPROXY_PORT}), or the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret`
@@ -39,11 +39,11 @@ export function vibeProxyFrom({ VIBEPROXY: binding, VIBEPROXY_ORIGIN: origin, VI
   return { port: VIBEPROXY_PORT, key: key || undefined, tunnel: binding && origin && key ? { binding, origin } : undefined };
 }
 
-export function vibeProxyRecord(machine: string | null, port: number): ProviderRecord {
+function vibeProxyRecord(machine: string | null, port: number): ProviderRecord {
   return { id: VIBEPROXY_PROVIDER, kind: "runner-local", vendor: null, machine, port, api: "anthropic-messages", label: VIBEPROXY_NAME, enabled: true };
 }
 
-export function tunnelPort({ origin }: VibeProxyTunnel): number {
+function tunnelPort({ origin }: VibeProxyTunnel): number {
   const url = new URL(origin);
 
   return Number(url.port) || (url.protocol === "https:" ? 443 : 80);

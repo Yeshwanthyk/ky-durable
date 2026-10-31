@@ -13,7 +13,7 @@ import type { Endpoint, Source } from "../endpoint";
 import { offered } from "../offer";
 import { sending } from "../transport";
 
-export const WORKERS_AI = "workers-ai";
+const WORKERS_AI = "workers-ai";
 
 const WORKERS_AI_RECORD: ProviderRecord = {
   id: WORKERS_AI,
@@ -44,7 +44,7 @@ const HEADERS = {
   "x-api-key": null
 };
 
-export function workersAI(ai: AiBinding, now: Now): Endpoint {
+function workersAI(ai: AiBinding, now: Now): Endpoint {
   const models = MODELS.map(([modelId, thinking]): Model<Api> => {
     const base = Object.values(CLOUDFLARE_AI_GATEWAY_MODELS).find((model) => model.id === modelId);
 
