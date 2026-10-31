@@ -218,6 +218,8 @@ export class World {
   readonly down = new Set<string>();
   vibeUp = true;
   tunnel = false;
+  /** The ChatGPT sign-in's access token in the Vault; null while signed out. Parity's actions never sign in. */
+  chatgpt: string | null = null;
   reply: Reply = REPLIES.hi;
   changes = 0;
   models: Models;
@@ -247,6 +249,7 @@ export class World {
 
     const vault: KeyVault = {
       auth: async (id) => this.keys.get(id) ?? null,
+      chatgptToken: async () => (this.chatgpt === null ? null : { accessToken: this.chatgpt }),
       put: async (kind, id, value) => {
         this.vaultLog.push({ put: kind, id, apiKey: value.apiKey });
         this.keys.set(id, value);

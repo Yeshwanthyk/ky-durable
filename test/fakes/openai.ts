@@ -45,7 +45,8 @@ export function fakeOpenAi(now: () => number): FakeOpenAi {
 
     return Response.json({
       id_token: jwt({ "https://api.openai.com/auth": { chatgpt_account_id: ACCOUNT_ID }, n: issued }),
-      access_token: jwt({ exp: Math.floor((now() + ACCESS_TTL_MS) / 1000), n: issued }),
+      // As OpenAI's do, the access token names the account too: Codex's backend wants it as chatgpt-account-id.
+      access_token: jwt({ "https://api.openai.com/auth": { chatgpt_account_id: ACCOUNT_ID }, exp: Math.floor((now() + ACCESS_TTL_MS) / 1000), n: issued }),
       refresh_token: `refresh-${issued}`
     });
   };

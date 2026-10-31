@@ -442,6 +442,7 @@ const make = Effect.gen(function* () {
     refresh: Effect.gen(function* () {
       const before = endpoints;
 
+      yield* Effect.promise(() => Promise.all([...sources.values()].flatMap((source) => source.check?.() ?? [])));
       yield* place;
       yield* load;
 

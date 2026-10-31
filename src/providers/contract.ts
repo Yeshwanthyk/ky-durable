@@ -7,7 +7,7 @@ import type { VibeProxyBoundary } from "./sources/vibeproxy";
 
 export const PROVIDER_TABLES = Object.freeze({ providers: "ky_providers" } as const);
 
-export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "runner-local"]);
+export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "runner-local", "chatgpt"]);
 
 export type ProviderKind = typeof ProviderKind.Type;
 
@@ -36,6 +36,8 @@ export type KeyVault = {
   auth(providerId: string): Promise<ProviderKey | null>;
   put(kind: "provider", id: string, value: ProviderKey): Promise<void>;
   remove(kind: "provider", id: string): Promise<void>;
+  /** The ChatGPT login's access token, refreshed by the Vault when it's close to running out; null when signed out. */
+  chatgptToken(): Promise<{ readonly accessToken: string } | null>;
 };
 
 export type ModelsBoundary = {

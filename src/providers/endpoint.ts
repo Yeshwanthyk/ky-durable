@@ -34,6 +34,8 @@ export type SourceHost = {
 
 /** A source as ky runs it: the records it wants kept, and an endpoint for each. */
 export type LiveSource = {
+  /** Look again at what it depends on, before a refresh places its records. */
+  readonly check?: () => Promise<void>;
   /** The records it puts in place from what ky sees now. Runs at start and on every refresh. */
   readonly place: () => readonly ProviderRecord[];
   /** A live endpoint for one of its records, or none when it can't make one now. */
