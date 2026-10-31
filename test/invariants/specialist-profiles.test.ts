@@ -1,9 +1,13 @@
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { isMac } from "../../src/machines/contract";
+import { confine, place } from "../../src/machines/tool";
+import { MachineHub } from "../../src/machines/wiring";
 import { type AccessChange, KY, type Machinery, SKILL_TABLES, SpecialistAction, type SessionKind } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
 import { Specialists } from "../../src/skills/wiring";
+import { settle, World } from "../parity/machines/world";
 import { storageOf } from "../parity/skills/storage";
 
 /**
@@ -40,9 +44,72 @@ function world() {
 
 const NEW = { description: "Builds things.", brief: "Be terse." };
 
+const T = 1_760_000_000_000;
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
+const COMPUTER = {
+  os: "darwin",
+  chrome: true,
+  repos: [],
+  agents: { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } },
+  ports: [],
+  kind: "computer" as const
+};
+
+/**
+ * ky's real machine hub and task feed, as server.ts wires them to the specialists: the default sandbox, a
+ * spare one, two paired Macs (offline: no runner has said hello), and each specialist made by the user, with
+ * its own sandbox and a home conversation.
+ */
+function fleet() {
+  const world = new World(T);
+  const hub = new MachineHub(world.durable.storage(), world.feed, world.socketsOf, world.files, world.tokens, world.creds, world.sandboxes);
+
+  for (const mac of MACS) hub.paired(mac, COMPUTER, `p-${mac}`);
+
+  const machines: Machinery = {
+    sandboxes: () => world.sandboxes.live(),
+    macs: () => hub.machines().flatMap((machine) => (isMac(machine) ? [machine.name] : [])),
+    open: (name) => {
+      const made = world.sandboxes.create({ name, isDefault: false }, (taken) => hub.machine(taken) !== undefined);
+      hub.listSandboxes();
+
+      return made;
+    }
+  };
+
+  const specialists = new Specialists(storageOf(new DatabaseSync(":memory:")), machines);
+  hub.attach(world.harness);
+  hub.listSandboxes();
+  hub.adopt = (task, parent) => specialists.adopt(task, parent);
+  specialists.onChange(() => void confine(hub, world.feed, specialists));
+
+  for (const id of IDS) {
+    specialists.create(id, NEW, "user");
+    specialists.attach(`home-${id}`, id, "home");
+  }
+
+  return { world, hub, specialists };
+}
+
 const IDS = ["engineer", "researcher", "fin"] as const;
 
 const anId = fc.constantFrom(...IDS);
+
+const anOwner = fc.constantFrom(KY, ...IDS);
+
+/** The user gives a specialist a Mac, or takes it back. */
+const aGrant = fc.record({ id: anId, mac: fc.constantFrom(...MACS), grant: fc.boolean() });
+
+/** A machine a run names: a Mac, ky's sandboxes, a specialist's, or one ky has never heard of. */
+const aRequest = fc.constantFrom<string>(...MACS, "cloud", "lab", ...IDS, "laptop");
 
 const aKind = fc.constantFrom<SessionKind>("home", "consult", "discuss", "group");
 
@@ -167,8 +234,70 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
     expect(specialists.profile(KY).sandboxes).toEqual([{ id: "cloud", name: "cloud" }]);
   });
 
-  it.todo("a machine task of a specialist's runs only on its home sandbox or a Mac it was granted (Phase 3A)");
-  it.todo("revoking a Mac stops the owner's runs on it (Phase 3A)");
+  it("puts a specialist's run only on its own sandbox or a Mac it was granted, and ky's never on a specialist's sandbox", () => {
+    fc.assert(
+      fc.property(fc.array(aGrant, { maxLength: 6 }), anOwner, fc.option(aRequest, { nil: undefined }), fc.constantFrom(undefined, "acme/api"), (grants, owner, requested, repo) => {
+        const { hub, specialists } = fleet();
+
+        for (const { id, mac, grant } of grants) tried(specialists, id, { mac, grant });
+        const profile = specialists.profile(owner);
+        const own = [profile.home?.name, ...profile.macs];
+        const placed = place(hub.machines(), profile, requested, repo);
+
+        if ("refusal" in placed) {
+          if (owner !== KY && requested !== undefined && !own.includes(requested)) expect(placed.refusal).toContain(`@${owner} can't use ${requested}; only the user can give it one — ask them.`);
+
+          return;
+        }
+
+        if (owner === KY) expect(IDS.map((id) => specialists.profile(id).home?.name)).not.toContain(placed.name);
+        else expect(own).toContain(placed.name);
+      }),
+      { numRuns: 40 }
+    );
+  });
+
+  it("revoking a Mac stops the owner's runs on it, tells the conversation that started each, and leaves every other run", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(aGrant, { maxLength: 6 }), fc.array(fc.record({ owner: anOwner, mac: fc.constantFrom(...MACS) }), { maxLength: 6 }), fc.array(aGrant, { maxLength: 6 }), async (before, starts, after) => {
+        const { world, hub, specialists } = fleet();
+
+        for (const { id, mac, grant } of before) tried(specialists, id, { mac, grant });
+
+        const started = starts.flatMap(({ owner, mac }, at) => {
+          const conversation = owner === KY ? "main" : `home-${owner}`;
+
+          if ("refusal" in place(hub.machines(), specialists.profileOf(conversation), mac)) return [];
+
+          return [{ id: hub.start(mac, "a job", "do it", `m-${at}`, conversation).id, owner, mac, conversation }];
+        });
+
+        const lost = new Set<string>();
+
+        for (const { id, mac, grant } of after) {
+          tried(specialists, id, { mac, grant });
+          await settle();
+
+          if (!grant) lost.add(`${id}:${mac}`);
+        }
+
+        for (const run of started) {
+          const task = world.feed.get(run.id);
+          const kept = !lost.has(`${run.owner}:${run.mac}`);
+
+          const told = world.effects.pi.some((each) => {
+            const posted = JSON.stringify(each);
+
+            return posted.includes(`"session":"${run.conversation}"`) && posted.includes(`@${run.owner} may no longer use ${run.mac}`);
+          });
+
+          expect(specialists.profileOf(run.id).owner).toBe(run.owner);
+          expect({ status: task?.status, told }).toEqual(kept ? { status: "queued", told: false } : { status: "stopped", told: true });
+        }
+      }),
+      { numRuns: 25 }
+    );
+  });
 });
 
 describe("R2 SessionMatchesVault: a live browser session holds only logins its owner has in the Vault", () => {
@@ -201,6 +330,20 @@ describe("R3 DeleteCleans: a deleted specialist has no runs, sessions, logins, k
 });
 
 describe("R4 NoSilentFallback: a workflow whose Mac is offline waits and tells; never runs on another machine", () => {
+  it("a run for a machine its owner may use goes to that machine, offline or not; one it may not use is refused, never sent elsewhere", () => {
+    fc.assert(
+      fc.property(fc.array(aGrant, { maxLength: 6 }), anOwner, aRequest, (grants, owner, requested) => {
+        const { hub, specialists } = fleet();
+
+        for (const { id, mac, grant } of grants) tried(specialists, id, { mac, grant });
+        const placed = place(hub.machines(), specialists.profile(owner), requested);
+
+        expect(["refusal" in placed, "name" in placed && placed.name === requested]).toContain(true);
+      }),
+      { numRuns: 40 }
+    );
+  });
+
   it.todo("an owned workflow's run waits for its offline Mac and tells the user (Phase 3B)");
 });
 
@@ -276,7 +419,25 @@ describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () =>
     );
   });
 
-  it.todo("the machine, browse, secret and executor tools refuse what the profile doesn't allow, whatever the prompt says (Phase 3)");
+  it("the machine tool lets an owner name only its own machines: a specialist, its sandbox and the Macs it was given; ky, all but specialists' sandboxes", () => {
+    fc.assert(
+      fc.property(fc.array(aGrant, { maxLength: 6 }), anOwner, aRequest, (grants, owner, requested) => {
+        const { hub, specialists } = fleet();
+
+        for (const { id, mac, grant } of grants) tried(specialists, id, { mac, grant });
+        const profile = specialists.profile(owner);
+        const homes = IDS.map((id) => specialists.profile(id).home?.name);
+        const mayUse = owner === KY ? !homes.includes(requested) : requested === profile.home?.name || profile.macs.includes(requested);
+        const placed = place(hub.machines(), profile, requested);
+
+        if (!mayUse) expect(placed).toHaveProperty("refusal");
+        else expect(placed).not.toHaveProperty("refusal", expect.stringContaining("can't use"));
+      }),
+      { numRuns: 40 }
+    );
+  });
+
+  it.todo("the browse, secret and executor tools refuse what the profile doesn't allow, whatever the prompt says (Phase 3C, 3D)");
 });
 
 describe("R7 NoLaundering: a change outside content led to needs the user's OK", () => {

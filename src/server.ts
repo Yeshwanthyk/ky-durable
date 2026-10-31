@@ -38,7 +38,7 @@ import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/
 import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
-import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
+import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary, VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/contract";
 import { Models } from "./providers/wiring";
@@ -487,7 +487,7 @@ export class PiAgent extends DurableObject<Env> {
 
       this.registry.install(skillTools(skilling));
 
-      const { machines } = machineTools({ machines: this.machines, feed: this.feed });
+      const { machines } = machineTools({ machines: this.machines, feed: this.feed, owners: this.specialists });
       const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
 
       this.registry.install(memory);
@@ -625,6 +625,9 @@ export class PiAgent extends DurableObject<Env> {
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
+    this.machines.adopt = (task, parent) => this.specialists.adopt(task, parent);
+    // A Mac the user takes from a specialist, or unpairs, stops that specialist's work on it.
+    this.specialists.onChange(() => this.ctx.waitUntil(confine(this.machines, this.feed, this.specialists)));
     this.proactivity.onChange(() => this.ctx.waitUntil(this.automations.bookLooks()));
     // A closed watch anticipation, or Proactivity off, retires its watch.
     this.proactivity.onChange(() => this.ctx.waitUntil(this.looks.retire()));

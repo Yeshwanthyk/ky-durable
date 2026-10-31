@@ -13,7 +13,7 @@ type Storage = ConstructorParameters<typeof MachineHub>[0];
 
 type SqlStorageOf = ConstructorParameters<typeof TaskFeed>[0];
 
-export function storageOf(db: DatabaseSync) {
+export function machineStorageOf(db: DatabaseSync) {
   const exec = (query: string, ...bindings: SQLInputValue[]) => {
     const statement = db.prepare(query);
     const returns = statement.columns().length > 0;
@@ -53,7 +53,7 @@ type Effects = { readonly vault: Json[]; readonly runner: Json[]; readonly pi: J
 
 export class World {
   readonly db = new DatabaseSync(":memory:");
-  readonly durable = storageOf(this.db);
+  readonly durable = machineStorageOf(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
   readonly files = new FileStore(this.durable.storage());
   readonly sandboxes = new Sandboxes(this.durable.storage());
