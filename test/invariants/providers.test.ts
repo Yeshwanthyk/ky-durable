@@ -304,6 +304,30 @@ describe("stored rows", () => {
       ),
       runs()
     ));
+
+  it("writes nothing on a refresh that changes nothing, and moves a record only when what it names moved", () =>
+    fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.record({ name: fc.constantFrom("mac", "mini"), online: fc.boolean(), shares: fc.boolean() }), { maxLength: 4 }),
+        fc.boolean(),
+        async (machines, tunnel) => {
+          const { world } = fresh();
+          const writes = () => Number(world.db.prepare("SELECT total_changes() AS n").get()?.["n"]);
+
+          await world.apply({ kind: "reboot", tunnel });
+
+          for (const machine of machines) await world.apply({ kind: "machine", ...machine });
+          await world.apply({ kind: "refresh" });
+          const before = { rows: stored(world), writes: writes() };
+
+          await world.apply({ kind: "refresh" });
+
+          expect(stored(world)).toEqual(before.rows);
+          expect(writes()).toBe(before.writes);
+        }
+      ),
+      runs()
+    ));
 });
 
 describe("ChatGPT sign-in", () => {

@@ -241,8 +241,18 @@ const make = Effect.gen(function* () {
     for (const endpoint of endpoints) if (!before.includes(endpoint)) registry.setProvider(compacting(routed(endpoint)));
   });
 
-  // Each source puts in place the records it wants from what ky sees now; an upsert, so a record's enabled flag stays the user's.
-  const place = Effect.suspend(() => Effect.forEach([...sources.values()].flatMap((source) => source.place()), (record) => records.add(record), { discard: true }));
+  // Each source puts in place the records it wants from what ky sees now. Only a missing or moved one is written, as
+  // an upsert, so a refresh that changes nothing writes nothing, and a record's enabled flag stays the user's.
+  const place = Effect.gen(function* () {
+    const stored = new Map((yield* records.list).map((record) => [record.id, made(record)]));
+    const wanted = [...sources.values()].flatMap((source) => source.place());
+
+    yield* Effect.forEach(
+      wanted.filter((record) => stored.get(record.id) !== made(record)),
+      (record) => records.add(record),
+      { discard: true }
+    );
+  });
 
   const mainOf = (need: ModelNeed) =>
     Effect.suspend(() => {
