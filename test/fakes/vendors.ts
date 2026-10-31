@@ -2,7 +2,8 @@ import { type AiCall, type Reply, type Script, type WireMessage, wireText } from
 
 /**
  * Anthropic's Messages API and OpenAI's Responses API, the api-key vendors
- * that don't speak chat completions, answering text from the same script as
+ * that don't speak chat completions, and ChatGPT's Codex backend, which speaks
+ * the Responses API for a ChatGPT sign-in, answering text from the same script as
  * test/fakes/ai.ts. Each wants its own key and answers any other with 401, as
  * the vendors do. They answer a reply that calls a tool with 501: only
  * Workers AI and OpenCode Go run the tests' tools.
@@ -11,6 +12,22 @@ import { type AiCall, type Reply, type Script, type WireMessage, wireText } from
 export const ANTHROPIC_KEY = "sk-ant-api03-test";
 
 export const OPENAI_KEY = "sk-proj-test";
+
+export const CHATGPT_ACCOUNT = "acct-test";
+
+type Claims = Readonly<Record<string, string | Readonly<Record<string, string>>>>;
+
+const base64url = (value: Claims) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+
+/** A ChatGPT access token as the sign-in hands it out: a JWT naming the account, which Codex wants as a header too. */
+export const CHATGPT_TOKEN = `${base64url({ alg: "none" })}.${base64url({ "https://api.openai.com/auth": { chatgpt_account_id: CHATGPT_ACCOUNT } })}.sig`;
+
+const OPENAI = { path: "/v1/responses", authorized: (request: Request) => request.headers.get("authorization") === `Bearer ${OPENAI_KEY}` };
+
+const CODEX = {
+  path: "/backend-api/codex/responses",
+  authorized: (request: Request) => request.headers.get("authorization") === `Bearer ${CHATGPT_TOKEN}` && request.headers.get("chatgpt-account-id") === CHATGPT_ACCOUNT
+};
 
 type Part = { readonly type: string; readonly text?: string };
 
@@ -25,7 +42,9 @@ export function vendors(script: Script, calls: AiCall[], otherwise: typeof fetch
       case "api.anthropic.com":
         return messages(request, script, calls);
       case "api.openai.com":
-        return responses(request, script, calls);
+        return responses(request, script, calls, OPENAI);
+      case "chatgpt.com":
+        return responses(request, script, calls, CODEX);
       default:
         return otherwise(request);
     }
@@ -69,11 +88,11 @@ async function messages(request: Request, script: Script, calls: AiCall[]): Prom
   ]);
 }
 
-async function responses(request: Request, script: Script, calls: AiCall[]): Promise<Response> {
-  if (new URL(request.url).pathname !== "/v1/responses") return new Response("not found", { status: 404 });
+async function responses(request: Request, script: Script, calls: AiCall[], api: typeof OPENAI): Promise<Response> {
+  if (new URL(request.url).pathname !== api.path) return new Response("not found", { status: 404 });
 
   // SAFETY: pi's openai-responses API posts a Responses API body; tool calls and results are items without a role.
-  const body = (await request.json()) as {
+  const body = JSON.parse(await textOf(request)) as {
     model: string;
     input: ReadonlyArray<Partial<Turn>>;
     reasoning?: { readonly effort?: string };
@@ -85,7 +104,7 @@ async function responses(request: Request, script: Script, calls: AiCall[]): Pro
 
   record(request, calls, body.model, wire, body.reasoning?.effort ?? null);
 
-  if (request.headers.get("authorization") !== `Bearer ${OPENAI_KEY}`) {
+  if (!api.authorized(request)) {
     return Response.json(
       { error: { message: "Incorrect API key provided.", type: "invalid_request_error", code: "invalid_api_key" } },
       { status: 401 }
@@ -105,6 +124,14 @@ async function responses(request: Request, script: Script, calls: AiCall[]): Pro
     ["response.output_item.done", { type: "response.output_item.done", output_index: 0, item }],
     ["response.completed", { type: "response.completed", response: { id: "resp_fake", status: "completed", usage } }]
   ]);
+}
+
+/** A request's body as text. pi zstd-compresses a Codex body where node:zlib can, as the Codex client does, and the backend takes either. */
+async function textOf(request: Request): Promise<string> {
+  if (request.headers.get("content-encoding") !== "zstd") return request.text();
+  const zlib = process.getBuiltinModule("node:zlib");
+
+  return zlib.zstdDecompressSync(new Uint8Array(await request.arrayBuffer())).toString();
 }
 
 /** A turn's role as chat completions has it; pi places system-prompt changes as system (or developer) turns. */

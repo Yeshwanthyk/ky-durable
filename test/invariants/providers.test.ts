@@ -4,7 +4,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { CLAUDE_TOKEN_HERE, CONTEXT_WINDOW } from "../../src/providers/contract";
 import type { Purpose } from "../../src/settings/contract";
-import { ANTHROPIC_KEY, OPENAI_KEY } from "../fakes/vendors";
+import { ANTHROPIC_KEY, CHATGPT_ACCOUNT, CHATGPT_TOKEN, OPENAI_KEY } from "../fakes/vendors";
 import { budget, type Json } from "../parity/kit";
 import {
   aChoice,
@@ -328,6 +328,57 @@ describe("stored rows", () => {
       ),
       runs()
     ));
+});
+
+describe("ChatGPT subscription", () => {
+  const chatgptRow = (world: World) => world.models.catalog().find((provider) => provider.id === "chatgpt");
+
+  it("stays out until the user signs in, then runs main on GPT with the Vault's token, over SSE", async () => {
+    const { world } = fresh();
+
+    expect(providerIds(world)).toEqual(["workers-ai"]);
+    expect(stored(world).map((row) => row["id"])).toEqual(["workers-ai"]);
+
+    world.chatgpt = CHATGPT_TOKEN;
+    await world.models.refresh();
+
+    expect(providerIds(world)).toEqual(["chatgpt", "workers-ai"]);
+    expect(chatgptRow(world)).toMatchObject({ kind: "chatgpt", name: "ChatGPT subscription", connected: true });
+    expect(await ask(world)).toMatchObject({ provider: "chatgpt", model: "gpt-6.1-sol" });
+
+    const call = world.calls.at(-1);
+
+    expect(call?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect(call?.headers).toMatchObject({ authorization: `Bearer ${CHATGPT_TOKEN}`, "chatgpt-account-id": CHATGPT_ACCOUNT, accept: "text/event-stream" });
+  });
+
+  it("keeps its row after a sign-out, unused until the user signs in again", async () => {
+    const { world } = fresh();
+
+    world.chatgpt = CHATGPT_TOKEN;
+    await world.models.refresh();
+    world.chatgpt = null;
+    await world.models.refresh();
+
+    expect(chatgptRow(world)).toMatchObject({ connected: false, needs: "ChatGPT signed in, in Settings › Subscriptions" });
+    expect(await ask(world)).toMatchObject({ provider: "workers-ai" });
+
+    world.chatgpt = CHATGPT_TOKEN;
+    await world.models.refresh();
+
+    expect(await ask(world)).toMatchObject({ provider: "chatgpt" });
+  });
+
+  it("leaves main on a key the user added", async () => {
+    const { world } = fresh();
+
+    await world.models.addKey("anthropic", ANTHROPIC_KEY);
+    world.chatgpt = CHATGPT_TOKEN;
+    await world.models.refresh();
+
+    expect(providerIds(world)).toEqual(["anthropic", "chatgpt", "workers-ai"]);
+    expect(await ask(world)).toMatchObject({ provider: "anthropic" });
+  });
 });
 
 describe("ChatGPT sign-in", () => {

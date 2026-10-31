@@ -47,7 +47,7 @@ const boundary: ModelsBoundary = {
 
 const host: SourceHost = {
   boundary,
-  vault: { auth: async () => ({ apiKey: "key" }), put: async () => {}, remove: async () => {} },
+  vault: { auth: async () => ({ apiKey: "key" }), put: async () => {}, remove: async () => {}, chatgptToken: async () => ({ accessToken: "token" }) },
   machines: { machines: () => [machine], online: () => true },
   pipe: { fetcher: () => refuse },
   now: () => 0,
@@ -64,8 +64,10 @@ describe("model sources", () => {
     expect(SOURCES.filter((source) => source.background).length).toBeLessThanOrEqual(1);
   });
 
-  it.each(SOURCES.map((source) => [source.kind, source] as const))("%s places records of its own kind, and builds an endpoint for each", (kind, source) => {
+  it.each(SOURCES.map((source) => [source.kind, source] as const))("%s places records of its own kind, and builds an endpoint for each", async (kind, source) => {
     const live = source.start(host);
+
+    await live.check?.();
 
     for (const record of live.place()) {
       expect(record.kind).toBe(kind);

@@ -390,6 +390,8 @@ export class PiSessionSockets {
     setup.onChange(broadcastSetup);
     subscriptions.onChange(() => {
       this.#broadcastSubscriptions().catch((error) => console.warn("subscriptions not sent", error));
+      // A sign-in or sign-out can change what the model sources place, ChatGPT's above all.
+      models.refresh().catch((error) => console.warn("models not refreshed", error));
     });
   }
 
