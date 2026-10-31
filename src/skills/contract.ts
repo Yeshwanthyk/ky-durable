@@ -32,7 +32,8 @@ export const SKILL_TABLES = Object.freeze({
   skillReviews: "ky_skill_reviews",
   specialists: "ky_specialists",
   specialistSessions: "ky_specialist_sessions",
-  specialistProfiles: "ky_specialist_profiles"
+  specialistProfiles: "ky_specialist_profiles",
+  specialistOwned: "ky_specialist_owned"
 } as const);
 
 export const TOOLS = Object.freeze({
@@ -423,19 +424,19 @@ export const ProfileStored = Schema.Struct({
   tools: Schema.fromJsonString(ToolOverrides)
 });
 
-const Profile = Schema.Struct({
-  owner: Schema.String,
-  /** Its sandbox; null when it has none live. */
-  home: Schema.NullOr(Schema.Struct({ id: Schema.String, name: Schema.String })),
-  /** The paired Macs it may give work to. */
-  macs: Schema.Array(Schema.String),
-  tools: ToolOverrides
-});
+type SandboxRef = { readonly id: string; readonly name: string };
 
 /** What an owner ("ky" or a specialist's id) may use, as read at one moment: a run keeps the one it started with. */
-export type Profile = typeof Profile.Type;
-
-type SandboxRef = { readonly id: string; readonly name: string };
+export type Profile = {
+  readonly owner: string;
+  /** Where its work goes unless it says otherwise; null when it has no sandbox live. */
+  readonly home: SandboxRef | null;
+  /** Every sandbox it may use: a specialist's own, or for ky each live one that is no specialist's. */
+  readonly sandboxes: readonly SandboxRef[];
+  /** The paired Macs it may give work to. */
+  readonly macs: readonly string[];
+  readonly tools: typeof ToolOverrides.Type;
+};
 
 /** What profiles need from outside the skills domain (server.ts gives it). */
 export type Machinery = {

@@ -347,11 +347,7 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
-    specialists.onChange(() => {
-      const message = this.#specialistsMessage();
-
-      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
-    });
+    specialists.onChange(() => this.#broadcastSpecialists());
     approvals.store.onChange(() => this.#broadcastApprovals());
     approvals.executor.onPolicies(() => {
       this.#broadcastExecutorView().catch((error) => console.warn("executor not sent", error));
@@ -377,7 +373,11 @@ export class PiSessionSockets {
       this.#runsKey = runs;
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
-    hub.onChange(() => this.broadcastTasks());
+    // A sandbox or a Mac coming or going changes what a specialist's settings offer.
+    hub.onChange(() => {
+      this.broadcastTasks();
+      this.#broadcastSpecialists();
+    });
     files.onChange(() => this.broadcastTasks());
 
     const broadcastSettings = () => {
@@ -453,6 +453,12 @@ export class PiSessionSockets {
 
   #skillsMessage(): PiServerMessage {
     return { type: "skills", skills: this.#skills.all() };
+  }
+
+  #broadcastSpecialists(): void {
+    const message = this.#specialistsMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
   }
 
   #specialistsMessage(): PiServerMessage {

@@ -12,6 +12,7 @@ import type {
   SpecialistView,
 } from "../protocol";
 import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
+import { isMac } from "../machines/contract";
 import { BotAvatar } from "./BotAvatar";
 import { Switch } from "./Controls";
 import { Icon } from "./Icon";
@@ -561,13 +562,17 @@ function SpecialistMachines({
   const [refused, setRefused] = useState<string | undefined>();
   const sandboxes = machines.flatMap((machine) => (machine.sandbox ? [{ id: machine.sandbox.id, name: machine.name }] : []));
   // A Mac it may use that isn't paired now still shows, to revoke.
-  const macs = [...new Set([...machines.flatMap((machine) => (machine.sandbox || machine.facts?.kind === "cloud" ? [] : [machine.name])), ...access.macs])];
+  const macs = [...new Set([...machines.flatMap((machine) => (isMac(machine) ? [machine.name] : [])), ...access.macs])];
   const change = async (next: AccessChange) => setRefused(await onAccess(id, next));
 
   return (
     <div className="card" role="group" aria-label={`@${id}'s machines`}>
       <Pick label="Sandbox" value={access.home ?? ""} onChange={(home) => void change({ home })}>
-        {access.home === null ? <option value="">None</option> : null}
+        {access.home === null ? (
+          <option value="" disabled>
+            None
+          </option>
+        ) : null}
         {sandboxes.map((sandbox) => (
           <option key={sandbox.id} value={sandbox.id}>
             {sandbox.name}

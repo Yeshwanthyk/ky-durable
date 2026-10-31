@@ -102,6 +102,12 @@ class BadId extends Schema.TaggedError<BadId>()("BadId", {}) implements Refusabl
   }
 }
 
+class WasDeleted extends Schema.TaggedError<WasDeleted>()("WasDeleted", { id: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `@${this.id} was deleted; pick another id.`;
+  }
+}
+
 class Taken extends Schema.TaggedError<Taken>()("Taken", { id: Schema.String }) implements Refusable {
   get refusal(): string {
     return `@${this.id} already exists.`;
@@ -150,7 +156,7 @@ interface SpecialistRoster {
     draft: SpecialistDraft,
     actor: string,
     conversation: string | null
-  ) => Effect.Effect<string, BadId | KyItself | Taken | NoBrief | BadDescription | VersionRefusal>;
+  ) => Effect.Effect<string, BadId | KyItself | Taken | WasDeleted | NoBrief | BadDescription | VersionRefusal>;
   /** Change a specialist's description, model or machine; its brief changes through the facade's brief(). */
   readonly set: (id: string, draft: SpecialistDraft) => Effect.Effect<string, NoSpecialist | BadDescription>;
   /** Drop a specialist's row; its brief's versions and its conversations stay. */
@@ -169,6 +175,15 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
       Effect.gen(function* () {
         const { exec, rows } = yield* storage;
         const versions = yield* Versions;
+        const briefOf = (id: string) => ({ key: `specialist:${id}`, label: `@${id}'s brief`, listeners: hooks.listeners });
+
+        /** An id a deleted specialist had: its conversations and brief's versions are still its own. */
+        const deleted = (id: string) =>
+          Effect.gen(function* () {
+            const sessions = yield* exec(`SELECT 1 FROM ${SKILL_TABLES.specialistSessions} WHERE specialist = ? LIMIT 1`, id);
+
+            return sessions.length > 0 || (yield* versions.history(briefOf(id))).length > 0;
+          });
 
         for (const table of CREATE) yield* exec(table);
 
@@ -190,11 +205,13 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
 
               if ((yield* get(id)) !== undefined) return yield* Effect.fail(new Taken({ id }));
 
+              if (yield* deleted(id)) return yield* Effect.fail(new WasDeleted({ id }));
+
               const body = draft.brief;
 
               if (body === undefined) return yield* Effect.fail(new NoBrief());
               const description = yield* descriptionOf(draft.description);
-              yield* versions.apply({ key: `specialist:${id}`, label: `@${id}'s brief`, listeners: hooks.listeners }, { action: "edit", body }, actor, conversation);
+              yield* versions.apply(briefOf(id), { action: "edit", body }, actor, conversation);
               const now = yield* Clock.currentTimeMillis;
               yield* exec(
                 `INSERT INTO ${SKILL_TABLES.specialists} (id, description, model, machine, session, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
@@ -296,7 +313,7 @@ function own(specialists: Specialists, id: string, kind: SessionKind, profile: P
     how[kind],
     "You can search the user's memory with memory_recall and memory_zoom, but you never write it: put anything worth keeping in your answer.",
     kind === "discuss" ? "" : machinesLine(profile),
-    row.machine ? `For work on a machine, use ${row.machine} unless told otherwise.` : "",
+    row.machine !== null && (profile.macs.includes(row.machine) || profile.home?.name === row.machine) ? `For work on a machine, use ${row.machine} unless told otherwise.` : "",
     peers && (kind === "home" || kind === "consult") ? `Other specialists:\n${peers}` : ""
   ]
     .filter((part) => part !== "")

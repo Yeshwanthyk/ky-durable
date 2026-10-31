@@ -20,7 +20,7 @@ import type {
   SpecialistRow,
   SpecialistView
 } from "./contract";
-import { createSpecialist, deleteSpecialist, Machines, Profiles } from "./profiles";
+import { Machines, Profiles } from "./profiles";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
@@ -82,14 +82,58 @@ export class Specialists {
     return new Versioned(this.#edge, `specialist:${id}`, `@${id}'s brief`, { listeners: this.#listeners });
   }
 
-  /** A new specialist, with a sandbox of its own. */
+  /** A new specialist, with a sandbox of its own and, when the user made it, the Mac they named. */
   create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
-    return runOrThrow(this.#edge, createSpecialist(id, draft, actor, conversation));
+    return runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        const created = yield* Roster.use((roster) => roster.create(id, draft, actor, conversation));
+        const profiles = yield* Profiles;
+        yield* profiles.found(id, actor === "user" ? (draft.machine ?? null) : null);
+        yield* profiles.provide(id);
+
+        return created;
+      })
+    );
   }
 
-  /** The user deletes a specialist. */
+  /** ky's own example specialist: its sandbox is made when it is first asked, so a ky no one asks has one sandbox. */
+  seed(id: string, draft: SpecialistDraft): void {
+    runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        yield* Roster.use((roster) => roster.create(id, draft, "ky", null));
+        yield* Profiles.use((profiles) => profiles.found(id, null));
+      })
+    );
+  }
+
+  /** The user deletes a specialist: its row and its grants. Its sandbox, conversations and brief's versions stay. */
   delete(id: string): string {
-    return runOrThrow(this.#edge, deleteSpecialist(id));
+    return runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        const deleted = yield* Roster.use((roster) => roster.remove(id));
+        yield* Profiles.use((profiles) => profiles.forget(id));
+
+        return deleted;
+      })
+    );
+  }
+
+  /** At boot, after the sandboxes: each specialist made before profiles gets its own. */
+  migrate(): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.migrate));
+  }
+
+  /** `conversation`, started from `parent`, belongs to whoever owns `parent`. */
+  adopt(conversation: string, parent: string): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.adopt(conversation, parent)));
+  }
+
+  /** A Mac removed from ky: every grant of it goes. */
+  dropMac(mac: string): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.dropMac(mac)));
   }
 
   /** The profile of whoever answers in `conversation`, as it is now: every scoped tool reads it here. */
@@ -123,9 +167,14 @@ export class Specialists {
     return this.#run((roster) => roster.set(id, draft));
   }
 
-  /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
+  /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. Its first gives it a sandbox, if it has none. */
   attach(session: string, id: string, kind: SessionKind): void {
-    this.#run((roster) => roster.attach(session, id, kind));
+    this.#edge.run(
+      Effect.gen(function* () {
+        yield* Roster.use((roster) => roster.attach(session, id, kind));
+        yield* Profiles.use((profiles) => profiles.provide(id));
+      })
+    );
   }
 
   /** The specialist a conversation belongs to, and how it is used. */

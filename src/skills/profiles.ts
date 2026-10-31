@@ -5,18 +5,20 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 import { NoSandbox } from "../runners/contract";
-import { type AccessChange, KY, type Machinery, type Profile, ProfileStored, SKILL_TABLES, type SpecialistDraft, SpecialistSession, type SpecialistRow } from "./contract";
+import { type AccessChange, KY, type Machinery, type Profile, ProfileStored, SKILL_TABLES, SpecialistSession } from "./contract";
 import { storage } from "./skills";
 import { NoSpecialist, Roster } from "./specialists";
 
 /**
- * Profiles: what each owner may use. ky's is what ky always had: the default sandbox and every paired
- * Mac. A specialist's is its own sandbox, made with it, and the Macs the user lets it use. Only the user
- * changes one (Settings, or a card they answer), and every scoped tool reads it through `of`.
- *
- * A specialist made before profiles has no row: its profile follows from its machine hint until the user
- * first changes it. A sandbox it names is its home; a Mac it names is its one Mac, beside the default sandbox.
+ * Profiles: what each owner may use. ky's is what ky always had: the default sandbox, every other one
+ * no specialist calls home, and every paired Mac. A specialist's is its own sandbox and the Macs the user
+ * lets it use. Only the user changes one (Settings, or a card they answer), and every scoped tool reads
+ * it through `of`. A specialist made before profiles gets its row once, at boot (`migrate`).
  */
+
+const PROFILES = SKILL_TABLES.specialistProfiles;
+
+const OWNED = SKILL_TABLES.specialistOwned;
 
 class NotAMac extends Schema.TaggedError<NotAMac>()("NotAMac", { mac: Schema.String }) implements Refusable {
   get refusal(): string {
@@ -24,12 +26,25 @@ class NotAMac extends Schema.TaggedError<NotAMac>()("NotAMac", { mac: Schema.Str
   }
 }
 
+class NotItsSandbox extends Schema.TaggedError<NotItsSandbox>()("NotItsSandbox", { sandbox: Schema.String, owner: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return this.owner === KY ? `${this.sandbox} is ky's default sandbox.` : `${this.sandbox} is @${this.owner}'s sandbox.`;
+  }
+}
+
+/** Why a specialist has no sandbox of its own: the sandbox couldn't be made. */
+class NoOwnSandbox extends Schema.TaggedError<NoOwnSandbox>()("NoOwnSandbox", { why: Schema.String }) {}
+
 type Settings = { readonly home: string | null; readonly macs: readonly string[]; readonly tools: Profile["tools"] };
 
-/** A damaged row grants nothing. */
+/** A damaged row, or none, grants nothing. */
 const NOTHING: Settings = { home: null, macs: [], tools: {} };
 
 const asStored = Schema.decodeUnknownOption(ProfileStored);
+
+const HomeRow = Schema.Struct({ specialist: Schema.String, home: Schema.String });
+
+const OwnedRow = Schema.Struct({ specialist: Schema.String });
 
 export class Machines extends Context.Service<Machines, Machinery>()("ky/skills/Machines") {}
 
@@ -38,15 +53,23 @@ interface SpecialistProfiles {
   readonly of: (conversation: string) => Effect.Effect<Profile>;
   /** `owner`'s profile, as it is now: "ky", or a specialist's id. One that is gone has nothing. */
   readonly get: (owner: string) => Effect.Effect<Profile>;
-  /** A new specialist's own sandbox, and the Mac the user named; why it has no sandbox, if it couldn't get one. */
-  readonly open: (id: string, mac: string | null) => Effect.Effect<string | undefined>;
+  /** A new specialist's first profile, with no sandbox yet and the one Mac the user gave it, if any. */
+  readonly found: (id: string, mac: string | null) => Effect.Effect<void>;
+  /** A sandbox of its own for a specialist that has none, if one can be made; asleep until a task wakes it. */
+  readonly provide: (id: string) => Effect.Effect<void>;
+  /** `conversation`, started from `parent`, belongs to whoever owns `parent`: a subagent, a machine task, a run. */
+  readonly adopt: (conversation: string, parent: string) => Effect.Effect<void>;
   /** The user grants or revokes a Mac, or moves the specialist to another sandbox. */
-  readonly change: (id: string, change: AccessChange) => Effect.Effect<string, NoSpecialist | NotAMac | NoSandbox>;
+  readonly change: (id: string, change: AccessChange) => Effect.Effect<string, NoSpecialist | NotAMac | NoSandbox | NotItsSandbox>;
+  /** A Mac removed from ky: no grant of it survives a different computer paired under its name. */
+  readonly dropMac: (mac: string) => Effect.Effect<void>;
+  /** Each specialist made before profiles: its own sandbox, and the Mac its hint named, granted once. */
+  readonly migrate: Effect.Effect<void>;
   readonly forget: (id: string) => Effect.Effect<void>;
 }
 
 export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("ky/skills/Profiles") {
-  /** Needs Sql, the Roster and the Machines; makes its table. */
+  /** Needs Sql, the Roster and the Machines; makes its tables. */
   static readonly layer = (hooks: { readonly listeners: ReadonlySet<() => void> }) =>
     Layer.effect(Profiles)(
       Effect.gen(function* () {
@@ -59,32 +82,34 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
           home TEXT,
           macs TEXT NOT NULL DEFAULT '[]',
           tools TEXT NOT NULL DEFAULT '{}')`);
+        yield* exec(`CREATE TABLE IF NOT EXISTS ${SKILL_TABLES.specialistOwned} (
+          conversation TEXT PRIMARY KEY,
+          specialist TEXT NOT NULL)`);
 
-        const sandbox = (find: (each: ReturnType<Machinery["sandboxes"]>[number]) => boolean) => {
-          const found = machines.sandboxes().find(find);
+        const ref = ({ id, name }: { readonly id: string; readonly name: string }) => ({ id, name });
 
-          return found ? { id: found.id, name: found.name } : null;
-        };
+        /** Each live specialist's home, by sandbox id. */
+        const homes = Effect.map(
+          rows(HomeRow, `SELECT p.specialist, p.home FROM ${PROFILES} p JOIN ${SKILL_TABLES.specialists} s ON s.id = p.specialist WHERE p.home IS NOT NULL`),
+          (found) => new Map(found.map((row) => [row.home, row.specialist]))
+        );
 
-        const kyProfile = (): Profile => ({ owner: KY, home: sandbox((each) => each.isDefault), macs: [...machines.macs()], tools: {} });
+        const kyProfile = Effect.map(homes, (taken): Profile => {
+          const sandboxes = machines.sandboxes().filter((each) => !taken.has(each.id));
+          const home = sandboxes.find((each) => each.isDefault);
 
-        const fromHint = (row: SpecialistRow): Settings => {
-          const named = row.machine === null ? null : sandbox((each) => each.name === row.machine);
+          return { owner: KY, home: home ? ref(home) : null, sandboxes: sandboxes.map(ref), macs: [...machines.macs()], tools: {} };
+        });
 
-          if (named) return { home: named.id, macs: [], tools: {} };
-
-          return { home: sandbox((each) => each.isDefault)?.id ?? null, macs: row.machine === null ? [] : [row.machine], tools: {} };
-        };
-
-        const settings = (row: SpecialistRow) =>
-          Effect.map(exec(`SELECT home, macs, tools FROM ${SKILL_TABLES.specialistProfiles} WHERE specialist = ?`, row.id), ([stored]) =>
-            stored === undefined ? fromHint(row) : Option.getOrElse(asStored(stored), () => NOTHING)
+        const settings = (id: string) =>
+          Effect.map(exec(`SELECT home, macs, tools FROM ${PROFILES} WHERE specialist = ?`, id), ([stored]) =>
+            stored === undefined ? undefined : Option.getOrElse(asStored(stored), () => NOTHING)
           );
 
         const keep = (id: string, next: Settings) =>
           Effect.gen(function* () {
             yield* exec(
-              `INSERT INTO ${SKILL_TABLES.specialistProfiles} (specialist, home, macs, tools) VALUES (?, ?, ?, ?)
+              `INSERT INTO ${PROFILES} (specialist, home, macs, tools) VALUES (?, ?, ?, ?)
                ON CONFLICT (specialist) DO UPDATE SET home = excluded.home, macs = excluded.macs, tools = excluded.tools`,
               id,
               next.home,
@@ -98,22 +123,27 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
 
         const get = (owner: string) =>
           Effect.gen(function* () {
-            if (owner === KY) return kyProfile();
+            if (owner === KY) return yield* kyProfile;
             const row = yield* roster.get(owner);
+            const { home, macs, tools } = (row && (yield* settings(owner))) ?? NOTHING;
+            const live = machines.sandboxes().find((each) => each.id === home);
 
-            if (row === undefined) return { owner, home: null, macs: [], tools: {} } satisfies Profile;
-            const { home, macs, tools } = yield* settings(row);
+            return { owner, home: live ? ref(live) : null, sandboxes: live ? [ref(live)] : [], macs: [...macs], tools: { ...tools } } satisfies Profile;
+          });
 
-            return { owner, home: home === null ? null : sandbox((each) => each.id === home), macs: [...macs], tools: { ...tools } } satisfies Profile;
+        const of = (conversation: string) =>
+          Effect.gen(function* () {
+            const [own] = yield* rows(SpecialistSession, `SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, conversation);
+            const [owned] = own ? [own] : yield* rows(OwnedRow, `SELECT specialist FROM ${OWNED} WHERE conversation = ?`, conversation);
+
+            return yield* get(owned?.specialist ?? KY);
           });
 
         /** Change the specialist `id`'s settings; refused for one that isn't. */
         const edit = (id: string, next: (current: Settings) => Settings) =>
           Effect.gen(function* () {
-            const row = yield* roster.get(id);
-
-            if (row === undefined) return yield* Effect.fail(new NoSpecialist({ id }));
-            yield* keep(id, next(yield* settings(row)));
+            if ((yield* roster.get(id)) === undefined) return yield* Effect.fail(new NoSpecialist({ id }));
+            yield* keep(id, next((yield* settings(id)) ?? NOTHING));
           });
 
         const grantMac = (id: string, mac: string) =>
@@ -132,49 +162,57 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
 
         const setHome = (id: string, home: string) =>
           Effect.gen(function* () {
-            const found = sandbox((each) => each.id === home);
+            const found = machines.sandboxes().find((each) => each.id === home);
 
-            if (found === null) return yield* Effect.fail(new NoSandbox({ id: home }));
+            if (found === undefined) return yield* Effect.fail(new NoSandbox({ id: home }));
+            const owner = (yield* homes).get(home) ?? (found.isDefault ? KY : undefined);
+
+            if (owner !== undefined && owner !== id) return yield* Effect.fail(new NotItsSandbox({ sandbox: found.name, owner }));
             yield* edit(id, (current) => ({ ...current, home }));
 
             return `@${id} works on ${found.name}.`;
           });
 
+        const found = (id: string, mac: string | null) => keep(id, { home: null, macs: mac !== null && machines.macs().includes(mac) ? [mac] : [], tools: {} });
+
+        const provide = (id: string) =>
+          Effect.gen(function* () {
+            const current = yield* settings(id);
+
+            if (current === undefined || current.home !== null) return;
+            const made = yield* Effect.try({ try: () => machines.open(id), catch: (cause) => new NoOwnSandbox({ why: cause instanceof Error ? cause.message : String(cause) }) });
+            yield* keep(id, { ...current, home: made.id });
+          }).pipe(Effect.catchTag("NoOwnSandbox", ({ why }) => Effect.logWarning(`@${id} has no sandbox of its own: ${why}`)));
+
         return {
-          of: (conversation) =>
-            Effect.flatMap(rows(SpecialistSession, `SELECT specialist, kind FROM ${SKILL_TABLES.specialistSessions} WHERE session = ?`, conversation), ([found]) =>
-              get(found?.specialist ?? KY)
-            ),
+          of,
           get,
-          open: (id, mac) =>
-            Effect.try({ try: () => machines.open(id), catch: (cause) => (cause instanceof Error ? cause.message : String(cause)) }).pipe(
-              Effect.match({ onSuccess: (made) => ({ home: made.id, why: undefined }), onFailure: (why) => ({ home: null, why }) }),
-              Effect.tap(({ home }) => keep(id, { home, macs: mac !== null && machines.macs().includes(mac) ? [mac] : [], tools: {} })),
-              Effect.map(({ why }) => why)
-            ),
+          found,
+          provide,
+          adopt: (conversation, parent) =>
+            Effect.gen(function* () {
+              const { owner } = yield* of(parent);
+
+              if (owner !== KY) yield* exec(`INSERT OR REPLACE INTO ${OWNED} (conversation, specialist) VALUES (?, ?)`, conversation, owner);
+            }),
           change: (id, change) => ("home" in change ? setHome(id, change.home) : change.grant ? grantMac(id, change.mac) : revokeMac(id, change.mac)),
-          forget: (id) => Effect.asVoid(exec(`DELETE FROM ${SKILL_TABLES.specialistProfiles} WHERE specialist = ?`, id))
+          dropMac: (mac) =>
+            Effect.gen(function* () {
+              for (const { id } of yield* roster.list) {
+                const current = yield* settings(id);
+
+                if (current?.macs.includes(mac)) yield* keep(id, { ...current, macs: current.macs.filter((each) => each !== mac) });
+              }
+            }),
+          migrate: Effect.gen(function* () {
+            for (const row of yield* roster.list) {
+              if ((yield* settings(row.id)) !== undefined) continue;
+              yield* found(row.id, row.machine);
+              yield* provide(row.id);
+            }
+          }),
+          forget: (id) => Effect.asVoid(exec(`DELETE FROM ${PROFILES} WHERE specialist = ?`, id))
         };
       })
     );
 }
-
-/** A new specialist, with its own sandbox (asleep until used) and, when the user made it, the Mac they named. */
-export const createSpecialist = (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) =>
-  Effect.gen(function* () {
-    const created = yield* Roster.use((roster) => roster.create(id, draft, actor, conversation));
-    const why = yield* Profiles.use((profiles) => profiles.open(id, actor === "user" ? (draft.machine ?? null) : null));
-
-    if (why !== undefined) yield* Effect.logWarning(`@${id} has no sandbox of its own: ${why}`);
-
-    return created;
-  });
-
-/** Deleting a specialist goes through here: today its row and its grants; its sandbox and conversations stay. */
-export const deleteSpecialist = (id: string) =>
-  Effect.gen(function* () {
-    const deleted = yield* Roster.use((roster) => roster.remove(id));
-    yield* Profiles.use((profiles) => profiles.forget(id));
-
-    return deleted;
-  });

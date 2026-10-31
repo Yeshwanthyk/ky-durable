@@ -276,7 +276,13 @@ describe("a specialist's machines", () => {
   it("are granted, revoked and moved by the user in Settings, and the specialist is deleted there", async () => {
     const name = crypto.randomUUID();
     await make(name, "eng");
-    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    const spare = await inside(name, (instance) => {
+      instance.machines.paired("mbp", FACTS, crypto.randomUUID());
+
+      return instance.createSandbox({ name: "spare" }).id;
+    });
+
     const { socket, client } = await session(name);
     await client.until(() => accessOf(client)?.eng !== undefined);
     const own = accessOf(client)?.eng?.home;
@@ -288,14 +294,17 @@ describe("a specialist's machines", () => {
       result: { refused: "laptop isn't one of your paired Macs." }
     });
 
-    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { home: "cloud" } })).toMatchObject({ result: {} });
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { home: "cloud" } })).toMatchObject({
+      result: { refused: "cloud is ky's default sandbox." }
+    });
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { home: spare } })).toMatchObject({ result: {} });
     expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: false } })).toMatchObject({ result: {} });
-    await client.until(() => accessOf(client)?.eng?.home === "cloud" && accessOf(client)?.eng?.macs.length === 0);
+    await client.until(() => accessOf(client)?.eng?.home === spare && accessOf(client)?.eng?.macs.length === 0);
 
     expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: {} });
     await client.until(() => latest(client)?.length === 0);
     expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: { refused: "No specialist @eng." } });
-    // Its sandbox stays, for now: deleting a specialist doesn't clean up after it yet.
+    // Deleting a specialist keeps its sandbox.
     expect(await inside(name, (instance) => instance.sandboxes.get(own ?? "")?.deletedAt)).toBeNull();
     socket.close();
   });

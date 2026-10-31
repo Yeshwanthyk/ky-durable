@@ -92,7 +92,8 @@ describe("storage", () => {
       skillReviews: "ky_skill_reviews",
       specialists: "ky_specialists",
       specialistSessions: "ky_specialist_sessions",
-      specialistProfiles: "ky_specialist_profiles"
+      specialistProfiles: "ky_specialist_profiles",
+      specialistOwned: "ky_specialist_owned"
     });
     expect(Object.isFrozen(SKILL_TABLES)).toBe(true);
   });

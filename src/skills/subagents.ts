@@ -312,6 +312,8 @@ export function subagentExtension(
     const state = await tx.doc(Subagents, owner);
     const anchor = await tx.createTask(Anchor, null, background(owner));
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+    // A specialist's subagent works with what the specialist may use.
+    specialists?.store.adopt(String(child.id), String(owner));
 
     if (run) (await tx.doc(RunCards, child.id)).run = true;
     await configure(tx, child.id, {

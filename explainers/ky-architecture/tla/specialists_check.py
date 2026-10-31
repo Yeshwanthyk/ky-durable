@@ -31,7 +31,7 @@ def init():
 
 
 def allowed_machines(st, o):
-    return {HOME[o]} | ({RUNNER} if (o, "mac") in st.grants else set())
+    return {HOME[o]} | ({RUNNER} if o == "ky" or (o, "mac") in st.grants else set())   # ky has every Mac
 
 
 def successors(st, fx):
@@ -132,9 +132,9 @@ def invariants(st):
         if kind == "machine" and res not in allowed_machines(st, actor) and actor in st.alive:
             bad.append("I1 RunnerScope: work runs on a machine outside its owner's home+runners")
         if kind == "machine" and actor not in st.alive:
-            bad.append("I7 DeadSpecialistActs: a deleted specialist's run or call still uses a machine")
+            bad.append("I7 DeadSpecialistIdle: a deleted specialist's run or call still uses a machine")
         if kind == "bank" and (actor, SITE) not in st.vault:
-            bad.append("I3 StaleCookies: a browser session uses a login its owner no longer holds in the Vault")
+            bad.append("I3 NoStaleCookies: a browser session uses a login its owner no longer holds in the Vault")
         if kind == "bank" and tainted and not approved:
             bad.append("I4 NoLaundering: a bank write that untrusted web text led to ran without the user's OK")
         if kind == "fallback":
@@ -146,10 +146,10 @@ def invariants(st):
             bad.append("I2 SessionMatchesVault: a live session holds cookies its owner's Vault scope doesn't")
             break
     if st.run and st.run[0] not in st.alive:
-        bad.append("I7 DeadSpecialistActs: a deleted specialist still has a run going")
+        bad.append("I7 DeadSpecialistIdle: a deleted specialist still has a run going")
     if st.wf not in st.alive:
-        bad.append("I8 OrphanWorkflow: a workflow is owned by a deleted specialist")
-    if st.run and st.run[1] == RUNNER and (st.run[0], "mac") not in st.grants and st.run[0] in st.alive:
+        bad.append("I8 NoOrphanWorkflow: a workflow is owned by a deleted specialist")
+    if st.run and st.run[1] not in allowed_machines(st, st.run[0]) and st.run[0] in st.alive:
         bad.append("I1 RunnerScope: a run keeps going on a runner its owner was revoked from")
     return bad
 

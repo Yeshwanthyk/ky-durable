@@ -37,7 +37,7 @@ import { sandboxRoute } from "./sandbox-routes";
 import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
-import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
+import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary, VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/contract";
@@ -176,7 +176,7 @@ export class PiAgent extends DurableObject<Env> {
   /** The user's standing bots, like @engineer. */
   readonly specialists = new Specialists(this.ctx.storage, {
     sandboxes: () => this.sandboxes.live(),
-    macs: () => this.machines.machines().flatMap((machine) => (machine.sandbox === null && machine.facts?.kind !== "cloud" ? [machine.name] : [])),
+    macs: () => this.machines.machines().flatMap((machine) => (isMac(machine) ? [machine.name] : [])),
     open: (name) => this.createSandbox({ name, isDefault: false })
   });
   /** The bloubs ky and the specialists wear. */
@@ -626,6 +626,7 @@ export class PiAgent extends DurableObject<Env> {
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();
+    this.specialists.migrate();
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
     meter(this.spend, { answers: (listener) => this.models.onAnswer(listener), spent: (listener) => this.feed.onSpend(listener) });
@@ -1169,6 +1170,7 @@ export class PiAgent extends DurableObject<Env> {
   async removeMachine(machine: string): Promise<{ pairing: string | null } | undefined> {
     if (this.machines.machine(machine) === undefined) return undefined;
     this.sockets.revokeRunner(machine, `${machine} was removed from ky; pair it again to use it.`);
+    this.specialists.dropMac(machine);
 
     return { pairing: await this.machines.remove(machine) };
   }

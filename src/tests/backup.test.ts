@@ -116,15 +116,11 @@ describe("backup and restore", () => {
     expect(restored.leftOut).toEqual(manifest.leftOut);
 
     // Every table restored row for row, but those the restore sets right for its new deploy.
-    const fixed = ["ky_setup", "ky_automations", "ky_tasks", "ky_sandboxes_seeded", "ky_sandboxes"];
+    const fixed = ["ky_setup", "ky_automations", "ky_tasks", "ky_sandboxes_seeded"];
 
     for (const table of manifest.tables.filter((each) => !fixed.includes(each.name))) {
       expect(await rows(target, table.name), table.name).toBe(await rows("me", table.name));
     }
-
-    // The sandboxes too, but one: the fresh ky's seeded specialist made its own before the restore, which keeps it as a disk.
-    const sandboxes = (name: string) => inside(name, (instance) => ({ live: instance.sandboxes.live(), kept: instance.sandboxes.kept().map((disk) => disk.name) }));
-    expect(await sandboxes(target)).toEqual({ live: (await sandboxes("me")).live, kept: ["editor"] });
 
     expect(await (await env.FILES.get(upload))!.text()).toBe("a shared screenshot");
 

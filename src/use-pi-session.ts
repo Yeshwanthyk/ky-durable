@@ -161,7 +161,7 @@ function frameHandlers({ setState, events, version, pending, asks }: Receiver): 
     chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
     skills: ({ skills }) => replace({ skills }),
     soul: ({ soul }) => replace({ soul }),
-    // A Worker from before specialists' machines sends no access while a deploy settles.
+    // A Worker from before specialists had machines sends no access while a deploy settles.
     specialists: ({ specialists, access }) => replace({ specialists, specialistAccess: access ?? {} }),
     avatars: ({ avatars }) => replace({ avatars }),
     memory: ({ memory }) => replace({ memory }),
