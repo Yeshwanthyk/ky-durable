@@ -16,8 +16,8 @@ import { CHANGES_WAIT, OUTSIDE_DATA, outsideWhy } from "../outside/contract";
 import { OutsideContent } from "../outside/outside";
 import type { Vault } from "../vault";
 import { INBOUND_TABLES } from "./contract";
-import { KY } from "../skills/contract";
-import { type CredentialInfo, holderOf, replyText } from "./credentials";
+import { KY, ownerName } from "../skills/contract";
+import { type CredentialInfo, replyText } from "./credentials";
 import type { Hook, SecretAsk } from "./shapes";
 
 export type { Hook, SecretAsk } from "./shapes";
@@ -345,11 +345,16 @@ export class Inbound {
   }
 
   /** `asker` asks the user for a key of its owner's: the masked field shows in the chat it works for. */
-  ask(asker: string, name: string, info: CredentialInfo): void {
+  /** Shows the field for `name` in the asker's chat; refused while another owner's ask for that name waits there, which the user's value would go to. */
+  ask(asker: string, name: string, info: CredentialInfo): string | undefined {
     const session = this.desk.home(asker);
     const owner = this.desk.owner(asker);
+    const open = this.askFor(session, name);
 
+    if (open !== undefined && open.owner !== owner) return `${ownerName(open.owner)} is already asking the user for ${name} in this chat. Ask for it under another name.`;
     this.#edge.run(Store.use((store) => store.ask(session, name, info, owner, asker === session ? null : asker)));
+
+    return undefined;
   }
 
   asks(session: string): SecretAsk[] {
@@ -369,7 +374,7 @@ export class Inbound {
     const content =
       ask.asker === null
         ? `[the user saved the credential ${name} for ${ask.origin} in ky's Vault. Call ${ask.origin} with it through secret_request; its value never shows to you.]`
-        : `[the user saved the credential ${name} for ${ask.origin} in ky's Vault, for ${holderOf(ask.owner)}, which asked for it. Only ${holderOf(ask.owner)} can call with it: ask ${holderOf(ask.owner)} to carry on.]`;
+        : `[the user saved the credential ${name} for ${ask.origin} in ky's Vault, for ${ownerName(ask.owner)}, which asked for it. Only ${ownerName(ask.owner)} can call with it: ask ${ownerName(ask.owner)} to carry on.]`;
 
     await this.desk.tell(session, content, `secret:${session}:${name}:${ask.at}`);
 
@@ -519,7 +524,7 @@ export class Inbound {
   /** What came of a card, told where it can go on: the conversation that asked, or for a specialist's call the chat its card was in, since its later turns aren't reported. */
   #told(approval: Approval, guarded: boolean, content: string): Promise<void> {
     const asker = approval.kind !== "secret-request" || this.desk.chat(approval.conversation) ? null : this.desk.owner(approval.conversation);
-    const told = asker === null ? content : `${content}\n\n[${holderOf(asker)} asked for this; tell the user, or ask ${holderOf(asker)} to carry on with it.]`;
+    const told = asker === null ? content : `${content}\n\n[${ownerName(asker)} asked for this; tell the user, or ask ${ownerName(asker)} to carry on with it.]`;
 
     return this.desk.tell(asker === null ? approval.conversation : approval.chat, told, `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}:${crypto.randomUUID()}`);
   }

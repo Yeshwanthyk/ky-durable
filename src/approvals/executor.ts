@@ -43,10 +43,10 @@ const note = (result: CallResult, text: string): CallResult => ({ output: [...re
 
 const gone = (result: CallResult): boolean => Option.isSome(unavailable(resultText(result)));
 
-/** Allow runs a tool by itself only for the user in their own turn, in a conversation no outside content reached (src/outside). */
 /** The policy a tool runs on in a conversation, and where the user set it, as a note names it. */
 type Governing = { readonly policy: ToolPolicy; readonly where: string };
 
+/** Allow runs a tool by itself only for the user in their own turn, in a conversation no outside content reached (src/outside). */
 function verdict(policy: ToolPolicy, present: boolean, marked: boolean): ToolPolicy {
   if (policy === "allow" && (!present || marked)) return "ask";
 

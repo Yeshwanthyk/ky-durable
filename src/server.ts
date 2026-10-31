@@ -309,9 +309,8 @@ export class PiAgent extends DurableObject<Env> {
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
     ownPolicy: (session, tool) => {
       const { owner, tools } = this.specialists.profileOf(session);
-      const policy = tools[tool];
 
-      return policy === undefined ? undefined : { owner, policy };
+      return Object.hasOwn(tools, tool) ? { owner, policy: tools[tool] ?? "ask" } : undefined;
     }
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
@@ -704,17 +703,18 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
-  /**
-   * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
-   * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
-   * question or another chat started has nobody there to approve anything. Nor does a run that works on a webhook's
-   * data (src/inbound/inbound.ts guarded), even once the user steers it: their message doesn't make the post theirs.
-   */
   /** The chat a card from `session` shows in: itself; or for a subagent's, a routine's or a specialist's, the chat its task reports to; a peer's conversation works for the main chat. */
   cardChat(session: string): string {
     return this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION;
   }
 
+  /**
+   * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
+   * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
+   * question or another chat started has nobody there to approve anything. Nor does a run that works on a webhook's
+   * data (src/inbound/inbound.ts guarded), even once the user steers it: their message doesn't make the post theirs.
+   * A specialist's turn is never the user's: its Allow asks too.
+   */
   userHere(session: string): boolean {
     return (
       this.isChat(session) &&

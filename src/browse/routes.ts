@@ -1,7 +1,8 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { isRefusal } from "../core/refusal";
-import { LOGIN_KIND, type Login, loginId, MoveLogin, ownedLogin } from "./contract";
+import { ownedId } from "../skills/contract";
+import { LOGIN_KIND, type Login, MoveLogin, ownedLogin } from "./contract";
 
 const cookiesOf = Schema.decodeUnknownOption(Schema.Struct({ cookies: Schema.Number }));
 
@@ -39,7 +40,7 @@ async function logins(env: Env): Promise<Response> {
 }
 
 async function remove(env: Env, owner: string, site: string): Promise<Response> {
-  await vault(env).remove(LOGIN_KIND, loginId(owner, site));
+  await vault(env).remove(LOGIN_KIND, ownedId(owner, site));
   await agent(env).browserForgot(owner);
 
   return new Response(null, { status: 204 });

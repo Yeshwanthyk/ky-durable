@@ -6,14 +6,13 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { Sql } from "../core/sql";
-import { KY } from "../skills/contract";
+import { KY, ownedId } from "../skills/contract";
 import {
   BROWSE_TABLES,
   type Browsers,
   Failed,
   type Handoff,
   LOGIN_KIND,
-  loginId,
   LoginTaken,
   LoginsUnknown,
   type LoginVault,
@@ -236,7 +235,7 @@ const keepLogins = (desk: Desk, owner: string, opened: Seat, sites: readonly str
 
         if (login.cookies.length === 0 && login.origins.length === 0) return Effect.succeed([]);
 
-        return Effect.tryPromise(() => desk.vault().put(LOGIN_KIND, loginId(owner, site), login, { cookies: login.cookies.length })).pipe(
+        return Effect.tryPromise(() => desk.vault().put(LOGIN_KIND, ownedId(owner, site), login, { cookies: login.cookies.length })).pipe(
           Effect.as([site]),
           Effect.orElseSucceed(() => [])
         );
@@ -275,7 +274,7 @@ export const move = (desk: Desk, from: string, site: string, to: string) =>
       const theirs = yield* Effect.tryPromise({ try: () => desk.vault().browserLogins(to), catch: (cause) => new Failed({ said: said(cause) }) });
 
       if (theirs.some((login) => login.site === site)) return yield* new LoginTaken({ owner: to, site });
-      const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, loginId(from, site), loginId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
+      const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, ownedId(from, site), ownedId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
 
       if (!moved) return yield* new NoLogin({ owner: from, site });
       yield* end(desk, from);

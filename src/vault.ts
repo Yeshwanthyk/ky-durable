@@ -4,13 +4,13 @@ import Type from "typebox";
 import { decode, decodeOr, parseAs } from "./core/decode";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, type ProviderKey, VERIFICATION_URL } from "./providers/contract";
 import { pollDevice, refreshLogin, startDevice } from "./providers/wiring";
-import { loginId } from "./browse/contract";
 import type { ExecutorConnection } from "./executor/contract";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
 import { base64url, fromBase64url, vapidToken } from "./push/webpush";
 import { type Agent, ISSUED_TTL_MS, type RunCreds } from "./machines/contract";
-import { credentialFetch, type CredentialReply, type CredentialRequest, CredentialSchema, heldKey, holderOf, HTTP_KIND, keyId, SHARED, signedWith } from "./inbound/credentials";
+import { credentialFetch, type CredentialReply, type CredentialRequest, CredentialSchema, heldKey, HTTP_KIND, signedWith } from "./inbound/credentials";
+import { ownedId } from "./skills/contract";
 
 /**
  * The Vault: every secret ky keeps, in a Durable Object of its own,
@@ -113,8 +113,6 @@ async function sha256(text: string): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
 }
 
-/** How a move of a key went: nothing, or why it was refused. */
-type KeyMoved = { readonly refused?: string };
 
 export class Vault extends DurableObject<Env> {
   readonly #sql = this.ctx.storage.sql;
@@ -216,7 +214,7 @@ export class Vault extends DurableObject<Env> {
 
   /** The sites' logins `owner`'s browser saved after a hand-off: only its session restores them; no tool reads them. */
   browserLogins(owner: string): { site: string; state: string }[] {
-    const prefix = loginId(owner, "");
+    const prefix = ownedId(owner, "");
 
     return this.#sql
       .exec("SELECT id, value FROM ky_vault_secrets WHERE kind = 'browser-login' AND substr(id, 1, ?) = ? ORDER BY id", prefix.length, prefix)
@@ -411,14 +409,6 @@ export class Vault extends DurableObject<Env> {
     if (!credential) return Promise.resolve({ refused: `The credential ${name} can't be read. Ask the user to save it again.`, sent: false });
 
     return credentialFetch(this.http, credential, request);
-  }
-
-  /** The user gives the HTTP credential `name` from one owner to another, SHARED among them. */
-  moveKey(name: string, from: string, to: string): KeyMoved {
-    if (this.#stored(HTTP_KIND, keyId(to, name))) return { refused: to === SHARED ? `A shared key ${name} is already kept: remove it first.` : `${holderOf(to)} already keeps a key ${name}: remove that one first.` };
-    const moved = this.#sql.exec("UPDATE ky_vault_secrets SET id = ? WHERE kind = ? AND id = ? RETURNING id", keyId(to, name), HTTP_KIND, keyId(from, name)).toArray();
-
-    return moved.length > 0 ? {} : { refused: `${holderOf(from)} has no key ${name}.` };
   }
 
   #httpIds(): string[] {

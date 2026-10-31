@@ -415,6 +415,27 @@ export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind
 /** The default owner: ky itself, whose profile is what ky could use before specialists owned anything. */
 export const KY = "ky";
 
+/** The owner of what every owner may use: the user shares it with ky and all the specialists. No specialist's id can be it. */
+export const SHARED = "*";
+
+/** Whose something kept in the Vault is (a browser login, an API key), and its name there. */
+export type Owned = { readonly owner: string; readonly name: string };
+
+/** The Vault id of something an owner keeps: its owner ("ky", a specialist's id, or SHARED), then its name. */
+export const ownedId = (owner: string, name: string) => `${owner}:${name}`;
+
+const OWNED = /^(\*|[a-z0-9]+(?:-[a-z0-9]+)*):(.+)$/;
+
+/** Whose a Vault id is, and what it names; one kept before owners is ky's. */
+export function ownedOf(id: string): Owned {
+  const [, owner, name] = OWNED.exec(id) ?? [];
+
+  return owner === undefined || name === undefined ? { owner: KY, name: id } : { owner, name };
+}
+
+/** How a reply names an owner. */
+export const ownerName = (owner: string) => (owner === KY ? KY : owner === SHARED ? "every owner" : `@${owner}`);
+
 /** How an owner's profile overrides a tool's policy (src/approvals): by tool name. */
 const ToolOverrides = Schema.Record(Schema.String, Schema.Literals(["allow", "ask", "block"] satisfies readonly ToolPolicy[]));
 

@@ -644,6 +644,15 @@ describe("Credentials", () => {
     await finAsk(`tool secret_request ${JSON.stringify({ name: "FIN_KEY", url: `${CREDENTIAL_API}/books` })}`);
     await said("me", "/books");
 
+    // A write: ky's is refused before any card; @fin's asks in the chat, and once approved the Vault calls with @fin's key.
+    const write = { name: "FIN_KEY", url: `${CREDENTIAL_API}/ledger`, method: "POST", body: "paid" };
+    expect((await run(`tool secret_request ${JSON.stringify(write)}`)).result).toContain("@fin holds that key; ask @fin.");
+    await finAsk(`tool secret_request ${JSON.stringify(write)}`);
+    const asking = await card("FIN_KEY", "for @fin");
+    expect(await decide(asking.id, "accept")).toEqual({});
+    await said("me", '"method":"POST","path":"/ledger","body":"paid"');
+    expect(shows(await snapshotView("me"), "[@fin asked for this; tell the user, or ask @fin to carry on with it.]")).toBe(true);
+
     expect((await call("/api/inbound/secrets/fin/FIN_KEY/move", { method: "POST", body: JSON.stringify({ to: "nobody" }) })).status).toBe(404);
     expect((await call("/api/inbound/secrets/fin/FIN_KEY/move", { method: "POST", body: JSON.stringify({ to: "*" }) })).status).toBe(204);
     expect((await fromKy()).result).toContain("Bearer [redacted]");

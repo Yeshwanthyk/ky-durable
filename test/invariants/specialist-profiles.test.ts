@@ -9,18 +9,18 @@ import { Approvals } from "../../src/approvals/approvals";
 import type { ToolPolicy } from "../../src/approvals/contract";
 import { ExecutorApprovals } from "../../src/approvals/executor";
 import { type Desk, forget, move, seat, Sessions } from "../../src/browse/browse";
-import { type Browsers, loginId, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
+import { type Browsers, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
 import { makeEdge } from "../../src/core/edge";
 import { Sql } from "../../src/core/sql";
 import type { CallResult, ExecutorCall } from "../../src/executor/contract";
-import { heldKey, keyId, keyOf, SHARED } from "../../src/inbound/credentials";
+import { heldKey } from "../../src/inbound/credentials";
 import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
 import { PROTOCOL } from "../../src/machines/runner-protocol";
 import { MachineHub } from "../../src/machines/wiring";
 import { OutsideContent } from "../../src/outside/outside";
 import type { MachineInfo } from "../../src/protocol";
-import { type AccessChange, KY, type Machinery, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
+import { type AccessChange, KY, type Machinery, ownedId, ownedOf, SHARED, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
 import { Specialists } from "../../src/skills/wiring";
 import { wired } from "../parity/automations/world";
@@ -362,12 +362,12 @@ function logins() {
         const session = await current(step.owner);
 
         if (session !== undefined) browser.get(session)?.sites.add(step.site);
-        vault.set(loginId(step.owner, step.site), JSON.stringify({ cookies: [cookieFor(step.site)], origins: [] }));
+        vault.set(ownedId(step.owner, step.site), JSON.stringify({ cookies: [cookieFor(step.site)], origins: [] }));
       }
 
       // As src/browse/routes.ts removes one: from the Vault, then the owner's session ends.
       if (step.step === "remove") {
-        vault.delete(loginId(step.owner, step.site));
+        vault.delete(ownedId(step.owner, step.site));
         await settle(forget(desk, step.owner));
       }
 
@@ -694,14 +694,14 @@ describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
   });
 });
 
-/** Conversations for the approval rules: the user's chat with ky, @fin's home chat, and a run of @fin's nobody watches. */
+/** Conversations for the approval rules: the user's chat with ky, @fin's home conversation, and a run of @fin's; only the chat is the user's turn (server.ts userHere). */
 const CONVERSATIONS = ["chat", "fin-home", "fin-run"] as const;
 
 type Conversation = (typeof CONVERSATIONS)[number];
 
 const OWNER = { chat: KY, "fin-home": "fin", "fin-run": "fin" } as const satisfies Record<Conversation, string>;
 
-const PRESENT: ReadonlySet<string> = new Set<Conversation>(["chat", "fin-home"]);
+const PRESENT: ReadonlySet<string> = new Set<Conversation>(["chat"]);
 
 const TOOL = "gmail.send";
 
@@ -811,16 +811,16 @@ describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () =>
     const aKey = fc.record({ owner: fc.constantFrom<string>(KY, SHARED, ...IDS), name: fc.constantFrom("API", "GH") });
 
     fc.assert(
-      fc.property(fc.uniqueArray(aKey, { selector: (key) => keyId(key.owner, key.name) }), anOwner, fc.constantFrom("API", "GH"), (keys, owner, name) => {
+      fc.property(fc.uniqueArray(aKey, { selector: (key) => ownedId(key.owner, key.name) }), anOwner, fc.constantFrom("API", "GH"), (keys, owner, name) => {
         const named = keys.filter((key) => key.name === name);
-        const held = heldKey(owner, name, keys.map((key) => keyId(key.owner, key.name)));
+        const held = heldKey(owner, name, keys.map((key) => ownedId(key.owner, key.name)));
         const usable = named.find((key) => key.owner === owner) ?? named.find((key) => key.owner === SHARED);
 
-        if (usable) expect(held).toEqual({ id: keyId(usable.owner, name) });
+        if (usable) expect(held).toEqual({ id: ownedId(usable.owner, name) });
         else if (named.length === 0) expect(held).toHaveProperty("refused", expect.stringMatching(/There is no credential/));
         else expect(held).toHaveProperty("refused", expect.stringContaining(named[0]?.owner === KY ? "ky holds" : `@${named[0]?.owner} holds`));
 
-        if ("id" in held) expect([owner, SHARED]).toContain(keyOf(held.id).owner);
+        if ("id" in held) expect([owner, SHARED]).toContain(ownedOf(held.id).owner);
       })
     );
   });
@@ -848,7 +848,7 @@ describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () =>
 });
 
 describe("R7 NoLaundering: a change outside content led to needs the user's OK", () => {
-  it("a write from a conversation that read outside content, or asked or was asked by one that did, or read its report, waits for the user, even under @fin's own Allow", async () => {
+  it("a write from a conversation that read outside content, or asked or was asked by one that did, or read its report, waits for the user, whatever @fin's own policy", async () => {
     const anOp = fc.oneof(
       fc.record({ t: fc.constant("read" as const), c: fc.constantFrom<Conversation>(...CONVERSATIONS) }),
       // An ask carries the asker's marks to the one asked; its report carries the one asked's back (src/skills/subagents.ts).

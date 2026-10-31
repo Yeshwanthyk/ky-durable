@@ -233,7 +233,7 @@ export function SpecialistTools({
         );
       })}
       <Problem text={refused} />
-      <p className="card-foot quiet">@{id}'s choice wins in its own work. Allow still asks you when nobody is in the chat, or after it read outside content.</p>
+      <p className="card-foot quiet">@{id}'s choice wins in its own work. @{id} works while you're away, so its Allow still asks you; Block declines at once.</p>
     </section>
   );
 }

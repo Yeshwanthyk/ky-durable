@@ -381,6 +381,12 @@ describe("a specialist's approvals", () => {
     });
 
     expect(marked).toEqual([{ source: "web" }]);
+
+    // Under @eng's own Allow, its write still asks the user: nobody is in its turn, and it read what the chat read.
+    await inside(name, (instance) => instance.specialists.changeAccess("eng", { tool: "gmail.send", policy: "allow" }));
+    await prompt(name, ask("eng", PAUSE));
+    await until(async () => (await inside(name, (instance) => instance.approvals.cards().filter((card) => card.kind === "executor").length)) === 1, "@eng's write on a card");
+    expect(shows(await snapshotView(name), "ky approved gmail.send itself")).toBe(false);
   });
 });
 

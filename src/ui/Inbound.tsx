@@ -1,10 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { parseOr } from "../core/decode";
 import type { Static } from "typebox";
-import { ownerName } from "../browse/contract";
-import { SHARED } from "../inbound/credentials";
 import { type Hook, type HooksView, HooksViewSchema, MadeHookSchema, RotatedSchema, type Secret, SecretsSchema } from "../inbound/shapes";
-import { KY } from "../skills/contract";
+import { KY, ownerName, SHARED } from "../skills/contract";
 import { CopyLine } from "./CopyButton";
 import { EmptyState, Switch, VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
