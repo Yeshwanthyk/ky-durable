@@ -4,6 +4,7 @@ import { type AgentChange, AssistantEntry, type Conversation, type ConversationI
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
+import type { ToolPolicy } from "../approvals/contract";
 import { CHECK_IN_TOOLS, summarize, type TaskFeed } from "../automations/contract";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
@@ -30,7 +31,9 @@ export const SKILL_TABLES = Object.freeze({
   skillVersions: "ky_skill_versions",
   skillReviews: "ky_skill_reviews",
   specialists: "ky_specialists",
-  specialistSessions: "ky_specialist_sessions"
+  specialistSessions: "ky_specialist_sessions",
+  specialistProfiles: "ky_specialist_profiles",
+  specialistOwned: "ky_specialist_owned"
 } as const);
 
 export const TOOLS = Object.freeze({
@@ -408,9 +411,53 @@ export function specialistOf({ model, ...row }: typeof SpecialistStored.Type): S
 
 export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind: SessionKind });
 
+/** The default owner: ky itself, whose profile is what ky could use before specialists owned anything. */
+export const KY = "ky";
+
+/** How an owner's profile overrides a tool's policy (src/approvals): by tool name. */
+const ToolOverrides = Schema.Record(Schema.String, Schema.Literals(["allow", "ask", "block"] satisfies readonly ToolPolicy[]));
+
+/** A specialist's row of ky_specialist_profiles, its JSON columns decoded. */
+export const ProfileStored = Schema.Struct({
+  home: Schema.NullOr(Schema.String),
+  macs: Schema.fromJsonString(Schema.Array(Schema.String)),
+  tools: Schema.fromJsonString(ToolOverrides)
+});
+
+type SandboxRef = { readonly id: string; readonly name: string };
+
+/** What an owner ("ky" or a specialist's id) may use, as read at one moment: a run keeps the one it started with. */
+export type Profile = {
+  readonly owner: string;
+  /** Where its work goes unless it says otherwise; null when it has no sandbox live. */
+  readonly home: SandboxRef | null;
+  /** Every sandbox it may use: a specialist's own, or for ky each live one that is no specialist's. */
+  readonly sandboxes: readonly SandboxRef[];
+  /** The paired Macs it may give work to. */
+  readonly macs: readonly string[];
+  readonly tools: typeof ToolOverrides.Type;
+};
+
+/** What profiles need from outside the skills domain (server.ts gives it). */
+export type Machinery = {
+  readonly sandboxes: () => readonly (SandboxRef & { readonly isDefault: boolean })[];
+  /** The paired Macs' names. */
+  readonly macs: () => readonly string[];
+  /** A new sandbox, asleep until a task wakes it, never the default; throws why not. */
+  readonly open: (name: string) => SandboxRef;
+};
+
+/** A change to a specialist's machines. Only the user makes one: in Settings, or a card they answer. */
+export const AccessChangeSchema = Type.Union([Type.Object({ mac: Type.String(), grant: Type.Boolean() }), Type.Object({ home: Type.String() })]);
+
+export type AccessChange = Static<typeof AccessChangeSchema>;
+
 type BriefView = { readonly body: string; readonly version: number; readonly updated_at: number };
 
 export type SpecialistView = SpecialistRow & { readonly brief: BriefView };
+
+/** A specialist's machines as Settings shows them: its sandbox's id, while it has one live, and the Macs the user lets it use. */
+export type SpecialistAccess = { readonly home: string | null; readonly macs: readonly string[] };
 
 export const SpecialistDraftSchema = Type.Object({
   description: Type.Optional(Type.String()),

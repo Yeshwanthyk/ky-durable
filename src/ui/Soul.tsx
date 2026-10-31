@@ -1,15 +1,20 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AccessChange,
+  MachineInfo,
   MemoryView,
   ProviderInfo,
   SoulChange,
   SoulVersion,
   SoulView,
+  SpecialistAccess,
   SpecialistDraft,
   SpecialistView,
 } from "../protocol";
 import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
+import { isMac } from "../machines/contract";
 import { BotAvatar } from "./BotAvatar";
+import { Switch } from "./Controls";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
@@ -35,6 +40,9 @@ type Mode = "read" | "edit" | "history";
 
 export type SpecialistActions = {
   onSave: (id: string, draft: SpecialistDraft, create: boolean) => Promise<string | undefined>;
+  /** The user's own changes to a specialist's machines; resolves with why one was refused. */
+  onAccess: (id: string, change: AccessChange) => Promise<string | undefined>;
+  onDelete: (id: string) => Promise<string | undefined>;
   onBrief: (id: string, change: SoulChange) => void;
   onHistory: (id: string) => Promise<readonly SoulVersion[]>;
   /** Asks ky in chat to design a new bloub for the specialist, with the avatar tool. */
@@ -56,6 +64,7 @@ export function Soul({
   memory,
   memoryActions,
   specialists,
+  specialistAccess,
   specialistActions,
   providers,
   machines,
@@ -67,9 +76,10 @@ export function Soul({
   memory: MemoryView | null;
   memoryActions: MemoryActions;
   specialists: readonly SpecialistView[];
+  specialistAccess: Readonly<Record<string, SpecialistAccess>>;
   specialistActions: SpecialistActions;
   providers: readonly ProviderInfo[];
-  machines: readonly string[];
+  machines: readonly MachineInfo[];
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [remembering, setRemembering] = useState(false);
@@ -103,6 +113,7 @@ export function Soul({
       </section>
       <SpecialistList
         specialists={specialists}
+        access={specialistAccess}
         actions={specialistActions}
         now={now}
         providers={providers}
@@ -131,16 +142,18 @@ export function Soul({
 // The specialists' rows, each opening its brief; "+ Specialist" and the brief's menu open the settings sheet.
 function SpecialistList({
   specialists,
+  access,
   actions,
   now,
   providers,
   machines,
 }: {
   specialists: readonly SpecialistView[];
+  access: Readonly<Record<string, SpecialistAccess>>;
   actions: SpecialistActions;
   now: number;
   providers: readonly ProviderInfo[];
-  machines: readonly string[];
+  machines: readonly MachineInfo[];
 }) {
   const [brief, setBrief] = useState<{ id: string; mode: Mode } | null>(null);
   /** The specialist whose settings are open, or "" for a new one. */
@@ -185,9 +198,10 @@ function SpecialistList({
       {editing !== null ? (
         <SpecialistSheet
           specialist={specialists.find((each) => each.id === editing)}
+          access={access[editing]}
           providers={providers}
           machines={machines}
-          onSave={actions.onSave}
+          actions={actions}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -465,20 +479,23 @@ export function specialistDraft(form: SpecialistForm, providers: readonly Provid
 const ready = (form: SpecialistForm, create: boolean) =>
   form.description.trim() !== "" && (!create || (form.id.trim() !== "" && form.brief.trim() !== ""));
 
-// A new specialist, or one's description, model and machine.
+// A new specialist, or one's description, model and machine, then its own machines.
 function SpecialistSheet({
   specialist,
+  access,
   providers,
   machines,
-  onSave,
+  actions,
   onClose,
 }: {
   specialist: SpecialistView | undefined;
+  access: SpecialistAccess | undefined;
   providers: readonly ProviderInfo[];
-  machines: readonly string[];
-  onSave: SpecialistActions["onSave"];
+  machines: readonly MachineInfo[];
+  actions: SpecialistActions;
   onClose: () => void;
 }) {
+  const { onSave } = actions;
   const dialog = useRef<HTMLDialogElement>(null);
   const [form, setForm] = useState(() => formOf(specialist));
   const [refused, setRefused] = useState<string | undefined>();
@@ -502,7 +519,7 @@ function SpecialistSheet({
           <ModelPicks providers={providers} form={form} set={set} />
           <Pick label="Machine" value={form.machine} onChange={(machine) => set({ machine })}>
             <option value="">Any</option>
-            {[...new Set([...machines, ...(form.machine ? [form.machine] : [])])].map((machine) => (
+            {[...new Set([...machines.map((machine) => machine.name), ...(form.machine ? [form.machine] : [])])].map((machine) => (
               <option key={machine} value={machine}>
                 {machine}
               </option>
@@ -520,7 +537,100 @@ function SpecialistSheet({
           </button>
         </div>
       </form>
+      {specialist && access ? (
+        <>
+          <SpecialistMachines id={specialist.id} access={access} machines={machines} onAccess={actions.onAccess} />
+          <SpecialistDelete id={specialist.id} onDelete={actions.onDelete} onDeleted={() => dialog.current?.close()} />
+        </>
+      ) : null}
     </Sheet>
+  );
+}
+
+// Its own sandbox, and the Macs the user lets it use: only the user changes these, never ky or the specialist.
+function SpecialistMachines({
+  id,
+  access,
+  machines,
+  onAccess,
+}: {
+  id: string;
+  access: SpecialistAccess;
+  machines: readonly MachineInfo[];
+  onAccess: SpecialistActions["onAccess"];
+}) {
+  const [refused, setRefused] = useState<string | undefined>();
+  const sandboxes = machines.flatMap((machine) => (machine.sandbox ? [{ id: machine.sandbox.id, name: machine.name }] : []));
+  // A Mac it may use that isn't paired now still shows, to revoke.
+  const macs = [...new Set([...machines.flatMap((machine) => (isMac(machine) ? [machine.name] : [])), ...access.macs])];
+  const change = async (next: AccessChange) => setRefused(await onAccess(id, next));
+
+  return (
+    <div className="card" role="group" aria-label={`@${id}'s machines`}>
+      <Pick label="Sandbox" value={access.home ?? ""} onChange={(home) => void change({ home })}>
+        {access.home === null ? (
+          <option value="" disabled>
+            None
+          </option>
+        ) : null}
+        {sandboxes.map((sandbox) => (
+          <option key={sandbox.id} value={sandbox.id}>
+            {sandbox.name}
+          </option>
+        ))}
+      </Pick>
+      {macs.map((mac) => (
+        <div key={mac} className="row">
+          <span className="row-label">{mac}</span>
+          <Switch on={access.macs.includes(mac)} label={`@${id} can use ${mac}`} onFlip={() => void change({ mac, grant: !access.macs.includes(mac) })} />
+        </div>
+      ))}
+      {refused ? (
+        <p className="automation-refused" role="alert">
+          {refused}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// Deleting a specialist, after the user confirms.
+function SpecialistDelete({ id, onDelete, onDeleted }: { id: string; onDelete: SpecialistActions["onDelete"]; onDeleted: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [refused, setRefused] = useState<string | undefined>();
+
+  const remove = async () => {
+    const why = await onDelete(id);
+    setRefused(why);
+
+    if (why === undefined) onDeleted();
+  };
+
+  if (!confirming) {
+    return (
+      <button type="button" className="machine-unpair pressable" onClick={() => setConfirming(true)}>
+        Delete @{id}
+      </button>
+    );
+  }
+
+  return (
+    <div className="machine-confirm" role="alertdialog" aria-label={`Delete @${id}`}>
+      <p>Delete @{id}? Its brief's versions and its sandbox stay.</p>
+      {refused ? (
+        <p className="automation-refused" role="alert">
+          {refused}
+        </p>
+      ) : null}
+      <div className="machine-confirm-actions">
+        <button type="button" className="automation-text pressable" onClick={() => setConfirming(false)}>
+          Cancel
+        </button>
+        <button type="button" className="machine-unpair-confirm pressable" onClick={() => void remove()}>
+          Delete
+        </button>
+      </div>
+    </div>
   );
 }
 

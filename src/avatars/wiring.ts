@@ -307,7 +307,7 @@ export async function seed(setup: Setup, skills: Skills, specialists: Specialist
   }
 
   if (!specialists.get(SPECIALIST.id)) {
-    specialists.create(SPECIALIST.id, { description: SPECIALIST.description, brief: SPECIALIST.brief }, "ky");
+    specialists.seed(SPECIALIST.id, { description: SPECIALIST.description, brief: SPECIALIST.brief });
   }
 
   for (const automation of AUTOMATIONS) {

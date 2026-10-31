@@ -538,11 +538,13 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
   const specialistActions = useMemo(
     () => ({
       onSave: ky.saveSpecialist,
+      onAccess: ky.changeAccess,
+      onDelete: ky.deleteSpecialist,
       onBrief: ky.changeBrief,
       onHistory: ky.briefHistory,
       onAvatar: (id: string) => ky.submit(avatarRequest(id))
     }),
-    [ky.saveSpecialist, ky.changeBrief, ky.briefHistory, ky.submit]
+    [ky.saveSpecialist, ky.changeAccess, ky.deleteSpecialist, ky.changeBrief, ky.briefHistory, ky.submit]
   );
 
   const subscriptions = useMemo(
@@ -582,6 +584,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
                   memory={ky.memory}
                   memoryActions={memoryActions}
                   specialists={ky.specialists}
+                  specialistAccess={ky.specialistAccess}
                   specialistActions={specialistActions}
                   subscriptions={subscriptions}
                   theme={view.theme}
