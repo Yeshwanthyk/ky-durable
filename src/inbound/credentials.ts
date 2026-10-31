@@ -1,5 +1,6 @@
 import Type, { type Static } from "typebox";
 import type { Fetch } from "../providers/contract";
+import { KY } from "../skills/contract";
 import { SchemeSchema } from "./shapes";
 
 type Scheme = Static<typeof SchemeSchema>;
@@ -33,6 +34,37 @@ export type CredentialReply =
   | { readonly refused: string; readonly sent: boolean };
 
 export const HTTP_KIND = "http";
+
+/** The owner of a key every owner may use: the user shares it with ky and all the specialists. No specialist's id can be it. */
+export const SHARED = "*";
+
+/** A key's Vault id: its owner's ("ky", a specialist's id, or SHARED), then its name. */
+export const keyId = (owner: string, name: string) => `${owner}:${name}`;
+
+/** Whose a key is, and its name, by its Vault id; one kept before keys had owners is ky's. */
+export function keyOf(id: string): { readonly owner: string; readonly name: string } {
+  const at = id.indexOf(":");
+
+  return at < 0 ? { owner: KY, name: id } : { owner: id.slice(0, at), name: id.slice(at + 1) };
+}
+
+/** An owner as a refusal names it. */
+export const holderOf = (owner: string) => (owner === KY ? "ky" : owner === SHARED ? "every owner" : `@${owner}`);
+
+/** The key `owner` calls with as `name`, among the Vault's `ids`: its own, else a shared one; never another owner's, which is asked of it. */
+export function heldKey(owner: string, name: string, ids: readonly string[]): { readonly id: string } | { readonly refused: string } {
+  const keys = ids.map(keyOf).filter((key) => key.name === name);
+  const usable = keys.find((key) => key.owner === owner) ?? keys.find((key) => key.owner === SHARED);
+
+  if (usable) return { id: keyId(usable.owner, name) };
+  const other = keys[0]?.owner;
+
+  if (other === undefined) return { refused: `There is no credential ${name}. list_secrets shows the ones there are.` };
+
+  return other === KY
+    ? { refused: `ky holds ${name}, not ${holderOf(owner)}. Only the user can share it, or move it to ${holderOf(owner)}, in Settings › Webhooks.` }
+    : { refused: `${holderOf(other)} holds that key; ask ${holderOf(other)}.` };
+}
 
 const SCHEMES: readonly Scheme[] = SchemeSchema.anyOf.map((literal) => literal.const);
 

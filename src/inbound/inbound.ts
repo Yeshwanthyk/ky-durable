@@ -26,6 +26,10 @@ export type InboundDesk = {
   readonly asker: Asker;
   readonly chat: (session: string) => boolean;
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** Whose keys `session` uses: "ky", or the specialist it works for (src/skills/profiles.ts). */
+  readonly owner: (session: string) => string;
+  /** The chat a card from `session` shows in: itself, or the chat its task works for. */
+  readonly home: (session: string) => string;
 };
 
 export type HookDelivery = {
