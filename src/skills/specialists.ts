@@ -285,9 +285,9 @@ const MANAGE_RULES = `You create and manage specialists yourself with the specia
 
 /** The machines a specialist has, as its profile says; it asks the user for more. */
 function machinesLine({ home, macs }: Profile): string {
-  const sandbox = home ? `your own sandbox, ${home.name}` : "no sandbox of your own";
+  const sandbox = home ? `your own sandbox, ${home.name}, where a task goes when you name no machine` : "no sandbox of your own";
 
-  return `Your machines: ${sandbox}${macs.length > 0 ? `, and the user's ${macs.join(", ")}` : ""}. Only the user gives you another.`;
+  return `Your machines: ${sandbox}${macs.length > 0 ? `, and the user's ${macs.join(", ")}` : ""}. The machine tool runs your work on these alone, whatever its description says about ky's machines, and a task for one that is offline waits for it. Only the user gives you another: ask them.`;
 }
 
 /** The specialist's own section: who it is, its brief, and what it may do in this conversation. */

@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, FACTS, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { connect, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -53,6 +53,8 @@ async function command(socket: WebSocket, client: Follower, message: PiClientMes
 
   return reply()!;
 }
+
+const machineTasks = async (name: string) => (await tasks(name)).filter((task) => task.kind === "machine");
 
 const latest = (client: Follower) =>
   client.frames.filter((frame): frame is Frame<"specialists"> => frame.type === "specialists").at(-1)?.specialists;
@@ -306,6 +308,49 @@ describe("a specialist's machines", () => {
     expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: { refused: "No specialist @eng." } });
     // Deleting a specialist keeps its sandbox.
     expect(await inside(name, (instance) => instance.sandboxes.get(own ?? "")?.deletedAt)).toBeNull();
+    socket.close();
+  });
+
+  it("refuse a specialist a Mac the user didn't give it, and keep ky off the specialist's sandbox", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    await prompt(name, ask("eng", "machine@mbp build it"));
+    await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
+
+    expect((await prompt(name, "machine@eng build it")).text).toBe(
+      "tool said: eng is a specialist's own sandbox: ky can't use it. Ask that specialist for work there."
+    );
+    const listed = (await prompt(name, tool("machine", { action: "list" }))).text ?? "";
+
+    expect([listed.includes("mbp:"), listed.includes("eng:")]).toEqual([true, false]);
+    expect(await machineTasks(name)).toEqual([]);
+  });
+
+  it("wait for a given Mac that is offline, run nowhere else, and stop there for good when the user takes the Mac back", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+    const { socket, client } = await session(name);
+
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
+    await prompt(name, ask("eng", "machine@mbp build it"));
+    await said(name, "(offline: it waits for mbp, starts when it connects, and runs nowhere else). Tell the user it is waiting for mbp.");
+    expect(await machineTasks(name)).toEqual([{ kind: "machine", worker: "mbp", status: "queued" }]);
+
+    const mbp = await runner(name, "mbp");
+    const run = await mbp.run();
+    await until(async () => (await machineTasks(name)).some((task) => task.status === "working"), "the task to start on mbp");
+
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: false } })).toMatchObject({ result: {} });
+    await until(async () => (await machineTasks(name)).some((task) => task.status === "stopped"), "the task to stop");
+    expect(await mbp.next()).toMatchObject({ type: "stop", task: run.task });
+    await until(async () => (await home(name, "eng")).includes("@eng may no longer use mbp, so ky stopped this task there."), "@eng to be told");
+
+    await prompt(name, ask("eng", tool("machine", { action: "send", task: run.task, message: "go on" })));
+    await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
+    mbp.socket.close();
     socket.close();
   });
 });

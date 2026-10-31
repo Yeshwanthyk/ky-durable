@@ -737,6 +737,17 @@ const make = Effect.gen(function* () {
         yield* enqueue(task.worker, { type: "stop", task: task.id, turn });
       }),
 
+    /** End `task` now, saying `why`: nothing queued for it goes out, and a turn its machine has is stopped there. */
+    withdraw: (task: TaskRow, why: string) =>
+      Effect.gen(function* () {
+        const { turn, closed: upTo } = yield* turnsOf(task.id);
+
+        if (turn <= upTo) return;
+        yield* exec("DELETE FROM ky_machine_inbox WHERE machine = ? AND json_extract(payload, '$.task') = ?", task.worker, task.id);
+        yield* finish(task.id, "stopped", why, turn);
+        yield* enqueue(task.worker, { type: "stop", task: task.id, turn });
+      }),
+
     remove: (machine: string) =>
       Effect.gen(function* () {
         const [removed] = yield* rows(PairingRow, "DELETE FROM ky_machines WHERE name = ? RETURNING pairing", machine);

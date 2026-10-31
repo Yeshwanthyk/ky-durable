@@ -7,7 +7,7 @@ import { FileStore } from "../../../src/files/wiring";
 import type { Harness } from "../../../src/machines/machines";
 import { MachineHub } from "../../../src/machines/wiring";
 import { Sandboxes } from "../../../src/runners/wiring";
-import { settle, storageOf } from "./world";
+import { machineStorageOf, settle } from "./world";
 
 const StoredRow = Schema.Record(Schema.String, Schema.NullOr(Schema.Union([Schema.String, Schema.Number])));
 
@@ -50,7 +50,7 @@ describe("machine rows written at B", () => {
       }
     }
 
-    const { storage, sql } = storageOf(db);
+    const { storage, sql } = machineStorageOf(db);
     const feed = new TaskFeed(sql());
     const files = new FileStore(storage());
     const sandboxes = new Sandboxes(storage());
