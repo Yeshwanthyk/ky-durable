@@ -1309,6 +1309,16 @@
   gap: 6px;
 }
 
+.specialist-ask {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.specialist-ask .field-input {
+  flex: 1;
+}
+
 .machine-unpair-confirm {
   height: 32px;
   padding: 0 14px;
@@ -6067,4 +6077,14 @@ button.rt-bar:focus-visible {
   .rt-strip {
     justify-self: start;
   }
+}
+
+/* A browser login's Move to sits on its own line under the row, so the site and its actions keep their width. */
+.login-row {
+  flex-wrap: wrap;
+}
+
+.login-move {
+  flex-basis: 100%;
+  margin-left: 42px;
 }

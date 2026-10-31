@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import type { SQLInputValue } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Json } from "../kit";
-import { port, schedulerOf, World } from "./world";
+import { port, schedulerOf, AutomationWorld } from "./world";
 
 const Booking = Schema.Union([
   Schema.Struct({ id: Schema.String, callback: Schema.String, payload: Schema.optionalKey(Schema.Unknown), type: Schema.Literal("scheduled"), time: Schema.Number }),
@@ -29,7 +29,7 @@ function normalize(observed: Json): Json {
 
   return Object.fromEntries(
     Object.entries(observed)
-      .filter(([key]) => key !== "gate_found" && key !== "gate_found_by")
+      .filter(([key]) => key !== "gate_found" && key !== "gate_found_by" && key !== "owner")
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => [key, value === undefined ? value : normalize(value)])
   );
@@ -45,7 +45,7 @@ afterAll(() => {
 
 describe("automation rows written at B", () => {
   it("open under the port and read as B read them", async () => {
-    const world = new World({ now: () => atB.at });
+    const world = new AutomationWorld({ now: () => atB.at });
 
     for (const { name } of world.rows("SELECT name FROM sqlite_master WHERE type = 'table'")) world.db.exec(`DROP TABLE ${String(name)}`);
 
@@ -75,6 +75,8 @@ describe("automation rows written at B", () => {
       wanted: tasks.map((task) => ({ task, wanted: automations.wanted(task) }))
     }));
 
+    // B had no owners: every automation it stored is ky's.
+    expect([...reads.list, ...reads.get].map((row) => row?.owner)).toEqual([...reads.list, ...reads.get].map(() => "ky"));
     // SAFETY: the reads are rows of JSON values, and so are B's.
     expect(normalize(JSON.parse(JSON.stringify(reads)) as Json)).toEqual(normalize(atB.reads as Json));
     world.db.close();

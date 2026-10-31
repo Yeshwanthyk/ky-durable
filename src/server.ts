@@ -38,7 +38,7 @@ import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/
 import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
-import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
+import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary } from "./providers/contract";
 import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
@@ -57,7 +57,7 @@ import { ExecutorApprovals } from "./approvals/executor";
 import { Outside } from "./outside/outside";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { BACKGROUND_SOURCE, KY, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, draftFromDemo, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { Titler } from "./chats/titles";
 import type { Purpose } from "./settings/contract";
@@ -247,7 +247,9 @@ export class PiAgent extends DurableObject<Env> {
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
     },
-    allows: (work) => this.spend.allows(work)
+    allows: (work) => this.spend.allows(work),
+    pin: (id, profile) => this.specialists.pin(id, profile),
+    owners: (owner) => (owner === KY || this.specialists.has(owner) ? { profile: this.specialists.profile(owner), model: this.specialists.get(owner)?.model ?? null } : undefined)
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -294,8 +296,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly approvals = new Approvals(this.ctx.storage, {
     // A card in the user's own turn pushes too once they have left ky: they sent it and went.
     present: (session) => this.userHere(session) && this.watched(),
-    // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
-    home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
+    home: (session) => this.cardChat(session),
     notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
     defer: (work) => this.ctx.waitUntil(work),
     later: (at) => this.ctx.waitUntil(this.automations.sweepApprovalsAt(at))
@@ -305,7 +306,12 @@ export class PiAgent extends DurableObject<Env> {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
     unattended: (session) => this.unattended(session),
-    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
+    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
+    ownPolicy: (session, tool) => {
+      const { owner, tools } = this.specialists.profileOf(session);
+
+      return Object.hasOwn(tools, tool) ? { owner, policy: tools[tool] ?? "ask" } : undefined;
+    }
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
@@ -341,6 +347,9 @@ export class PiAgent extends DurableObject<Env> {
     vault: () => this.env.Vault.getByName("owner"),
     asker: this.approvals,
     chat: (session) => this.isChat(session),
+    owner: (session) => this.specialists.profileOf(session).owner,
+    home: (session) => this.cardChat(session),
+    unattended: (session) => this.unattended(session),
     // After the turn running there, so outside data never lands in the middle of the user's own turn.
     tell: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session);
@@ -406,6 +415,8 @@ export class PiAgent extends DurableObject<Env> {
     workspace: this.workspace,
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
+    owner: (session) => this.specialists.profileOf(session).owner,
+    owners: () => this.owners(),
     asker: this.approvals,
     unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
@@ -487,8 +498,8 @@ export class PiAgent extends DurableObject<Env> {
 
       this.registry.install(skillTools(skilling));
 
-      const { machines } = machineTools({ machines: this.machines, feed: this.feed });
-      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
+      const { machines } = machineTools({ machines: this.machines, feed: this.feed, owners: this.specialists });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews, specialists: this.specialists });
 
       this.registry.install(memory);
       this.registry.install(recall);
@@ -610,6 +621,10 @@ export class PiAgent extends DurableObject<Env> {
     this.spend,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
+    {
+      kept: { status: () => this.env.Vault.getByName("owner").status(), remove: (kind, id) => this.env.Vault.getByName("owner").remove(kind, id) },
+      browser: (owner) => this.browsing.forget(owner)
+    },
     this.env.CF_VERSION_METADATA.id
   );
   readonly webSockets = new WebSockets(this.sockets.options());
@@ -625,6 +640,9 @@ export class PiAgent extends DurableObject<Env> {
     this.machines.attach(this.harness, (task) => this.automations.wanted(task));
     this.machines.cloud = this.cloudHook();
     this.machines.recheckAt = (at) => this.ctx.waitUntil(this.automations.recheckMachinesAt(at));
+    this.machines.adopt = (task, parent) => this.specialists.adopt(task, parent);
+    // A Mac the user takes from a specialist, or unpairs, stops that specialist's work on it.
+    this.specialists.onChange(() => this.ctx.waitUntil(confine(this.machines, this.feed, this.specialists)));
     this.proactivity.onChange(() => this.ctx.waitUntil(this.automations.bookLooks()));
     // A closed watch anticipation, or Proactivity off, retires its watch.
     this.proactivity.onChange(() => this.ctx.waitUntil(this.looks.retire()));
@@ -689,11 +707,17 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
+  /** The chat a card from `session` shows in: itself; or for a subagent's, a routine's or a specialist's, the chat its task reports to; a peer's conversation works for the main chat. */
+  cardChat(session: string): string {
+    return this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION;
+  }
+
   /**
    * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
    * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
    * question or another chat started has nobody there to approve anything. Nor does a run that works on a webhook's
    * data (src/inbound/inbound.ts guarded), even once the user steers it: their message doesn't make the post theirs.
+   * A specialist's turn is never the user's: its Allow asks too.
    */
   userHere(session: string): boolean {
     return (
@@ -1164,8 +1188,18 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /** A saved browser login was removed: end the browser session that still holds it (src/browse/routes.ts). */
-  browserForgot(): Promise<void> {
-    return this.browsing.forget();
+  browserForgot(owner: string): Promise<void> {
+    return this.browsing.forget(owner);
+  }
+
+  /** Settings › Browser logins › Move to: `from`'s login for `site` becomes `to`'s (src/browse/routes.ts). */
+  browserMoved(from: string, site: string, to: string) {
+    return this.browsing.move(from, site, to);
+  }
+
+  /** Who can hold a browser login or an API key: ky and each specialist. */
+  owners(): string[] {
+    return [KY, ...this.specialists.list().map((row) => row.id)];
   }
 
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { parseOr } from "../core/decode";
 import { AsksSchema, type SecretAsk } from "../inbound/shapes";
+import { KY } from "../skills/contract";
 import { InputBlock } from "./Blocks";
 import { VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
@@ -91,7 +92,10 @@ function SecretCard({ ask, onDone }: { ask: SecretAsk; onDone: () => Promise<voi
             <Icon name="lock" size={15} />
           </span>
           <h3 className="ui-title">{ask.name}</h3>
-          <span className="ui-subtitle quiet">{new URL(ask.origin).host}</span>
+          <span className="ui-subtitle quiet">
+            {ask.owner === KY ? "" : `for @${ask.owner} · `}
+            {new URL(ask.origin).host}
+          </span>
         </header>
         <p className="ui-hint">
           {ask.purpose}. Sent only to {ask.origin}, {HOW[ask.scheme](ask)}.

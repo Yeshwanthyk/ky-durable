@@ -110,7 +110,7 @@ export const ServerFrameSchema = Type.Union([
   Type.Object({
     type: Type.Literal("specialists"),
     specialists: Type.Array(Specialist),
-    access: Type.Optional(Type.Record(Text, Type.Object({ home: Type.Union([Text, Type.Null()]), macs: Texts })))
+    access: Type.Optional(Type.Record(Text, Type.Object({ home: Type.Union([Text, Type.Null()]), macs: Texts, tools: Type.Record(Text, ToolPolicySchema) })))
   }),
   Type.Object({ type: Type.Literal("avatars"), avatars: Type.Record(Text, BloubSpecSchema) }),
   Type.Object({

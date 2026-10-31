@@ -285,9 +285,9 @@ const MANAGE_RULES = `You create and manage specialists yourself with the specia
 
 /** The machines a specialist has, as its profile says; it asks the user for more. */
 function machinesLine({ home, macs }: Profile): string {
-  const sandbox = home ? `your own sandbox, ${home.name}` : "no sandbox of your own";
+  const sandbox = home ? `your own sandbox, ${home.name}, where a task goes when you name no machine` : "no sandbox of your own";
 
-  return `Your machines: ${sandbox}${macs.length > 0 ? `, and the user's ${macs.join(", ")}` : ""}. Only the user gives you another.`;
+  return `Your machines: ${sandbox}${macs.length > 0 ? `, and the user's ${macs.join(", ")}` : ""}. The machine tool runs your work on these alone, whatever its description says about ky's machines, and a task for one that is offline waits for it. Only the user gives you another: ask them.`;
 }
 
 /** The specialist's own section: who it is, its brief, and what it may do in this conversation. */
@@ -303,7 +303,8 @@ function own(specialists: Specialists, id: string, kind: SessionKind, profile: P
     discuss:
       "You are in a discussion with other specialists. You have no tools here: reason from your brief and what you know, and be concise.",
     group:
-      "The user is talking to you in one of their chats, with ky and maybe other specialists there. Your reply is posted to the chat as your own message, to the user directly. Other specialists may answer the same message; you do not see their replies and cannot ask them. Answer only what is in your line, concisely."
+      "The user is talking to you in one of their chats, with ky and maybe other specialists there. Your reply is posted to the chat as your own message, to the user directly. Other specialists may answer the same message; you do not see their replies and cannot ask them. Answer only what is in your line, concisely.",
+    run: "This is a run of an automation of yours. Do what its prompt says, yourself, and answer with the result; it is reported to the user."
   };
 
   return [
@@ -519,6 +520,8 @@ export function specialistExtension(
           if (found.kind === "group") return { block: "In a chat you answer the user yourself; you cannot ask or start other agents here." };
 
           if (found.kind === "consult") return { block: "You are being consulted: answer directly, without asking others." };
+
+          if (found.kind === "run") return { block: "An automation's run does its work itself, without asking others." };
 
           if (call.arguments.action !== "ask") return { block: "Specialists may only ask another specialist (subagent ask)." };
           const count = asks.get(session) ?? 0;

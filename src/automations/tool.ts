@@ -4,6 +4,7 @@ import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { parseModel } from "../providers/contract";
 import type { ModelChoice } from "../settings/contract";
+import { KY } from "../skills/contract";
 import {
   AUTOMATION_TOOL,
   type AutomationDraft,
@@ -48,10 +49,27 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
 }
 
-async function create(automations: Automations, args: Args, fallback: ModelChoice, caller: string, dream: boolean): Promise<string> {
-  if (!args.title || !args.prompt) return "create needs a title and a prompt.";
+const runsAs = (owner: string) => (owner === KY ? "" : `, runs as @${owner}`);
 
-  const unset = { cron: null, at: null, model: null, machine: null, chat: caller, gate: null };
+const whose = (owner: string) => (owner === KY ? "ky's" : `@${owner}'s`);
+
+/** Whose a new one is: the specialist's that asks, or ky's, or the specialist ky names for the user. */
+function ownerOf(args: Args, by: string): { readonly owner: string } | { readonly refused: string } {
+  const named = args.owner?.trim().replace(/^@/, "") || by;
+
+  return by === KY || named === by ? { owner: named } : { refused: `You make automations for yourself only, @${by}.` };
+}
+
+async function create(automations: Automations, args: Args, call: Call): Promise<string> {
+  const { fallback, caller, dream, by } = call;
+
+  if (!args.title || !args.prompt) return "create needs a title and a prompt.";
+  const chosen = ownerOf(args, by);
+
+  if ("refused" in chosen) return chosen.refused;
+  const { owner } = chosen;
+  // A specialist answers in a conversation of its own, no chat the user has: its reports go to main unless it names a chat.
+  const unset = { cron: null, at: null, model: null, machine: null, chat: by === KY ? caller : ROOT_SESSION, gate: null, owner };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
   const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION, post: false } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
@@ -84,7 +102,7 @@ function lineOf(automations: Automations, view: AutomationView): string {
   const last = view.last_run ? `${view.last_run.status}${view.last_run.summary ? `: ${view.last_run.summary}` : ""}` : "never";
 
   return [
-    `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view, view.zone)}, by ${view.created_by}`,
+    `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view, view.zone)}, by ${view.created_by}${runsAs(view.owner)}`,
     `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
     `  next: ${next}; last run: ${last}`,
     ...(view.gate === null
@@ -93,8 +111,8 @@ function lineOf(automations: Automations, view: AutomationView): string {
   ].join("\n");
 }
 
-async function list(automations: Automations, all: boolean): Promise<string> {
-  const views = await automations.list(all);
+async function list(automations: Automations, all: boolean, by: string): Promise<string> {
+  const views = (await automations.list(all)).filter((view) => by === KY || view.owner === by);
 
   return views.length === 0 ? "No automations." : views.map((view) => lineOf(automations, view)).join("\n");
 }
@@ -115,18 +133,52 @@ type Call = {
   readonly fallback: ModelChoice;
   readonly caller: string;
   readonly dream: boolean;
+  /** Who is asking: "ky", or the specialist whose conversation it is. */
+  readonly by: string;
 };
 
-async function dispatch(automations: Automations, { action, args, fallback, caller, dream }: Call): Promise<string> {
-  if (action === "create") return create(automations, args, fallback, caller, dream);
+/** Why `by` may not change automation `id`: a specialist changes only its own, and only the user moves one to another owner. */
+function changeRefusal(automations: Automations, id: string, args: Args, by: string): string | undefined {
+  if (args.owner !== undefined) return "Only the user moves an automation to another owner, in Settings.";
+  const row = automations.get(id);
 
-  if (action === "list") return list(automations, args.all ?? false);
+  return row === undefined || by === KY || row.owner === by ? undefined : `"${row.title}" is ${whose(row.owner)}; you may change only your own.`;
+}
+
+/** The automation `named` means: its id, or else the exact title of one `by` may change, so "@fin run monthly close" needs no list first. */
+async function idOf(automations: Automations, named: string, by: string, action: ToolAction): Promise<{ readonly id: string } | { readonly refused: string }> {
+  if (automations.get(named) !== undefined) return { id: named };
+  const title = named.trim().toLowerCase();
+  const archived = action === "unarchive";
+
+  const matches = (await automations.list(true)).filter(
+    (view) => (by === KY || view.owner === by) && view.title.toLowerCase() === title && (view.status === "archived") === archived
+  );
+
+  if (matches.length > 1) return { refused: `"${named}" names ${matches.length} automations; use its id (list shows them).` };
+
+  return { id: matches[0]?.id ?? named };
+}
+
+async function dispatch(automations: Automations, call: Call): Promise<string> {
+  const { action, args, fallback, dream, by } = call;
+
+  if (action === "create") return create(automations, args, call);
+
+  if (action === "list") return list(automations, args.all ?? false, by);
 
   if (dream) return "A dream may only create check-ins and list automations.";
 
   if (!args.id) return `${action} needs an id.`;
+  const found = await idOf(automations, args.id, by, action);
 
-  return action === "update" ? update(automations, args.id, args, fallback) : BY_ID[action](automations, args.id);
+  if ("refused" in found) return found.refused;
+  const { id } = found;
+  const refused = changeRefusal(automations, id, args, by);
+
+  if (refused !== undefined) return refused;
+
+  return action === "update" ? update(automations, id, args, fallback) : BY_ID[action](automations, id);
 }
 
 async function update(automations: Automations, id: string, args: Args, fallback: ModelChoice): Promise<string> {
@@ -141,7 +193,9 @@ async function update(automations: Automations, id: string, args: Args, fallback
 export function automationExtension(
   automations: Automations,
   worker: () => ModelChoice,
-  dreaming: (session: string) => boolean
+  dreaming: (session: string) => boolean,
+  /** Whose conversation `session` is: "ky", or a specialist's id (src/skills/profiles.ts). */
+  whoseSession: (session: string) => string
 ): Extension {
   return defineExtension({
     name: EXTENSIONS.automations,
@@ -153,12 +207,13 @@ export function automationExtension(
           "Each run is a fresh subagent, or a task on a machine, that knows only the prompt; its result is reported to this conversation, for you to pass on. " +
           "Crons are in the user's time zone (list shows it), so 9 AM is 0 9 * * *; they keep to it across daylight saving. " +
           "Actions: create (title, prompt, cron or at, model and thinking optional, machine optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
+          "One a specialist creates is its own and runs as it, with its brief and its machines, and reports to main unless chat names another; ky makes one for a specialist with owner, only when the user asks for that. " +
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "Every report goes to its chat in full, whether or not the user is around: a side chat archived by the time a run starts is brought back for it, and a deleted one's go to main. " +
           "A cloud run has the ui tool: a card it shows (a status, stats, a chart, facts, a table) is posted in its chat as ky's own, just before its report, once the run succeeds; " +
           "ask for one in the prompt when the report reads better as a card, like a daily forecast. It may ask the user something (a choice, buttons): their answer comes to you here as their next message. A machine run has none. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
-          "pause, resume, archive, unarchive, run, stop, delete (id): run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
+          "pause, resume, archive, unarchive, run, stop, delete (id): id may be the exact title instead, as in \"run monthly close\"; run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed. " +
           "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
           "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +
@@ -175,7 +230,8 @@ export function automationExtension(
               args,
               fallback: worker(),
               caller: String(api.conversationId),
-              dream: dreaming(String(api.conversationId))
+              dream: dreaming(String(api.conversationId)),
+              by: whoseSession(String(api.conversationId))
             })
           )
       })

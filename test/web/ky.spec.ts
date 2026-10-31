@@ -1579,6 +1579,7 @@ test("creates a specialist in the Soul tab, edits its brief and reverts it", asy
   await expect(form).toBeHidden();
 
   await panel(page).getByRole("button", { name: new RegExp(`^@${id}`) }).click();
+  await page.getByRole("dialog", { name: `@${id}` }).getByRole("button", { name: "Brief v1" }).click();
   const sheet = page.getByRole("dialog", { name: `@${id}` });
   await expect(sheet.getByText("Run the tests first.")).toBeVisible();
   await sheet.getByRole("button", { name: `Edit @${id}` }).click();
@@ -1616,6 +1617,7 @@ test("shows each specialist's bloub in the Soul tab, and New avatar asks ky for 
   await page.screenshot({ path: "test-results/web/specialist-avatar.png" });
 
   await row.click();
+  await page.getByRole("dialog", { name: `@${id}` }).getByRole("button", { name: "Brief v1" }).click();
   const sheet = page.getByRole("dialog", { name: `@${id}` });
   await sheet.getByRole("button", { name: "More" }).click();
   await sheet.getByRole("menuitem", { name: "New avatar" }).click();
@@ -1756,6 +1758,67 @@ test.describe("automations in Activity", () => {
     await edit.getByRole("button", { name: "Delete" }).click();
     await edit.getByRole("button", { name: "Delete for good" }).click();
     await expect(sheet.getByRole("listitem", { name: title })).toBeHidden();
+  });
+
+  test("gives an automation to a specialist with Owner: it saves as that specialist's and opens on it again", async ({ page }) => {
+    await open(page);
+    const id = `own-${crypto.randomUUID().slice(0, 8)}`;
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+    const made = page.getByRole("dialog", { name: "New specialist" });
+    await made.getByRole("textbox", { name: "Id" }).fill(id);
+    await made.getByRole("textbox", { name: "Description" }).fill("Watches the money.");
+    await made.getByRole("textbox", { name: "Brief" }).fill("Be careful.");
+    await made.getByRole("button", { name: "Save" }).click();
+    await expect(made).toBeHidden();
+
+    const title = `Budget ${crypto.randomUUID().slice(0, 8)}`;
+    const sheet = await routines(page);
+    await sheet.getByRole("button", { name: "New", exact: true }).click();
+    const form = panel(page).getByRole("form", { name: "New automation" });
+    await form.getByLabel("Title").fill(title);
+    await form.getByLabel("Prompt").fill("check the budget");
+    await expect(form.getByLabel("Owner")).toHaveValue("ky");
+    await form.getByLabel("Owner").selectOption(id);
+    await page.screenshot({ path: "test-results/web/automation-owner.png" });
+    await form.getByRole("button", { name: "Save" }).click();
+    const automation = sheet.getByRole("listitem", { name: title });
+    await expect(automation).toBeVisible();
+
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await expect(panel(page).getByRole("form", { name: "Edit automation" }).getByLabel("Owner")).toHaveValue(id);
+  });
+
+  test("opens a specialist's page from the Soul tab: its workflows with Pause and Resume, and Ask sends @id to the chat", async ({ page }) => {
+    await open(page);
+    const id = `pg-${crypto.randomUUID().slice(0, 8)}`;
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+    const made = page.getByRole("dialog", { name: "New specialist" });
+    await made.getByRole("textbox", { name: "Id" }).fill(id);
+    await made.getByRole("textbox", { name: "Description" }).fill("Closes the books.");
+    await made.getByRole("textbox", { name: "Brief" }).fill("Be exact.");
+    await made.getByRole("button", { name: "Save" }).click();
+    await expect(made).toBeHidden();
+    const title = `Close ${crypto.randomUUID().slice(0, 8)}`;
+    await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: "close the month", cron: "0 9 1 * *", owner: id })}`);
+
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: new RegExp(`^@${id}`) }).click();
+    const sheet = page.getByRole("dialog", { name: `@${id}'s page` });
+    const workflows = sheet.getByRole("region", { name: "Workflows" });
+    await expect(workflows.getByText(title)).toBeVisible();
+    await sheet.screenshot({ path: "test-results/web/specialist-page.png", animations: "disabled" });
+    await workflows.getByRole("button", { name: "Pause" }).click();
+    await expect(workflows.getByText("paused")).toBeVisible();
+    await expect(workflows.getByRole("button", { name: "Run now" })).toBeHidden();
+    await workflows.getByRole("button", { name: "Resume" }).click();
+    await expect(workflows.getByText("active")).toBeVisible();
+
+    await sheet.getByRole("textbox", { name: `Ask @${id}` }).fill("what's left this month?");
+    await sheet.getByRole("button", { name: "Ask" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(chat(page).getByText(`@${id} what's left this month?`).first()).toBeVisible();
   });
 
   test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
@@ -3217,4 +3280,34 @@ test("Routines sit by Skills in the sidebar: a row a routine, opened in place fo
   await triageRow.getByRole("switch").click();
   await expect(triageRow.getByRole("switch")).toHaveAttribute("aria-checked", "false");
   await expect(triageRow).toContainText("Paused");
+});
+
+test("lists browser logins by owner, and Move to gives one to another owner", async ({ page }) => {
+  const kept = {
+    logins: [
+      { owner: "ky", site: "mail.test", cookies: 2, updatedAt: Date.now() },
+      { owner: "fin", site: "bank.test", cookies: 1, updatedAt: Date.now() }
+    ],
+    owners: ["ky", "fin"]
+  };
+
+  const moves: string[] = [];
+
+  await page.route("**/api/browse/logins", (route) => route.fulfill({ json: kept }));
+  await page.route("**/api/browse/logins/*/*/move", async (route) => {
+    moves.push(`${new URL(route.request().url()).pathname} ${route.request().postData() ?? ""}`);
+    await route.fulfill({ json: { said: "mail.test's login is @fin's now." } });
+  });
+  await open(page);
+  await settings(page, "Webhooks");
+  const logins = panel(page).locator("#settings-browser-logins");
+
+  await expect(logins.locator('[data-owner="ky"] [data-login="mail.test"]')).toBeVisible();
+  await expect(logins.locator('[data-owner="fin"] [data-login="bank.test"]')).toBeVisible();
+  await expect(logins.getByText("@fin's browser")).toBeVisible();
+  await logins.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/web/browser-logins-owners.png" });
+
+  await logins.getByRole("combobox", { name: "Move mail.test to" }).selectOption("fin");
+  await expect.poll(() => moves).toEqual(['/api/browse/logins/ky/mail.test/move {"to":"fin"}']);
 });

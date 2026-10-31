@@ -12,7 +12,8 @@ import { Sql } from "../core/sql";
 import { programOutcome } from "../executor/contract";
 import type { MachineHub } from "../machines/contract";
 import type { Models } from "../providers/wiring";
-import type { Spawn } from "../skills/contract";
+import { KY, mayUse, type Profile, type Spawn } from "../skills/contract";
+import type { ModelChoice } from "../settings/contract";
 import type { BackgroundWork } from "../spend/contract";
 import {
   AlreadyRan,
@@ -31,8 +32,10 @@ import {
   type LastRun,
   ModelUnavailable,
   NoAutomation,
+  NoSuchOwner,
   NoRunGoing,
   NotAZone,
+  NotItsMachine,
   NotSaved,
   RUN_HISTORY,
   type RunInfo,
@@ -68,7 +71,13 @@ export type AutomationDeps = {
   readonly unwatched: (anticipation: number) => void;
   /** Whether a scheduled run may start now (src/spend); a run the user asks for always may. */
   readonly allows: (work: BackgroundWork) => boolean;
+  /** An owner ("ky" or a specialist's id) as it is now: its profile, and a specialist's own model; undefined for none. */
+  readonly owners: (owner: string) => Owner | undefined;
+  /** Keep `profile` on the task `id` to its end, so the machine tool treats it as that owner's (src/skills/profiles.ts). */
+  readonly pin: (id: string, profile: Profile) => void;
 };
+
+export type Owner = { readonly profile: Profile; readonly model: ModelChoice | null };
 
 const LookFire = Schema.Struct({ time: Schema.String });
 
@@ -180,6 +189,9 @@ const conversationOf = (session: string) => Number(session) as ConversationId;
 
 const sourceOf = (id: string) => `${SOURCE}${id}`;
 
+/** What a run is called in its report: a specialist's says whose it is. */
+const labelOf = (row: AutomationRow) => `${row.owner === KY ? "" : `@${row.owner}'s `}${isCheckIn(row) ? "check-in" : "automation"} "${row.title}"`;
+
 const workerOf = (id: string) => `automation-${id}`;
 
 const encoder = new TextEncoder();
@@ -230,8 +242,8 @@ function timingOf(patch: Partial<AutomationDraft>): Partial<AutomationDraft> {
   return patch.at === undefined ? {} : { cron: null, at: patch.at };
 }
 
-function draftOf({ title, prompt, cron, at, model, machine, chat, gate, post }: AutomationDraft): AutomationDraft {
-  return { title, prompt, cron, at, model, machine, chat, gate, post };
+function draftOf({ title, prompt, cron, at, model, machine, chat, gate, post, owner }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, chat, gate, post, owner };
 }
 
 function refusal(id: string, row: AutomationRow | undefined, wanted: string, next?: string) {
@@ -281,6 +293,7 @@ const make = Effect.gen(function* () {
       watch INTEGER,
       post INTEGER NOT NULL DEFAULT 0,
       created_by TEXT NOT NULL,
+      owner TEXT NOT NULL DEFAULT 'ky',
       status TEXT NOT NULL,
       schedule_id TEXT,
       created_at INTEGER NOT NULL,
@@ -294,7 +307,8 @@ const make = Effect.gen(function* () {
     ["gate_found_by", "TEXT"],
     ["watch", "INTEGER"],
     ["post", "INTEGER NOT NULL DEFAULT 0"],
-    ["zone", "TEXT DEFAULT 'UTC'"]
+    ["zone", "TEXT DEFAULT 'UTC'"],
+    ["owner", "TEXT NOT NULL DEFAULT 'ky'"]
   ]);
 
   const get = (id: string) => Effect.map(rows("SELECT * FROM ky_automations WHERE id = ?", id), (found) => found[0]);
@@ -306,7 +320,7 @@ const make = Effect.gen(function* () {
       if (!current || (when !== undefined && !when.includes(current.status))) return false;
       const next = { ...current, ...patch };
       yield* exec(
-        `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, zone = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?,
+        `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, zone = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?, owner = ?,
          gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
         next.title,
         next.prompt,
@@ -318,6 +332,7 @@ const make = Effect.gen(function* () {
         next.chat,
         next.gate,
         next.post ? 1 : 0,
+        next.owner,
         next.gate_checked_at,
         next.gate_note,
         next.gate_errors,
@@ -437,11 +452,24 @@ const make = Effect.gen(function* () {
     return `No chat ${chat}. Use main, or one of: ${known.join(", ") || "no side chats"}.`;
   };
 
+  /** `owner`, when it may run on `machine`; refused when it is gone or the machine isn't in its profile. */
+  const ownerOn = (owner: string, machine: string | null): Effect.Effect<Owner, NoSuchOwner | NotItsMachine> => {
+    const found = host.owners(owner);
+
+    if (found === undefined) return Effect.fail(new NoSuchOwner({ owner }));
+
+    if (machine === null || mayUse(found.profile, machine, machines.machine(machine)?.sandbox)) return Effect.succeed(found);
+    const { macs, sandboxes } = found.profile;
+
+    return Effect.fail(new NotItsMachine({ owner, machine, allowed: [...sandboxes.map((each) => each.name), ...macs] }));
+  };
+
   const check = (draft: AutomationDraft) =>
     Effect.gen(function* () {
       const problem = draftProblem(draft) ?? machineProblem(draft.machine, draft.post) ?? chatProblem(draft.chat);
 
       if (problem !== undefined) return yield* new NotSaved({ problem });
+      yield* ownerOn(draft.owner ?? KY, draft.machine);
 
       if (draft.model === null) return draft;
       const model = models.valid(draft.model);
@@ -655,7 +683,7 @@ const make = Effect.gen(function* () {
       return null;
     });
 
-  const runInCloud = (row: AutomationRow, { slot, task, chat }: Run) =>
+  const runInCloud = (row: AutomationRow, { slot, task, chat }: Run, owner: Owner | undefined) =>
     Effect.gen(function* () {
       feed.create({
         id: task,
@@ -678,12 +706,13 @@ const make = Effect.gen(function* () {
             await runtime.spawn(tx, conversationOf(chat), {
               name: workerOf(row.id),
               message: `${checkIn ? CHECK_IN : ""}${row.prompt}${row.post ? POSTED : ""}`,
-              model: models.worker(row.model),
+              model: models.worker(row.model ?? owner?.model ?? null),
               feedId: task,
-              label: `${checkIn ? "check-in" : "automation"} "${row.title}"`,
+              label: labelOf(row),
               checkIn,
               deliver: true,
-              post: row.post && !checkIn
+              post: row.post && !checkIn,
+              as: owner?.profile
             });
           }),
         catch: (error) => error
@@ -702,11 +731,13 @@ const make = Effect.gen(function* () {
       yield* Effect.promise(() => runtime.wake());
     });
 
-  const runOnMachine = (row: AutomationRow, machine: string, { task, chat }: Omit<Run, "slot">) => {
+  const runOnMachine = (row: AutomationRow, machine: string, { task, chat }: Omit<Run, "slot">, owner: Owner | undefined) => {
     const state = machines.machine(machine)?.state ?? "on";
 
     if (state === "on") {
       machines.start(machine, row.title, row.prompt, task, chat, sourceOf(row.id));
+
+      if (owner !== undefined) host.pin(task, owner.profile);
 
       return;
     }
@@ -724,11 +755,36 @@ const make = Effect.gen(function* () {
     });
   };
 
+  const tell = (chat: string, row: AutomationRow, key: string, said: string) =>
+    Effect.promise(() => runtime.deliver({ id: key, session: chat, content: `[${labelOf(row)} ${said}]`, line: `${labelOf(row)} ${said}`, ref: `automation:${row.id}` }));
+
+  /** A run of a specialist's that can't start as things are now: it says why in its chat, and runs nowhere else. */
+  const notStarted = (row: AutomationRow, { task, chat }: Omit<Run, "slot">, why: string) =>
+    Effect.gen(function* () {
+      const kind = row.machine === null ? "cloud" : "machine";
+      feed.create({ id: task, kind, source: sourceOf(row.id), worker: row.machine ?? workerOf(row.id), title: row.title, status: "failed", summary: why, session: null });
+      yield* tell(chat, row, `not-started:${task}`, `did not run: ${why}`);
+    });
+
   const start = (row: AutomationRow, slot: number, task: string) => {
     const chat = reportTo(row.chat);
     const { machine } = row;
 
-    return machine === null ? runInCloud(row, { slot, task, chat }) : Effect.sync(() => runOnMachine(row, machine, { task, chat }));
+    return Effect.gen(function* () {
+      // Checked for ky too: a sandbox ky's automation ran on may since have become a specialist's.
+      const found = yield* ownerOn(row.owner, machine);
+      // A specialist's run starts as its profile, read now and kept to the run's end; ky's runs as ky always has.
+      const owner = row.owner === KY ? undefined : found;
+
+      if (machine === null) return yield* runInCloud(row, { slot, task, chat }, owner);
+      runOnMachine(row, machine, { task, chat }, owner);
+
+      const there = machines.machine(machine);
+
+      if (owner !== undefined && there?.online === false && !there.sandbox) {
+        yield* tell(chat, row, `waits:${task}`, `waits for ${machine}, which is offline: it runs there when ${machine} is back, and nowhere else`);
+      }
+    }).pipe(Effect.catch((refused) => notStarted(row, { task, chat }, refused.refusal)));
   };
 
   const ran = (task: string): boolean => {
@@ -832,6 +888,15 @@ const make = Effect.gen(function* () {
 
     checkIns,
 
+    /** A deleted specialist's workflows become ky's, paused: whatever their machine, chat or model has become since, so none is left owned by no one. */
+    handOver: (owner: string) =>
+      Effect.gen(function* () {
+        for (const row of yield* rows("SELECT * FROM ky_automations WHERE owner = ?", owner)) {
+          if (row.status === "active") yield* halt(row, "paused");
+          yield* set(row.id, { owner: KY });
+        }
+      }),
+
     setCheckIns: (on: boolean) =>
       Effect.gen(function* () {
         yield* exec("INSERT INTO ky_check_ins (id, off, zone) VALUES (1, ?, NULL) ON CONFLICT (id) DO UPDATE SET off = excluded.off", on ? 0 : 1);
@@ -898,8 +963,8 @@ const make = Effect.gen(function* () {
         const at = yield* now;
         yield* exec(
           `INSERT INTO ky_automations
-        (id, title, prompt, cron, zone, at, model, machine, chat, gate, watch, post, created_by, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, zone, at, model, machine, chat, gate, watch, post, created_by, owner, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
           id,
           checked.title,
           checked.prompt,
@@ -912,6 +977,7 @@ const make = Effect.gen(function* () {
           watch,
           checked.post ? 1 : 0,
           author,
+          checked.owner ?? KY,
           booked,
           at,
           at

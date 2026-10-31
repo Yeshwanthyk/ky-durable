@@ -4,6 +4,7 @@ import { summarize, type TaskFeed, type TaskRow } from "../automations/contract"
 import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { type MachineInfo, osName } from "../protocol";
+import { KY, mayUse, type Profile } from "../skills/contract";
 import { MACHINE_ACTIONS, MACHINE_EXTENSION, MACHINE_TOOL, type MachineChange, type MachineState } from "./contract";
 import { agentOf, cannotRun, PREFERRED, runs } from "./machines";
 import { type Agent, AGENT_NAMES, type MachineFacts } from "./runner-protocol";
@@ -85,14 +86,48 @@ function elsewhere(machines: readonly MachineInfo[], not: string): string {
     : `On and online: ${ready.map((machine) => `${machine.name} (${machine.online ? "" : `${machine.cloud}, wakes for it; `}${machine.active} running or queued)`).join(", ")}.`;
 }
 
-function listAll(machines: readonly MachineInfo[], feed: TaskFeed): string {
+/** Who owns what: the profile of a conversation, or of a machine task, which its starter's owner owns. */
+export type Owners = {
+  readonly profileOf: (conversation: string) => Profile;
+  readonly profile: (owner: string) => Profile;
+};
+
+const usable = (machines: readonly MachineInfo[], profile: Profile) => machines.filter((machine) => mayUse(profile, machine.name, machine.sandbox));
+
+function yours(profile: Profile): string {
+  const own = [...profile.sandboxes.map((each) => each.name), ...profile.macs];
+
+  return own.length > 0 ? `Yours: ${own.join(", ")}.` : "You have no machine yet.";
+}
+
+function notYours(profile: Profile, name: string): string {
+  if (profile.owner === KY) return `${name} is a specialist's own sandbox: ky can't use it. Ask that specialist for work there.`;
+
+  return `@${profile.owner} can't use ${name}; only the user can give it one — ask them. ${yours(profile)}`;
+}
+
+/** Why `profile`'s owner may not use the machine `name`, or null when it may. */
+function refusedTo(profile: Profile, all: readonly MachineInfo[], name: string): string | null {
+  return mayUse(profile, name, all.find((machine) => machine.name === name)?.sandbox) ? null : notYours(profile, name);
+}
+
+/** Why `profile`'s owner may not change the machine `name`'s settings: a specialist changes only its own sandbox's, since a Mac is the user's. */
+function notSettable(profile: Profile, all: readonly MachineInfo[], name: string): string | null {
+  const machine = all.find((each) => each.name === name);
+
+  if (profile.owner !== KY && !machine?.sandbox) return `${name} is the user's: only the user or ky changes its settings.`;
+
+  return refusedTo(profile, all, name);
+}
+
+function listAll(machines: readonly MachineInfo[], feed: TaskFeed, owns: (task: TaskRow) => boolean): string {
   if (machines.length === 0) return describeAll(machines);
 
   return machines
     .map((m) => {
       const tasks = feed
         .list(200)
-        .filter((t) => t.kind === "machine" && t.worker === m.name)
+        .filter((t) => t.kind === "machine" && t.worker === m.name && owns(t))
         .slice(0, 8)
         .map((t) => `  ${t.id} [${t.status}] ${AGENT_NAMES[agentOf(t)]}: ${t.title}${t.summary ? ` — ${t.summary}` : ""}`);
 
@@ -111,10 +146,10 @@ function setMachine(hub: MachineHub, machines: readonly MachineInfo[], name: str
   return isRefusal(result) ? `${result.refused}\n${describeAll(machines)}` : `Set. ${describeMachine(result)}`;
 }
 
-function defaultMachine(machines: readonly MachineInfo[]): string | undefined {
-  const sandbox = machines.find((m) => m.sandbox?.isDefault && m.state === "on");
+function defaultMachine(machines: readonly MachineInfo[], { owner, home }: Profile): string | undefined {
+  const sandbox = home && machines.find((m) => m.sandbox?.id === home.id && m.state === "on");
 
-  if (sandbox) return sandbox.name;
+  if (sandbox || owner !== KY) return sandbox?.name;
   const ready = machines.filter((m) => m.state === "on" && m.online);
 
   return ready.length === 1 ? ready[0]?.name : undefined;
@@ -130,7 +165,13 @@ function wrongSandbox(machines: readonly MachineInfo[], target: MachineInfo, rep
     : `${repo} is no sandbox's, and ${target.name} works only on its repos (${target.sandbox.repos.join(", ")}): name a computer for it, or the user adds it to a sandbox in Settings.`;
 }
 
-function noMachine(machines: readonly MachineInfo[]): string {
+function noMachine(machines: readonly MachineInfo[], profile: Profile): string {
+  if (profile.owner !== KY) {
+    const home = profile.home ? `Your sandbox, ${profile.home.name}, is not on` : "You have no sandbox of your own";
+
+    return `${home}: name one of your machines for this task, or ask the user to turn yours on or give you one. ${yours(profile)}`;
+  }
+
   return machines.some((m) => m.state === "on" && m.online)
     ? `Name the machine for this task.\n${describeAll(machines)}`
     : `No machine is on and online; name one to queue the task for it.\n${describeAll(machines)}`;
@@ -157,25 +198,27 @@ function homeRefusal(home: MachineInfo | undefined, wanted: string | undefined):
   return home && home.state !== "on" ? `${wanted} is the sandbox ${home.name}'s, which is ${home.state}: the user is not letting it take new tasks. Ask the user to turn it on.` : null;
 }
 
-function pickMachine(machines: readonly MachineInfo[], requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
+function pickMachine(machines: readonly MachineInfo[], profile: Profile, requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
   const { wanted, home } = homeOf(machines, repo);
   const off = requested === undefined ? homeRefusal(home, wanted) : null;
 
   if (off) return { refusal: off };
-  const name = requested ?? home?.name ?? defaultMachine(machines);
+  const name = requested ?? home?.name ?? defaultMachine(machines, profile);
 
-  if (!name) return { refusal: noMachine(machines) };
+  if (!name) return { refusal: noMachine(machines, profile) };
   const refusal = refusalOn(machines, name, wanted);
 
   return refusal ? { refusal } : { name };
 }
 
-function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow): string {
+function startedOn(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, owner: string): string {
   const started = `Started task ${task.id} on ${task.worker} as ${AGENT_NAMES[agentOf(task)]}`;
 
   if (hub.online(task.worker)) return `${started}.`;
 
   if (hub.machine(task.worker)?.cloud) return `${started} (asleep: it wakes for the task in a minute or two).`;
+
+  if (owner !== KY) return `${started} (offline: it waits for ${task.worker}, starts when it connects, and runs nowhere else). Tell the user it is waiting for ${task.worker}.`;
 
   const waiting = machines.some((m) => m.name === task.worker)
     ? `offline: it starts when ${task.worker} connects`
@@ -193,8 +236,11 @@ function moveRefusal(machines: readonly MachineInfo[], task: TaskRow, target: Ma
     : null;
 }
 
-function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, to: string | undefined): string {
+function moveTask(hub: MachineHub, machines: readonly MachineInfo[], task: TaskRow, to: string | undefined, refused: (name: string) => string | null): string {
   if (!to) return `move needs a machine.\n${describeAll(machines)}`;
+  const refusal = refused(to);
+
+  if (refusal) return refusal;
   const target = machines.find((m) => m.name === to);
 
   if (!target) return `No machine ${to}.\n${describeAll(machines)}`;
@@ -225,8 +271,17 @@ function changeOf(args: MachineArgs): MachineChange {
   return change;
 }
 
-function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo[], args: MachineArgs, id: string, conversation: string): string {
-  const picked = pickMachine(machines, args.machine, args.repo);
+/** Where `profile`'s owner's run goes: the machine it named, else the repo's sandbox, else its home; only ever one of its own. */
+export function place(all: readonly MachineInfo[], profile: Profile, requested: string | undefined, repo?: string): { name: string } | { refusal: string } {
+  const refused = requested === undefined ? null : refusedTo(profile, all, requested);
+
+  return refused ? { refusal: refused } : pickMachine(usable(all, profile), profile, requested, repo);
+}
+
+type Caller = { readonly all: readonly MachineInfo[]; readonly machines: readonly MachineInfo[]; readonly profile: Profile; readonly conversation: string };
+
+function runTask(hub: MachineHub, feed: TaskFeed, { all, machines, profile, conversation }: Caller, args: MachineArgs, id: string): string {
+  const picked = place(all, profile, args.machine, args.repo);
 
   if ("refusal" in picked) return picked.refusal;
 
@@ -239,7 +294,7 @@ function runTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo
 
   if (args.title === undefined) feed.name(task.id, args.prompt);
 
-  return startedOn(hub, machines, task);
+  return startedOn(hub, machines, task, profile.owner);
 }
 
 function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, conversation: string): string {
@@ -258,10 +313,10 @@ function sendTask(hub: MachineHub, task: TaskRow, message: string | undefined, c
   return STEERS.has(agent) ? `Steering ${task.id}.` : `Queued for ${task.id}: ${AGENT_NAMES[agent]} takes it once its turn ends.`;
 }
 
-async function onTask(hub: MachineHub, feed: TaskFeed, machines: readonly MachineInfo[], args: MachineArgs, conversation: string): Promise<string> {
-  const task = args.task ? feed.get(args.task) : undefined;
+async function onTask(hub: MachineHub, feed: TaskFeed, owners: Owners, { all, machines, profile, conversation }: Caller, args: MachineArgs): Promise<string> {
+  const task = ownTask(feed, owners, profile, args.task);
 
-  if (!task || task.kind !== "machine") return `No machine task ${args.task ?? ""}.`;
+  if (!task) return `No machine task ${args.task ?? ""}.`;
 
   if (args.action === "stop") {
     await hub.stop(task);
@@ -269,9 +324,33 @@ async function onTask(hub: MachineHub, feed: TaskFeed, machines: readonly Machin
     return `Stopping ${task.id}.`;
   }
 
-  if (args.action === "move") return moveTask(hub, machines, task, args.machine);
+  if (args.action === "move") return moveTask(hub, machines, task, args.machine, (name) => refusedTo(profile, all, name));
 
-  return sendTask(hub, task, args.message, conversation);
+  return refusedTo(profile, all, task.worker) ?? sendTask(hub, task, args.message, conversation);
+}
+
+/** Each owner sees and steers only the tasks its own conversations started. */
+const ownedBy = (owners: Owners, profile: Profile, task: TaskRow) => owners.profileOf(task.id).owner === profile.owner;
+
+function ownTask(feed: TaskFeed, owners: Owners, profile: Profile, id: string | undefined): TaskRow | undefined {
+  const task = id ? feed.get(id) : undefined;
+
+  return task?.kind === "machine" && ownedBy(owners, profile, task) ? task : undefined;
+}
+
+/**
+ * Stop each specialist's open task on a machine it may no longer use, as when the user takes a Mac back or
+ * unpairs it, and tell the conversations that started it.
+ */
+export async function confine(hub: Pick<MachineHub, "machines" | "withdraw">, feed: Pick<TaskFeed, "open">, owners: Owners): Promise<void> {
+  for (const machine of hub.machines()) {
+    for (const task of feed.open("machine", machine.name)) {
+      const profile = owners.profileOf(task.id);
+
+      if (profile.owner === KY || mayUse(profile, machine.name, machine.sandbox)) continue;
+      await hub.withdraw(task, `@${profile.owner} may no longer use ${machine.name}, so ky stopped this task there. Only the user can give it back.`);
+    }
+  }
 }
 
 function routing(machines: readonly MachineInfo[]): string {
@@ -299,8 +378,9 @@ function toolDescription(machines: readonly MachineInfo[]): string {
     "Run tasks on machines, each as a Claude Code or Codex session with a shell, git, files, scripts and installed tools. " +
     "Use it when the user asks for a machine, or for what the cloud tools cannot do: running scripts, builds or tests, work on a repo, web pages that need the user's logins (have a subagent try Exa search and browse first), local files. " +
     routing(machines) +
+    "A specialist works only on its own sandbox and the Macs the user gave it, which its instructions name: the routing above and the machines below are ky's, and for a specialist the tool refuses every other machine, lists only its own, and sends a task with no machine named to its own sandbox. " +
     "Only a machine that is on takes new tasks. Name an agent only when the user asks for one, else a task runs as the machine's own, Claude Code first.\n" +
-    `Machines (list says which are online and how busy):\n${describeAll(machines, factsOf)}\n` +
+    `ky's machines (list says which are online and how busy):\n${describeAll(machines, factsOf)}\n` +
     "Actions: list (each machine: on, paused or off; online; how busy; OS; Chrome; which agents it runs; repos; the user's note, and its recent tasks). " +
     "run (title, prompt, machine, repo, agent): start a task; the prompt must be self-contained. Give repo only when the user or the task names the GitHub repo it works on; never guess one. " +
     "send (task, message): steer a working task, or resume a finished one with its history; it goes to the task's own agent. Codex takes no message mid-turn: one sent to a working Codex task runs once its turn ends. " +
@@ -311,14 +391,14 @@ function toolDescription(machines: readonly MachineInfo[]): string {
   );
 }
 
-export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
+export function machineExtension(hub: MachineHub, feed: TaskFeed, owners: Owners): Extension {
   return defineExtension({
     name: MACHINE_EXTENSION,
     tools: [
       defineTool({
         name: MACHINE_TOOL,
         get description() {
-          return toolDescription(hub.machines());
+          return toolDescription(usable(hub.machines(), owners.profile(KY)));
         },
         parameters: Type.Object({
           action: Type.Union(MACHINE_ACTIONS.map((action) => Type.Literal(action))),
@@ -334,16 +414,18 @@ export function machineExtension(hub: MachineHub, feed: TaskFeed): Extension {
         }),
         replay: "unsafe",
         execute: async (args, api) => {
-          const machines = hub.machines();
+          const all = hub.machines();
           const conversation = String(api.conversationId);
+          const profile = owners.profileOf(conversation);
+          const caller = { all, machines: usable(all, profile), profile, conversation };
 
-          if (args.action === "list") return reply(listAll(machines, feed));
+          if (args.action === "list") return reply(listAll(caller.machines, feed, (task) => ownedBy(owners, profile, task)));
 
-          if (args.action === "set") return reply(setMachine(hub, machines, args.machine, changeOf(args)));
+          if (args.action === "set") return reply((args.machine && notSettable(profile, all, args.machine)) || setMachine(hub, caller.machines, args.machine, changeOf(args)));
 
-          if (args.action === "run") return reply(runTask(hub, feed, machines, args, `m-${String(api.taskId)}`, conversation));
+          if (args.action === "run") return reply(runTask(hub, feed, caller, args, `m-${String(api.taskId)}`));
 
-          return reply(await onTask(hub, feed, machines, args, conversation));
+          return reply(await onTask(hub, feed, owners, caller, args));
         }
       })
     ]

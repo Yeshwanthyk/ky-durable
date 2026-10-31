@@ -492,13 +492,14 @@ function useAutomations(ky: Ky) {
       automations: ky.automations,
       providers,
       machines: ky.machines,
+      specialists: ky.specialists,
       chats: ky.chats,
       onAction: ky.changeAutomation,
       onSave: ky.saveAutomation,
       checkIns: ky.checkIns,
       onCheckIns: ky.setCheckIns
     }),
-    [ky.automations, providers, ky.machines, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
+    [ky.automations, providers, ky.machines, ky.specialists, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
   );
 }
 
@@ -542,7 +543,8 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
       onDelete: ky.deleteSpecialist,
       onBrief: ky.changeBrief,
       onHistory: ky.briefHistory,
-      onAvatar: (id: string) => ky.submit(avatarRequest(id))
+      onAvatar: (id: string) => ky.submit(avatarRequest(id)),
+      onAsk: (id: string, text: string) => ky.submit(`@${id} ${text}`)
     }),
     [ky.saveSpecialist, ky.changeAccess, ky.deleteSpecialist, ky.changeBrief, ky.briefHistory, ky.submit]
   );

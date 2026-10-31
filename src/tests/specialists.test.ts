@@ -1,7 +1,8 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { env, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, FACTS, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { agent, connect, connectExecutor, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -53,6 +54,8 @@ async function command(socket: WebSocket, client: Follower, message: PiClientMes
 
   return reply()!;
 }
+
+const machineTasks = async (name: string) => (await tasks(name)).filter((task) => task.kind === "machine");
 
 const latest = (client: Follower) =>
   client.frames.filter((frame): frame is Frame<"specialists"> => frame.type === "specialists").at(-1)?.specialists;
@@ -307,5 +310,226 @@ describe("a specialist's machines", () => {
     // Deleting a specialist keeps its sandbox.
     expect(await inside(name, (instance) => instance.sandboxes.get(own ?? "")?.deletedAt)).toBeNull();
     socket.close();
+  });
+
+  it("refuse a specialist a Mac the user didn't give it, and keep ky off the specialist's sandbox", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    await prompt(name, ask("eng", "machine@mbp build it"));
+    await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
+
+    expect((await prompt(name, "machine@eng build it")).text).toBe(
+      "tool said: eng is a specialist's own sandbox: ky can't use it. Ask that specialist for work there."
+    );
+    const listed = (await prompt(name, tool("machine", { action: "list" }))).text ?? "";
+
+    expect([listed.includes("mbp:"), listed.includes("eng:")]).toEqual([true, false]);
+    expect(await machineTasks(name)).toEqual([]);
+  });
+
+  it("wait for a given Mac that is offline, run nowhere else, and stop there for good when the user takes the Mac back", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+    const { socket, client } = await session(name);
+
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
+    await prompt(name, ask("eng", "machine@mbp build it"));
+    await said(name, "(offline: it waits for mbp, starts when it connects, and runs nowhere else). Tell the user it is waiting for mbp.");
+    expect(await machineTasks(name)).toEqual([{ kind: "machine", worker: "mbp", status: "queued" }]);
+
+    const mbp = await runner(name, "mbp");
+    const run = await mbp.run();
+    await until(async () => (await machineTasks(name)).some((task) => task.status === "working"), "the task to start on mbp");
+
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: false } })).toMatchObject({ result: {} });
+    await until(async () => (await machineTasks(name)).some((task) => task.status === "stopped"), "the task to stop");
+    expect(await mbp.next()).toMatchObject({ type: "stop", task: run.task });
+    await until(async () => (await home(name, "eng")).includes("@eng may no longer use mbp, so ky stopped this task there."), "@eng to be told");
+
+    await prompt(name, ask("eng", tool("machine", { action: "send", task: run.task, message: "go on" })));
+    await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
+    mbp.socket.close();
+    socket.close();
+  });
+});
+
+describe("a specialist's approvals", () => {
+  const PAUSE = 'tool executor_execute {"code":"approve gmail.send send mail to sam"}';
+
+  it("follow its own policy where the user set one, and an ask from a chat that read a page carries that read to it (R7)", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await connectExecutor(name);
+    await inside(name, (instance) => instance.executorApprovals.setPolicy("gmail.send", "allow"));
+
+    const { socket, client } = await session(name);
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { tool: "gmail.send", policy: "block" } })).toMatchObject({ result: {} });
+    await client.until(() => accessOf(client)?.eng?.tools["gmail.send"] === "block");
+    socket.close();
+
+    await inside(name, (instance) => instance.outside.mark("1", "web"));
+    await prompt(name, ask("eng", PAUSE));
+    await said(name, "ky declined this request: the user set gmail.send to Block in @eng's settings.");
+
+    const marked = await inside(name, (instance, state) => {
+      const home = instance.specialists.get("eng")?.session ?? "";
+
+      return state.storage.sql.exec("SELECT source FROM ky_outside_content WHERE conversation = ?", home).toArray();
+    });
+
+    expect(marked).toEqual([{ source: "web" }]);
+
+    // Under @eng's own Allow, its write still asks the user: nobody is in its turn, and it read what the chat read.
+    await inside(name, (instance) => instance.specialists.changeAccess("eng", { tool: "gmail.send", policy: "allow" }));
+    await prompt(name, ask("eng", PAUSE));
+    await until(async () => (await inside(name, (instance) => instance.approvals.cards().filter((card) => card.kind === "executor").length)) === 1, "@eng's write on a card");
+    expect(shows(await snapshotView(name), "ky approved gmail.send itself")).toBe(false);
+  });
+});
+
+describe("a specialist's automations", () => {
+  const automation = (args: Record<string, JsonValue>) => tool("automation", { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", ...args });
+
+  const created = (text: string) => /Created automation (\w+),/.exec(text)?.[1] ?? "";
+
+  /** The automation's runs, as the task list shows them. */
+  const runsOf = (name: string, id: string) => inside(name, (instance) => instance.feed.list().filter((task) => task.source === `automation:${id}`));
+
+  it("is the specialist's own when it makes one, runs as it, and it can't change ky's", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const kys = created((await prompt(name, automation({ action: "create" }))).text ?? "");
+    await prompt(name, ask("eng", automation({ action: "create" })));
+    const all = await inside(name, async (instance) => (await instance.automations.list(true)).map((each) => [each.id, each.owner] as const));
+    const engs = all.find(([id]) => id !== kys)?.[0] ?? "";
+
+    expect(all.map(([, owner]) => owner).sort()).toEqual(["eng", "ky"]);
+    await prompt(name, ask("eng", tool("automation", { action: "pause", id: kys })));
+    await said(name, `tool said: "Digest" is ky's; you may change only your own.`);
+    await prompt(name, ask("eng", tool("automation", { action: "list" })));
+    await said(name, `${engs} "Digest"`);
+
+    expect(await prompt(name, tool("automation", { action: "run", id: engs })).then((result) => result.text)).toMatch(/^tool said: Running "Digest" now/);
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, engs)).some((task) => task.session !== null), "the run to start");
+    const [run] = await runsOf(name, engs);
+
+    expect(await inside(name, (instance) => instance.specialists.profileOf(run?.session ?? "").owner)).toBe("eng");
+  });
+
+  it("runs its own by title, not ky's of the same name, and ky is told to use the id when a title names two", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await prompt(name, automation({ action: "create", title: "Monthly close", owner: "eng" }));
+    await prompt(name, automation({ action: "create", title: "Monthly close" }));
+
+    expect(await inside(name, async (instance) => (await instance.automations.list(true)).map((each) => each.owner).sort())).toEqual(["eng", "ky"]);
+    await prompt(name, ask("eng", tool("automation", { action: "run", id: "monthly close" })));
+    await said(name, 'tool said: Running "Monthly close" now');
+    await runDurableObjectAlarm(agent(name));
+
+    const runs = await inside(name, async (instance) => {
+      const owned = new Map((await instance.automations.list(true)).map((each) => [`automation:${each.id}`, each.owner]));
+
+      return instance.feed.list().flatMap((task) => owned.get(task.source ?? "") ?? []);
+    });
+
+    expect(runs).toEqual(["eng"]);
+    expect((await prompt(name, tool("automation", { action: "run", id: "Monthly close" }))).text).toBe(
+      'tool said: "Monthly close" names 2 automations; use its id (list shows them).'
+    );
+  });
+
+  it("refuses a machine its owner may not use, for a specialist's and for ky's", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    await prompt(name, ask("eng", automation({ action: "create", machine: "mbp" })));
+    await said(name, "tool said: @eng may not use mbp; it may use eng. Only the user gives it another.");
+    expect((await prompt(name, automation({ action: "create", machine: "eng" }))).text).toBe("tool said: eng is a specialist's own sandbox: ky can't use it.");
+    expect((await prompt(name, automation({ action: "create", owner: "eng", machine: "mbp" }))).text).toBe(
+      "tool said: @eng may not use mbp; it may use eng. Only the user gives it another."
+    );
+    expect(await inside(name, async (instance) => (await instance.automations.list(true)).length)).toBe(0);
+  });
+
+  it("moves to another owner only by the user's save, and a run going keeps the owner it started with", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", machine: "mbp" }))).text ?? "");
+
+    expect((await prompt(name, tool("automation", { action: "update", id, owner: "eng" }))).text).toBe(
+      "tool said: Only the user moves an automation to another owner, in Settings."
+    );
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    const [run] = await runsOf(name, id);
+
+    expect(run).toMatchObject({ kind: "machine", worker: "mbp", status: "queued" });
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: "mbp", chat: "1", gate: null, owner: "eng" };
+
+    expect(JSON.stringify(await command(socket, client, { type: "automation-save", automation: id, draft }))).toContain("@eng may not use mbp");
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
+    expect(await command(socket, client, { type: "automation-save", automation: id, draft })).toMatchObject({ result: {} });
+
+    expect(await inside(name, (instance) => [instance.automations.get(id)?.owner, instance.specialists.profileOf(run?.id ?? "").owner])).toEqual(["eng", "ky"]);
+    socket.close();
+  });
+
+  it("an @eng run going on its sandbox stays @eng's, with its sandbox, after the user gives the automation to ky", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", owner: "eng", machine: "eng" }))).text ?? "");
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, id)).length > 0, "the run to start");
+    const [run] = await runsOf(name, id);
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: null, chat: "1", gate: null, owner: "ky" };
+
+    expect(run).toMatchObject({ kind: "machine", worker: "eng", status: "queued" });
+    expect(await command(socket, client, { type: "automation-save", automation: id, draft })).toMatchObject({ result: {} });
+
+    const after = await inside(name, (instance) => ({ owner: instance.automations.get(id)?.owner, run: instance.specialists.profileOf(run?.id ?? "") }));
+    expect([after.owner, after.run.owner, after.run.sandboxes.map((each) => each.name)]).toEqual(["ky", "eng", ["eng"]]);
+    socket.close();
+  });
+
+  it("goes to ky, paused, when the user deletes its specialist, whose runs stop and whose own logins and keys go (R3)", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    const { socket, client } = await session(name);
+    const id = created((await prompt(name, automation({ action: "create", owner: "eng", machine: "eng" }))).text ?? "");
+    await prompt(name, tool("automation", { action: "run", id }));
+    await runDurableObjectAlarm(agent(name));
+    await until(async () => (await runsOf(name, id)).length > 0, "the run to start");
+    const vault = env.Vault.getByName("owner");
+    const site = `${crypto.randomUUID()}.test`;
+    const kept = async () => (await vault.status()).flatMap((each) => (each.id.endsWith(site) ? [`${each.kind} ${each.id}`] : [])).sort();
+    await vault.put("browser-login", `eng:${site}`, { cookies: [], origins: [] }, { cookies: 0 });
+    await vault.put("http", `eng:${site}`, "its key");
+    await vault.put("http", `*:${site}`, "a shared key");
+    await vault.put("http", `ky:${site}`, "ky's key");
+
+    expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: {} });
+    await until(async () => (await runsOf(name, id)).every((run) => run.status === "stopped"), "@eng's run to stop");
+    expect(await inside(name, (instance) => [instance.automations.get(id)?.owner, instance.automations.get(id)?.status])).toEqual(["ky", "paused"]);
+    expect(await kept()).toEqual([`http *:${site}`, `http ky:${site}`]);
+    socket.close();
+  });
+
+  it("reads one from before owners as ky's", async () => {
+    const name = crypto.randomUUID();
+    const id = created((await prompt(name, automation({ action: "create" }))).text ?? "");
+    await inside(name, (_instance, state) => state.storage.sql.exec("ALTER TABLE ky_automations DROP COLUMN owner"));
+
+    await evictDurableObject(agent(name));
+    expect(await inside(name, (instance) => instance.automations.get(id)?.owner)).toBe("ky");
   });
 });

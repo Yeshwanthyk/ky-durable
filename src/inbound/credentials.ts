@@ -1,5 +1,6 @@
 import Type, { type Static } from "typebox";
 import type { Fetch } from "../providers/contract";
+import { KY, ownedId, ownedOf, ownerName, SHARED } from "../skills/contract";
 import { SchemeSchema } from "./shapes";
 
 type Scheme = Static<typeof SchemeSchema>;
@@ -33,6 +34,26 @@ export type CredentialReply =
   | { readonly refused: string; readonly sent: boolean };
 
 export const HTTP_KIND = "http";
+
+/** The key `owner` calls with as `name`, among the Vault's `ids`: its own, else a shared one; never another owner's, which is asked of it. */
+export function heldKey(owner: string, name: string, ids: readonly string[]): { readonly id: string } | { readonly refused: string } {
+  const keys = ids.flatMap((id) => {
+    const key = ownedOf(id);
+
+    return key.name === name ? [key] : [];
+  });
+
+  const usable = keys.find((key) => key.owner === owner) ?? keys.find((key) => key.owner === SHARED);
+
+  if (usable) return { id: ownedId(usable.owner, name) };
+  const other = keys[0]?.owner;
+
+  if (other === undefined) return { refused: `There is no credential ${name}. list_secrets shows the ones there are.` };
+
+  return other === KY
+    ? { refused: `ky holds ${name}, not ${ownerName(owner)}. Only the user can share it, or move it to ${ownerName(owner)}, in Settings › Webhooks.` }
+    : { refused: `${ownerName(other)} holds that key; ask ${ownerName(other)}.` };
+}
 
 const SCHEMES: readonly Scheme[] = SchemeSchema.anyOf.map((literal) => literal.const);
 

@@ -258,6 +258,9 @@ export function world(db: DatabaseSync) {
     vault: () => vault as never,
     asker: approvals,
     chat: (session) => CHATS.has(session),
+    owner: () => "ky",
+    home: (session) => session,
+    unattended: () => false,
     tell: async (session, content, requestId) => {
       seen.told.push([session, content, requestId]);
       place(session, requestId);

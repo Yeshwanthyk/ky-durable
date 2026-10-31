@@ -10,14 +10,18 @@ import type { Sandboxes } from "../runners/wiring";
 import type { CloudHook, MachineChange, SessionCreds, TaskTokens } from "./contract";
 import { type Harness, Host, Machines } from "./machines";
 import type { Agent, MachineFacts, TaskReport } from "./runner-protocol";
-import { machineExtension } from "./tool";
+import { machineExtension, type Owners } from "./tool";
 
 export { RunnerPipe } from "./pipe";
+
+export { confine } from "./tool";
 
 export class MachineHub {
   retryMs = 1_000;
   cloud: CloudHook | undefined;
   recheckAt: (at: number) => void = () => {};
+  /** A task started from `parent` is whoever owns `parent`'s. */
+  adopt: (task: string, parent: string) => void = () => {};
   #harness: Harness | undefined;
   #wanted: (task: string) => boolean = () => true;
   readonly #watchers = new Set<() => void>();
@@ -111,6 +115,8 @@ export class MachineHub {
   start(machine: string, title: string, prompt: string, id: string, parent: string, source = "chat", agent = this.defaultAgent(machine)): TaskRow {
     const { task, queued } = this.#edge.run(Machines.use((machines) => machines.start(machine, title, prompt, id, parent, source, agent)));
 
+    this.adopt(task.id, parent);
+
     if (queued) this.#deliver(machine);
 
     return task;
@@ -129,6 +135,10 @@ export class MachineHub {
     this.#deliver(to);
 
     return null;
+  }
+
+  withdraw(task: TaskRow, why: string): Promise<void> {
+    return this.#edge.runPromise(Machines.use((machines) => machines.withdraw(task, why)));
   }
 
   stop(task: TaskRow): Promise<void> {
@@ -183,8 +193,9 @@ export class MachineHub {
 export type MachinesWiring = {
   readonly machines: MachineHub;
   readonly feed: TaskFeed;
+  readonly owners: Owners;
 };
 
-export function machineTools({ machines, feed }: MachinesWiring) {
-  return { machines: machineExtension(machines, feed) };
+export function machineTools({ machines, feed, owners }: MachinesWiring) {
+  return { machines: machineExtension(machines, feed, owners) };
 }

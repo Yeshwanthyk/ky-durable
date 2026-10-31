@@ -1,6 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
+import { ownedOf, ownerName } from "../skills/contract";
 
 export const PageRead = Schema.Struct({
   title: Schema.String,
@@ -88,12 +89,25 @@ export interface LoginVault {
   status(): Promise<ReadonlyArray<{ readonly kind: string; readonly id: string; readonly meta: SecretMeta | null; readonly updatedAt: number }>>;
   put(kind: typeof LOGIN_KIND, id: string, value: JsonValue, meta: { cookies: number }): Promise<void>;
   remove(kind: typeof LOGIN_KIND, id: string): Promise<void>;
-  browserLogins(): Promise<ReadonlyArray<{ readonly site: string; readonly state: string }>>;
+  /** Whether there was a secret at `id` to move to `to`, over any there. */
+  move(kind: typeof LOGIN_KIND, id: string, to: string): Promise<boolean>;
+  browserLogins(owner: string): Promise<ReadonlyArray<{ readonly site: string; readonly state: string }>>;
 }
 
-export const BROWSE_TABLES ={ session: "ky_browser_session" } as const;
+/** Each owner's session; `beforeOwners` held ky's one session before owners, and is emptied into it on start. */
+export const BROWSE_TABLES = { session: "ky_browser_sessions", beforeOwners: "ky_browser_session" } as const;
 
 export const LOGIN_KIND = "browser-login";
+
+/** Whose a login is, and for which site. */
+type LoginOf = { readonly owner: string; readonly site: string };
+
+/** Whose login a Vault id (src/skills/contract ownedId) is, and for which site; one from before owners is ky's. */
+export function ownedLogin(id: string): LoginOf {
+  const { owner, name } = ownedOf(id);
+
+  return { owner, site: name };
+}
 
 export type Cookie = typeof Cookie.Type;
 
@@ -123,6 +137,8 @@ export const Handoff = Schema.Struct({
   url: Schema.String,
   link: Schema.String,
   instructions: Schema.String,
+  /** Whose browser it is, so whose the login it keeps is; a hand-off from before owners is ky's. */
+  owner: Schema.optionalKey(Schema.String),
   teach: Schema.optionalKey(Schema.Struct({ from: Schema.Number }))
 });
 
@@ -131,6 +147,8 @@ export type Handoff = typeof Handoff.Type;
 /** A browse call whose steps act on a site with a saved login, as its card keeps it until the user decides. */
 export const StepsAsked = Schema.Struct({
   url: Schema.String,
+  /** Whose session they run in; a card from before owners is ky's. */
+  owner: Schema.optionalKey(Schema.String),
   steps: Schema.Array(
     Schema.Struct({ do: Schema.Literals(["click", "fill", "press", "wait"]), selector: Schema.optionalKey(Schema.String), value: Schema.optionalKey(Schema.String) })
   ),
@@ -183,11 +201,35 @@ export type Recording = typeof Recording.Type;
 
 export const TEACH_DIR = "/workspace/teach";
 
-const Login = Schema.Struct({ site: Schema.String, cookies: Schema.Number, updatedAt: Schema.Number });
+const Login = Schema.Struct({ owner: Schema.String, site: Schema.String, cookies: Schema.Number, updatedAt: Schema.Number });
 
 export type Login = typeof Login.Type;
 
-export const Logins = Schema.Struct({ logins: Schema.Array(Login) });
+/** Settings' list: each login by owner and site, and every owner a login can move to. */
+export const Logins = Schema.Struct({ logins: Schema.Array(Login), owners: Schema.Array(Schema.String) });
+
+export type Logins = typeof Logins.Type;
+
+/** Settings moves a login to another owner. */
+export const MoveLogin = Schema.Struct({ to: Schema.String });
+
+export class NoLoginOwner extends Schema.TaggedError<NoLoginOwner>()("NoLoginOwner", { owner: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `No specialist @${this.owner}.`;
+  }
+}
+
+export class LoginTaken extends Schema.TaggedError<LoginTaken>()("LoginTaken", { owner: Schema.String, site: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${ownerName(this.owner)} already keeps a login for ${this.site}: remove that one first.`;
+  }
+}
+
+export class NoLogin extends Schema.TaggedError<NoLogin>()("NoLogin", { owner: Schema.String, site: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${ownerName(this.owner)} keeps no login for ${this.site}.`;
+  }
+}
 
 export class NoBrowser extends Schema.TaggedError<NoBrowser>()("NoBrowser", { said: Schema.String }) implements Refusable {
   get refusal(): string {

@@ -43,6 +43,9 @@ const note = (result: CallResult, text: string): CallResult => ({ output: [...re
 
 const gone = (result: CallResult): boolean => Option.isSome(unavailable(resultText(result)));
 
+/** The policy a tool runs on in a conversation, and where the user set it, as a note names it. */
+type Governing = { readonly policy: ToolPolicy; readonly where: string };
+
 /** Allow runs a tool by itself only for the user in their own turn, in a conversation no outside content reached (src/outside). */
 function verdict(policy: ToolPolicy, present: boolean, marked: boolean): ToolPolicy {
   if (policy === "allow" && (!present || marked)) return "ask";
@@ -61,6 +64,8 @@ export type ExecutorApprovalDeps = {
   /** Whether nobody can answer a card for the turn in `session`: an automation's run, a look, a dream or a mail's triage. */
   readonly unattended: (session: string) => boolean;
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** The policy the owner of `session` (a specialist) set for `tool`, over ky's; undefined to follow ky's. */
+  readonly ownPolicy: (session: string, tool: string) => { readonly owner: string; readonly policy: ToolPolicy } | undefined;
 };
 
 class Store extends Context.Service<
@@ -168,13 +173,13 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     const tool = paused.toolPath ?? paused.tool ?? "";
 
     if (tool !== "" && this.#edge.run(Store.use((store) => store.asked(tool)))) this.#changed();
-    const policy = tool === "" ? "ask" : this.policyFor(tool);
+    const { policy, where } = this.#policyOf(conversation, tool);
     const why = this.#why(conversation);
     const decided = verdict(policy, present, why !== undefined);
     const decline = async () => resultText(await call("resume", { requestId: paused.requestId, response: { action: "decline" } }));
 
     if (decided === "block") {
-      return note(result, `ky declined this request: the user set ${tool} to Block in Settings › Executor. Executor answered: ${await decline()}\nTell the user it was blocked, and don't try it another way.`);
+      return note(result, `ky declined this request: the user set ${tool} to Block in ${where}. Executor answered: ${await decline()}\nTell the user it was blocked, and don't try it another way.`);
     }
 
     // A background run would sit on a card nobody is there to tap: refused now, so its report says what it needs.
@@ -189,12 +194,21 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     if (decided === "allow") {
       const accepted = await this.#paused(await call("resume", { requestId: paused.requestId, response: { action: "accept" } }), conversation, call, present);
 
-      return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);
+      return note(accepted, `ky approved ${tool} itself: the user set it to Allow in ${where}.`);
     }
 
     const carded = this.#carded(paused, tool, conversation, present, why);
 
     return note(result, policy === "allow" && present ? `${carded}\nky asked though ${tool} is set to Allow: ${why}, outside content that may have led to it.` : carded);
+  }
+
+  /** The policy `tool` runs on in `conversation`, and where the user set it: its owner's own, else ky's; a call naming no tool asks. */
+  #policyOf(conversation: string, tool: string): Governing {
+    const own = tool === "" ? undefined : this.#deps.ownPolicy(conversation, tool);
+
+    if (own !== undefined) return { policy: own.policy, where: `@${own.owner}'s settings` };
+
+    return { policy: tool === "" ? "ask" : this.policyFor(tool), where: "Settings › Executor" };
   }
 
   /** What outside content `conversation` read, as a card says it (src/outside); undefined for none. */

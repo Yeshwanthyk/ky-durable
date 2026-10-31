@@ -380,7 +380,8 @@ export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = O
   look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", ...CHECK_IN_TOOLS]
 });
 
-const SessionKind = Schema.Literals(["home", "consult", "discuss", "group"]);
+/** How a specialist answers in a conversation; a run is one of an automation it owns. */
+const SessionKind = Schema.Literals(["home", "consult", "discuss", "group", "run"]);
 
 export type SessionKind = typeof SessionKind.Type;
 
@@ -414,6 +415,27 @@ export const SpecialistSession = Schema.Struct({ specialist: Schema.String, kind
 /** The default owner: ky itself, whose profile is what ky could use before specialists owned anything. */
 export const KY = "ky";
 
+/** The owner of what every owner may use: the user shares it with ky and all the specialists. No specialist's id can be it. */
+export const SHARED = "*";
+
+/** Whose something kept in the Vault is (a browser login, an API key), and its name there. */
+export type Owned = { readonly owner: string; readonly name: string };
+
+/** The Vault id of something an owner keeps: its owner ("ky", a specialist's id, or SHARED), then its name. */
+export const ownedId = (owner: string, name: string) => `${owner}:${name}`;
+
+const OWNED = /^(\*|[a-z0-9]+(?:-[a-z0-9]+)*):(.+)$/;
+
+/** Whose a Vault id is, and what it names; one kept before owners is ky's. */
+export function ownedOf(id: string): Owned {
+  const [, owner, name] = OWNED.exec(id) ?? [];
+
+  return owner === undefined || name === undefined ? { owner: KY, name: id } : { owner, name };
+}
+
+/** How a reply names an owner. */
+export const ownerName = (owner: string) => (owner === KY ? KY : owner === SHARED ? "every owner" : `@${owner}`);
+
 /** How an owner's profile overrides a tool's policy (src/approvals): by tool name. */
 const ToolOverrides = Schema.Record(Schema.String, Schema.Literals(["allow", "ask", "block"] satisfies readonly ToolPolicy[]));
 
@@ -424,19 +446,30 @@ export const ProfileStored = Schema.Struct({
   tools: Schema.fromJsonString(ToolOverrides)
 });
 
-type SandboxRef = { readonly id: string; readonly name: string };
+const SandboxRef = Schema.Struct({ id: Schema.String, name: Schema.String });
+
+type SandboxRef = typeof SandboxRef.Type;
 
 /** What an owner ("ky" or a specialist's id) may use, as read at one moment: a run keeps the one it started with. */
-export type Profile = {
-  readonly owner: string;
+export const ProfileSchema = Schema.Struct({
+  owner: Schema.String,
   /** Where its work goes unless it says otherwise; null when it has no sandbox live. */
-  readonly home: SandboxRef | null;
+  home: Schema.NullOr(SandboxRef),
   /** Every sandbox it may use: a specialist's own, or for ky each live one that is no specialist's. */
-  readonly sandboxes: readonly SandboxRef[];
+  sandboxes: Schema.Array(SandboxRef),
   /** The paired Macs it may give work to. */
-  readonly macs: readonly string[];
-  readonly tools: typeof ToolOverrides.Type;
-};
+  macs: Schema.Array(Schema.String),
+  tools: ToolOverrides
+});
+
+export type Profile = typeof ProfileSchema.Type;
+
+/** Whether `profile`'s owner may give work to the machine `name`: a sandbox of its own, or a Mac it was given; ky has every Mac. */
+export function mayUse(profile: Profile, name: string, sandbox: { readonly id: string } | null | undefined): boolean {
+  if (sandbox) return profile.sandboxes.some((each) => each.id === sandbox.id);
+
+  return profile.owner === KY || profile.macs.includes(name);
+}
 
 /** What profiles need from outside the skills domain (server.ts gives it). */
 export type Machinery = {
@@ -447,8 +480,12 @@ export type Machinery = {
   readonly open: (name: string) => SandboxRef;
 };
 
-/** A change to a specialist's machines. Only the user makes one: in Settings, or a card they answer. */
-export const AccessChangeSchema = Type.Union([Type.Object({ mac: Type.String(), grant: Type.Boolean() }), Type.Object({ home: Type.String() })]);
+/** A change to a specialist's machines, or to how its turns treat an app tool (null: as ky's policy says). Only the user makes one: in Settings, or a card they answer. */
+export const AccessChangeSchema = Type.Union([
+  Type.Object({ mac: Type.String(), grant: Type.Boolean() }),
+  Type.Object({ home: Type.String() }),
+  Type.Object({ tool: Type.String(), policy: Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("block"), Type.Null()]) })
+]);
 
 export type AccessChange = Static<typeof AccessChangeSchema>;
 
@@ -456,8 +493,8 @@ type BriefView = { readonly body: string; readonly version: number; readonly upd
 
 export type SpecialistView = SpecialistRow & { readonly brief: BriefView };
 
-/** A specialist's machines as Settings shows them: its sandbox's id, while it has one live, and the Macs the user lets it use. */
-export type SpecialistAccess = { readonly home: string | null; readonly macs: readonly string[] };
+/** A specialist's machines as Settings shows them: its sandbox's id, while it has one live, the Macs the user lets it use, and its own app tool policies. */
+export type SpecialistAccess = { readonly home: string | null; readonly macs: readonly string[]; readonly tools: Readonly<Record<string, ToolPolicy>> };
 
 export const SpecialistDraftSchema = Type.Object({
   description: Type.Optional(Type.String()),

@@ -6,7 +6,7 @@ import { makeEdge, type Refusable } from "../core/edge";
 import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
 import type { Models } from "../providers/wiring";
-import type { Reviews } from "../skills/contract";
+import type { Reviews, Specialists } from "../skills/contract";
 import { type AutomationDeps, Automator, type Callbacks, type Fire, type GateCheck, Host } from "./automations";
 import { AUTOMATION_SOURCE, type AutomationAuthor, type AutomationDraft, type AutomationRow, type AutomationStatus, type AutomationView, type CheckIns } from "./contract";
 import { automationExtension, checkInGuardExtension } from "./tool";
@@ -101,6 +101,11 @@ export class Automations {
     return this.#say(Automator.use((automator) => automator.pause(id)));
   }
 
+  /** A deleted specialist's workflows become ky's, paused. */
+  handOver(owner: string): Promise<void> {
+    return this.#edge.runPromise(Automator.use((automator) => automator.handOver(owner)));
+  }
+
   stop(id: string): Promise<string> {
     return this.#say(Automator.use((automator) => automator.stop(id)));
   }
@@ -189,14 +194,16 @@ type AutomationsWiring = {
   readonly automations: Automations;
   readonly models: Models;
   readonly reviews: Reviews;
+  readonly specialists: Specialists;
 };
 
-export function automationTools({ automations, models, reviews }: AutomationsWiring) {
+export function automationTools({ automations, models, reviews, specialists }: AutomationsWiring) {
   return {
     automations: automationExtension(
       automations,
       () => models.resolve("worker").choice,
-      (session) => reviews.kind(session) === "dream"
+      (session) => reviews.kind(session) === "dream",
+      (session) => specialists.profileOf(session).owner
     ),
     checkInGuard: checkInGuardExtension(automations)
   };

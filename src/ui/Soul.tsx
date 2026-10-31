@@ -14,6 +14,8 @@ import type {
 import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
 import { isMac } from "../machines/contract";
 import { BotAvatar } from "./BotAvatar";
+import { SpecialistPage } from "./SpecialistPage";
+import { SpecialistTools } from "./Executor";
 import { Switch } from "./Controls";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
@@ -47,6 +49,8 @@ export type SpecialistActions = {
   onHistory: (id: string) => Promise<readonly SoulVersion[]>;
   /** Asks ky in chat to design a new bloub for the specialist, with the avatar tool. */
   onAvatar: (id: string) => void;
+  /** Asks the specialist in the chat, as "@id text". */
+  onAsk: (id: string, text: string) => void;
 };
 
 const SOUL_NOTE =
@@ -158,6 +162,9 @@ function SpecialistList({
   const [brief, setBrief] = useState<{ id: string; mode: Mode } | null>(null);
   /** The specialist whose settings are open, or "" for a new one. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** The specialist whose page is open. */
+  const [page, setPage] = useState<string | null>(null);
+  const shown = specialists.find((each) => each.id === page);
   const { onHistory } = actions;
   const id = brief?.id;
   const open = specialists.find((each) => each.id === id);
@@ -173,7 +180,24 @@ function SpecialistList({
           Specialist
         </button>
       </div>
-      <SpecialistRows specialists={specialists} onOpen={(id) => setBrief({ id, mode: "read" })} />
+      <SpecialistRows specialists={specialists} onOpen={setPage} />
+      {shown ? (
+        <SpecialistPage
+          specialist={shown}
+          access={access[shown.id]}
+          machines={machines}
+          onBrief={() => {
+            setPage(null);
+            setBrief({ id: shown.id, mode: "read" });
+          }}
+          onSettings={() => {
+            setPage(null);
+            setEditing(shown.id);
+          }}
+          onAsk={actions.onAsk}
+          onClose={() => setPage(null)}
+        />
+      ) : null}
       {open && brief ? (
         <SoulSheet
           label={`@${open.id}`}
@@ -540,6 +564,7 @@ function SpecialistSheet({
       {specialist && access ? (
         <>
           <SpecialistMachines id={specialist.id} access={access} machines={machines} onAccess={actions.onAccess} />
+          <SpecialistTools id={specialist.id} own={access.tools} onPolicy={(tool, policy) => actions.onAccess(specialist.id, { tool, policy })} />
           <SpecialistDelete id={specialist.id} onDelete={actions.onDelete} onDeleted={() => dialog.current?.close()} />
         </>
       ) : null}
@@ -616,7 +641,7 @@ function SpecialistDelete({ id, onDelete, onDeleted }: { id: string; onDelete: S
 
   return (
     <div className="machine-confirm" role="alertdialog" aria-label={`Delete @${id}`}>
-      <p>Delete @{id}? Its brief's versions and its sandbox stay.</p>
+      <p>Delete @{id}? Its runs stop, its own logins and keys go, and its workflows become ky's, paused. Its brief's versions and its sandbox stay.</p>
       {refused ? (
         <p className="automation-refused" role="alert">
           {refused}
