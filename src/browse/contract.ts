@@ -128,6 +128,17 @@ export const Handoff = Schema.Struct({
 
 export type Handoff = typeof Handoff.Type;
 
+/** A browse call whose steps act on a site with a saved login, as its card keeps it until the user decides. */
+export const StepsAsked = Schema.Struct({
+  url: Schema.String,
+  steps: Schema.Array(
+    Schema.Struct({ do: Schema.Literals(["click", "fill", "press", "wait"]), selector: Schema.optionalKey(Schema.String), value: Schema.optionalKey(Schema.String) })
+  ),
+  screenshot: Schema.Boolean
+});
+
+export type StepsAsked = typeof StepsAsked.Type;
+
 const Described = Schema.Struct({
   tag: Schema.optionalKey(Schema.String),
   text: Schema.optionalKey(Schema.String),

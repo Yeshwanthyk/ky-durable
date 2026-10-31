@@ -399,6 +399,7 @@ export class PiAgent extends DurableObject<Env> {
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
     asker: this.approvals,
+    unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
     draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
     later: (work) => this.ctx.waitUntil(work)
@@ -636,6 +637,7 @@ export class PiAgent extends DurableObject<Env> {
     this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
     this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
     this.approvals.handle("browser-handoff", this.browsing.handler);
+    this.approvals.handle("browse-steps", this.browsing.stepsHandler);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));

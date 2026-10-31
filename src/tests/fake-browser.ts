@@ -27,7 +27,8 @@ class FakeTab implements BrowserTab {
   constructor(
     readonly target: string,
     readonly read: (url: string) => FakePage,
-    readonly onClose: () => void
+    readonly onClose: () => void,
+    readonly acted: string[]
   ) {}
 
   async goto(url: string) {
@@ -52,10 +53,10 @@ class FakeTab implements BrowserTab {
     return this.#url;
   }
 
-  locator() {
-    const act = async () => undefined;
+  locator(selector: string) {
+    const act = (what: string) => async () => void this.acted.push(`${what} ${selector} on ${this.#url}`);
 
-    return { first: () => ({ click: act, fill: act, press: act }) };
+    return { first: () => ({ click: act("click"), fill: act("fill"), press: act("press") }) };
   }
 
   context() {
@@ -86,11 +87,12 @@ class FakeSession {
 
   constructor(
     readonly id: string,
-    readonly read: (url: string) => FakePage
+    readonly read: (url: string) => FakePage,
+    readonly acted: string[]
   ) {}
 
   open(): FakeTab {
-    const tab: FakeTab = new FakeTab(`${this.id}-target-${++this.#tabs}`, this.read, () => this.tabs.splice(this.tabs.indexOf(tab), 1));
+    const tab: FakeTab = new FakeTab(`${this.id}-target-${++this.#tabs}`, this.read, () => this.tabs.splice(this.tabs.indexOf(tab), 1), this.acted);
     this.tabs.push(tab);
 
     return tab;
@@ -152,6 +154,8 @@ export class FakeBrowsers implements Browsers {
   readonly pages = new Map<string, FakePage>();
   readonly kitesurfPages = new Map<string, FakePage | "fails">();
   readonly sessions = new Map<string, FakeSession>();
+  /** Each click, fill and press a step made, as "click #pay on https://…", in any browser. */
+  readonly acted: string[] = [];
   acquired = 0;
   kitesurfs = 0;
 
@@ -164,7 +168,7 @@ export class FakeBrowsers implements Browsers {
       const page = this.kitesurfPages.get(url);
 
       return page === "fails" ? FAILS : (page ?? this.#read(url));
-    });
+    }, this.acted);
 
     const browser: Browser = { newPage: async () => session.open(), close: async () => undefined };
 
@@ -174,7 +178,7 @@ export class FakeBrowsers implements Browsers {
   async acquire(): Promise<string> {
     this.acquired += 1;
     const id = `session-${this.acquired}`;
-    this.sessions.set(id, new FakeSession(id, this.#read));
+    this.sessions.set(id, new FakeSession(id, this.#read, this.acted));
 
     return id;
   }

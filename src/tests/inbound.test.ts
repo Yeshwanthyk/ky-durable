@@ -21,8 +21,8 @@ const TableRow = Type.Object({ name: Type.String() });
 
 
 /** A hook into the main chat, as Settings › Webhooks makes one. */
-async function makeHook(signed: boolean, label = "Test hook"): Promise<Static<typeof MadeHookSchema>> {
-  const response = await call("/api/inbound/hooks", { method: "POST", body: JSON.stringify({ session: ROOT_SESSION, label, signed }) });
+async function makeHook(signed: boolean, label = "Test hook", session: string = ROOT_SESSION): Promise<Static<typeof MadeHookSchema>> {
+  const response = await call("/api/inbound/hooks", { method: "POST", body: JSON.stringify({ session, label, signed }) });
   expect(response.status).toBe(200);
 
   return bodyAs(response, MadeHookSchema, "A made hook");
@@ -242,6 +242,19 @@ describe("Webhooks", () => {
     await said("me", `so multiply ${WAITS}`);
     expect(await card("multiply", '{"value":14}')).toMatchObject({ kind: "webhook-action", chat: ROOT_SESSION });
     expect(shows(await snapshotView("me"), "tool said: 42")).toBe(false);
+  });
+
+  it("marks the chat a post reached as having read outside content, before it is told", async () => {
+    const session = await inside("me", (instance) => instance.newChat());
+
+    const marks = () =>
+      inside("me", (_instance, state) => state.storage.sql.exec("SELECT source FROM ky_outside_content WHERE conversation = ?", session).toArray());
+
+    const { url } = await makeHook(false, "Side", session);
+
+    expect(await marks()).toEqual([]);
+    expect((await post(url, "reply: marked")).status).toBe(202);
+    expect(await marks()).toEqual([{ source: "webhook" }]);
   });
 
   it("tells the sender's labels as one line with no bracket, so a post can't close the line saying whose words follow", async () => {
