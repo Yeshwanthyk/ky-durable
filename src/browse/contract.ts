@@ -224,6 +224,12 @@ export class NoLoginOwner extends Schema.TaggedError<NoLoginOwner>()("NoLoginOwn
   }
 }
 
+export class LoginTaken extends Schema.TaggedError<LoginTaken>()("LoginTaken", { owner: Schema.String, site: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `${ownerName(this.owner)} already keeps a login for ${this.site}: remove that one first.`;
+  }
+}
+
 export class NoLogin extends Schema.TaggedError<NoLogin>()("NoLogin", { owner: Schema.String, site: Schema.String }) implements Refusable {
   get refusal(): string {
     return `${ownerName(this.owner)} keeps no login for ${this.site}.`;

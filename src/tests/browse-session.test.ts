@@ -207,7 +207,7 @@ describe("a hand-off of ky's browser", () => {
 });
 
 describe("Settings' browser logins", () => {
-  it("lists each site by name and count, never a value, and Remove ends the session that held it", async () => {
+  it("lists each site by owner and name with its cookie count, never a value, and Remove ends that owner's session", async () => {
     await env.Vault.getByName("owner").put(LOGIN_KIND, "ky:kept.test", { cookies: [cookie("kept.test")], origins: [] }, { cookies: 1 });
     await using("me", (browsers) => browsers.pages.set("https://kept.test/", { title: "Kept", text: WORDS }));
     await read("me", { url: "https://kept.test/" });
@@ -459,6 +459,23 @@ describe("each owner's own browser and logins", () => {
 
     expect(await read(name, { url: "https://moved.test/" })).not.toContain("read without a saved login");
     expect(await readIn(name, fin, { url: "https://moved.test/" })).toContain("ky is signed in to moved.test; ask ky.");
+  });
+
+  it("Move to never replaces a login the new owner keeps for the site, and moves one off an owner that is gone", async () => {
+    const moving = (from: string, site: string, to: string) => call(`/api/browse/logins/${from}/${site}/move`, { method: "POST", body: JSON.stringify({ to }) });
+
+    await signIn("fin", "both.test");
+    await signIn("ky", "both.test");
+    const taken = await moving("fin", "both.test", "ky");
+
+    expect([taken.status, await taken.text()]).toEqual([409, "ky already keeps a login for both.test: remove that one first."]);
+    expect((await logins()).map((login) => login.id)).toEqual(expect.arrayContaining(["fin:both.test", "ky:both.test"]));
+
+    await signIn("gone", "left.test");
+    const moved = await moving("gone", "left.test", "ky");
+
+    expect(await moved.json()).toEqual({ said: "left.test's login is ky's now." });
+    expect((await logins()).map((login) => login.id)).toContain("ky:left.test");
   });
 
   it("a hand-off from @fin's conversation says it is for @fin, and keeps the login as @fin's", async () => {

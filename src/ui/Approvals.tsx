@@ -39,7 +39,7 @@ const WAITING_NOTE: Record<ApprovalAction, string> = {
 
 const TAKE_OVER = "take-over";
 
-/** A hand-off of ky's browser: take the live page over, then say how it went. */
+/** A hand-off of ky's browser or a specialist's: take the live page over, then say how it went. */
 function handoffCard(approval: ApprovalView): UiCard {
   return {
     title: APPROVAL_KINDS[approval.kind].title,
@@ -56,7 +56,7 @@ function handoffCard(approval: ApprovalView): UiCard {
         ]
       }
     ],
-    note: "What you do there stays in ky's cloud browser. Once you're done, ky keeps this site's login in its Vault; Settings › Webhooks lists it to remove."
+    note: "What you do there stays in the cloud browser. Once you're done, ky keeps this site's login in its Vault for whoever asked; Settings › Webhooks lists it to move or remove."
   };
 }
 

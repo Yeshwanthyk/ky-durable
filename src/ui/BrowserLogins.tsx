@@ -1,7 +1,7 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useState } from "react";
-import { type Login, Logins } from "../browse/contract";
+import { type Login, Logins, ownerName } from "../browse/contract";
 import { KY } from "../skills/contract";
 import { EmptyState, VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
@@ -56,7 +56,7 @@ export function BrowserLogins() {
       ) : (
         groups.map(({ owner, own }) => (
           <div key={owner} data-owner={owner}>
-            {groups.length > 1 && <h4 className="group-sublabel">{owner === KY ? "ky's browser" : `@${owner}'s browser`}</h4>}
+            <h4 className="group-sublabel">{ownerName(owner)}'s browser</h4>
             <div className="card">
               {own.map((login) => (
                 <LoginRow key={login.site} login={login} owners={owners} onMove={move} onRemove={remove} />
@@ -104,7 +104,7 @@ function LoginRow({ login, owners, onMove, onRemove }: RowProps) {
             </option>
             {others.map((owner) => (
               <option key={owner} value={owner}>
-                {owner === KY ? KY : `@${owner}`}
+                {ownerName(owner)}
               </option>
             ))}
           </select>

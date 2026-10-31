@@ -322,6 +322,8 @@ export class Browsing {
   async handOff(session: string, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) {
     const owner = this.#keep.owner(session);
 
+    // A specialist's turns run in its own conversation, never a chat; one nobody is there for (an automation's, a
+    // mail's, a background run's) is unattended. A peer's question is ky's, so it is refused as any of ky's outside a chat.
     if (!this.#keep.chat(session) && (owner === KY || this.#keep.unattended(session))) return reply(new OnlyInChat().refusal, true);
     const started = await this.#edge.runPromise(handOff(this.#desk, owner, args));
 
@@ -334,7 +336,7 @@ export class Browsing {
     const after = view.teach === undefined ? "you're told the page they end on once they're done" : "once they're done, ky drafts a skill from what they did and tells you its name";
 
     return {
-      ...reply(`${view.site} is open in ky's browser, and the user has a card to take it over. Your turn ends here; ${after}.`),
+      ...reply(`${view.site} is open in ${browserOf(owner)}, and the user has a card to take it over. Your turn ends here; ${after}.`),
       control: { terminate: true }
     };
   }
@@ -396,8 +398,8 @@ export class Browsing {
   readonly handler: ApprovalHandler = {
     decide: (approval, action, settle) => this.#decided(approval, action, settle),
     lost: (approval, action) =>
-      this.#told(approval, `[the user ${CHOSE[action]} in ky's browser: ${approval.summary}] ky restarted before it finished, so the card is back in the chat.`),
-    lapsed: (approval) => this.#told(approval, `[${NOBODY_ANSWERED} to take over ky's browser: ${approval.summary}] Its card shows expired. Ask again if it still matters.`)
+      this.#told(approval, `[the user ${CHOSE[action]} in ${whoseBrowser(approval)}: ${approval.summary}] ky restarted before it finished, so the card is back in the chat.`),
+    lapsed: (approval) => this.#told(approval, `[${NOBODY_ANSWERED} to take over ${whoseBrowser(approval)}: ${approval.summary}] Its card shows expired. Ask again if it still matters.`)
   };
 
   async #decided(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
@@ -461,9 +463,8 @@ export class Browsing {
 
     return this.#edge.runPromise(
       Effect.gen(function* () {
-        const missing = [from, to].find((owner) => !known.includes(owner));
-
-        if (missing !== undefined) return yield* new NoLoginOwner({ owner: missing });
+        // Only whom it goes to must be an owner now: a deleted specialist's logins move off it too.
+        if (!known.includes(to)) return yield* new NoLoginOwner({ owner: to });
         yield* move(desk, from, site, to);
 
         return { said: `${site}'s login is ${ownerName(to)}'s now.` };
@@ -489,11 +490,11 @@ function draftedOf(drafted: Drafted | Refusal, path: string): string {
 }
 
 function toldOf(view: Handoff, action: ApprovalAction, done: Option.Option<Finished>): string {
-  const head = `[the user ${CHOSE[action]} in ky's browser: ${view.instructions}]`;
+  const head = `[the user ${CHOSE[action]} in ${browserOf(view.owner ?? KY)}: ${view.instructions}]`;
 
   if (action !== "accept") return `${head} Don't hand it over again unless they ask.`;
 
-  if (Option.isNone(done)) return `${head} ky's browser session had ended, so nothing was kept. Hand it over again if it's still needed.`;
+  if (Option.isNone(done)) return `${head} ${browserOf(view.owner ?? KY)} session had ended, so nothing was kept. Hand it over again if it's still needed.`;
   const { title, url, saved } = done.value;
   const page = `The page is now ${title ? `"${title}", ` : ""}${shortUrl(url)}.`;
 
@@ -510,7 +511,10 @@ const stepsText = (steps: ReadonlyArray<Step>) =>
 const textOf = (result: Reply) => (result.output ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 
 /** Whose browser the user is asked to sign in to: "ky's browser" or "@fin's browser". */
-const browserOf = (owner: string) => (owner === KY ? "ky's browser" : `@${owner}'s browser`);
+const browserOf = (owner: string) => `${ownerName(owner)}'s browser`;
+
+/** Whose browser a hand-off card was for, from the view it keeps. */
+const whoseBrowser = (approval: Approval) => browserOf(Option.match(handoffOf(approval.payload), { onNone: () => KY, onSome: (view) => view.owner ?? KY }));
 
 /**
  * A page of a site with no saved login, framed as a webhook's post is: what it says is the site's, never the user's. When

@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { Sql, type SqlStatements } from "../core/sql";
+import { Sql } from "../core/sql";
 import { KY } from "../skills/contract";
 import {
   BROWSE_TABLES,
@@ -14,6 +14,7 @@ import {
   type Handoff,
   LOGIN_KIND,
   loginId,
+  LoginTaken,
   LoginsUnknown,
   type LoginVault,
   NoBrowser,
@@ -41,21 +42,6 @@ const BEFORE_OWNERS = BROWSE_TABLES.beforeOwners;
 
 const Named = Schema.Struct({ name: Schema.String });
 
-/** Each owner's one session; the single row from before owners becomes ky's once, and leaves its old table empty. */
-const tableFor = (sql: SqlStatements) =>
-  Effect.gen(function* () {
-    yield* sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (owner TEXT PRIMARY KEY, session TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
-    const old = yield* sql.rows(Named, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", BEFORE_OWNERS);
-
-    if (old.length === 0) return;
-    yield* sql.transaction(
-      Effect.gen(function* () {
-        yield* sql.exec(`INSERT OR IGNORE INTO ${TABLE} (owner, session, updated_at) SELECT ?, session, updated_at FROM ${BEFORE_OWNERS}`, KY);
-        yield* sql.exec(`DELETE FROM ${BEFORE_OWNERS}`);
-      })
-    );
-  });
-
 export class Sessions extends Context.Service<
   Sessions,
   {
@@ -69,7 +55,21 @@ export class Sessions extends Context.Service<
     Effect.gen(function* () {
       const sql = yield* Sql;
 
-      yield* Effect.orDie(tableFor(sql));
+      // Each owner's one session; the single row from before owners becomes ky's once, and leaves its old table empty.
+      yield* Effect.orDie(
+        Effect.gen(function* () {
+          yield* sql.exec(`CREATE TABLE IF NOT EXISTS ${TABLE} (owner TEXT PRIMARY KEY, session TEXT NOT NULL, updated_at INTEGER NOT NULL)`);
+          const old = yield* sql.rows(Named, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", BEFORE_OWNERS);
+
+          if (old.length === 0) return;
+          yield* sql.transaction(
+            Effect.gen(function* () {
+              yield* sql.exec(`INSERT OR IGNORE INTO ${TABLE} (owner, session, updated_at) SELECT ?, session, updated_at FROM ${BEFORE_OWNERS}`, KY);
+              yield* sql.exec(`DELETE FROM ${BEFORE_OWNERS}`);
+            })
+          );
+        })
+      );
 
       return Sessions.of({
         current: (owner) => Effect.map(Effect.orDie(sql.rows(Row, `SELECT session FROM ${TABLE} WHERE owner = ?`, owner)), ([row]) => row?.session),
@@ -220,7 +220,8 @@ export const finish = (desk: Desk, handoff: Handoff, success: boolean) =>
       yield* Effect.ignore(timed("ending the hand-off", () => opened.complete(tab, success)));
       const url = tab.url();
       const title = yield* Effect.orElseSucceed(timed("reading the title", () => tab.title()), () => "");
-      const saved = success ? yield* keepLogins(desk, owner, opened, [handoff.site, siteOfUrl(url) ?? handoff.site]) : [];
+      // Under the lock, so a move or a removal of this login can't land between reading the session and saving it.
+      const saved = success ? yield* Semaphore.withPermit(desk.lock, keepLogins(desk, owner, opened, [handoff.site, siteOfUrl(url) ?? handoff.site])) : [];
       yield* Effect.ignore(timed("closing the page", () => tab.close()));
 
       return Option.some({ title, url, saved, recorded });
@@ -245,28 +246,39 @@ const keepLogins = (desk: Desk, owner: string, opened: Seat, sites: readonly str
     Effect.orElseSucceed((): string[] => [])
   );
 
-/** `owner`'s session ends, and its next one restores the logins `owner` still keeps. */
-export const forget = (desk: Desk, owner: string) =>
+/**
+ * `owner`'s session ends, and its next one restores the logins `owner` still keeps. Its row goes first: a session ky
+ * can't reach to end is never seated again, and Browser Run closes it once its keep-alive runs out.
+ */
+const end = (desk: Desk, owner: string) =>
+  Effect.gen(function* () {
+    const sessions = yield* Sessions;
+    const current = yield* sessions.current(owner);
+
+    if (current === undefined) return;
+    yield* sessions.drop(current);
+    const opened = yield* Effect.option(connected(desk, current));
+
+    if (Option.isSome(opened)) yield* Effect.ignore(timed("ending ky's browser", () => opened.value.end()));
+  });
+
+export const forget = (desk: Desk, owner: string) => Semaphore.withPermit(desk.lock, end(desk, owner));
+
+/**
+ * A login moves to another owner: the session that held it ends, and so does the new owner's, whose next one restores
+ * it. Never over a login the new owner keeps for the site already: the user removes that one first.
+ */
+export const move = (desk: Desk, from: string, site: string, to: string) =>
   Semaphore.withPermit(
     desk.lock,
     Effect.gen(function* () {
-      const sessions = yield* Sessions;
-      const current = yield* sessions.current(owner);
+      const theirs = yield* Effect.tryPromise({ try: () => desk.vault().browserLogins(to), catch: (cause) => new Failed({ said: said(cause) }) });
 
-      if (current === undefined) return;
-      yield* sessions.drop(current);
-      const opened = yield* Effect.option(connected(desk, current));
+      if (theirs.some((login) => login.site === site)) return yield* new LoginTaken({ owner: to, site });
+      const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, loginId(from, site), loginId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
 
-      if (Option.isSome(opened)) yield* Effect.ignore(timed("ending ky's browser", () => opened.value.end()));
+      if (!moved) return yield* new NoLogin({ owner: from, site });
+      yield* end(desk, from);
+      yield* end(desk, to);
     })
   );
-
-/** A login moves to another owner: the session that held it ends, and so does the new owner's, whose next one restores it. */
-export const move = (desk: Desk, from: string, site: string, to: string) =>
-  Effect.gen(function* () {
-    const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, loginId(from, site), loginId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
-
-    if (!moved) return yield* new NoLogin({ owner: from, site });
-    yield* forget(desk, from);
-    yield* forget(desk, to);
-  });
