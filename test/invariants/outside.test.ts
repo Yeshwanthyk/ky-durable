@@ -173,7 +173,7 @@ function world() {
   const unattended = (session: string) => session === String(ROUTINE);
 
   const approvals = new Approvals(storageOf(db), { present, home: () => String(HERE), notify: () => {}, defer: (work) => void deferred.push(work.catch(() => {})), later: () => {} });
-  const executor = new ExecutorApprovals(storageOf(db), approvals, { config: async () => null, present, unattended, tell: async () => {} });
+  const executor = new ExecutorApprovals(storageOf(db), approvals, { config: async () => null, present, unattended, tell: async () => {}, ownPolicy: () => undefined });
 
   const browsing = new Browsing(storageOf(db), {
     browsers,

@@ -16,7 +16,8 @@ import { CHANGES_WAIT, OUTSIDE_DATA, outsideWhy } from "../outside/contract";
 import { OutsideContent } from "../outside/outside";
 import type { Vault } from "../vault";
 import { INBOUND_TABLES } from "./contract";
-import { type CredentialInfo, replyText } from "./credentials";
+import { KY } from "../skills/contract";
+import { type CredentialInfo, holderOf, replyText } from "./credentials";
 import type { Hook, SecretAsk } from "./shapes";
 
 export type { Hook, SecretAsk } from "./shapes";
@@ -26,6 +27,12 @@ export type InboundDesk = {
   readonly asker: Asker;
   readonly chat: (session: string) => boolean;
   readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** Whose keys `session` uses: "ky", or the specialist it works for (src/skills/profiles.ts). */
+  readonly owner: (session: string) => string;
+  /** The chat a card from `session` shows in: itself, or the chat its task works for. */
+  readonly home: (session: string) => string;
+  /** Whether nobody can answer a card for the turn in `session`: an automation's run, or a background one. */
+  readonly unattended: (session: string) => boolean;
 };
 
 export type HookDelivery = {
@@ -88,7 +95,9 @@ const AskRow = Schema.Struct({
   scheme: Schema.Literals(["bearer", "basic", "header"]),
   header: Schema.NullOr(Schema.String),
   purpose: Schema.String,
-  at: Schema.Number
+  at: Schema.Number,
+  owner: Schema.String,
+  asker: Schema.NullOr(Schema.String)
 });
 
 const Seen = Schema.Struct({ key: Schema.String });
@@ -101,7 +110,9 @@ const SecretCall = Schema.Struct({
   method: Schema.String,
   headers: Schema.Record(Schema.String, Schema.String),
   body: Schema.NullOr(Schema.String),
-  guarded: Schema.Boolean
+  guarded: Schema.Boolean,
+  /** Whose key it calls with; a card from before keys had owners is ky's. */
+  owner: Schema.optionalKey(Schema.String)
 });
 
 export type SecretCall = typeof SecretCall.Type;
@@ -149,7 +160,7 @@ class Store extends Context.Service<
     addHook(id: string, session: string, label: string, signed: boolean, chat: (session: string) => boolean): Effect.Effect<Hook, NotAHook | NotAChat>;
     removeHook(id: string): Effect.Effect<boolean>;
     take(id: string, delivery: HookDelivery, chat: (session: string) => boolean): Effect.Effect<Taken>;
-    ask(session: string, name: string, info: CredentialInfo): Effect.Effect<void>;
+    ask(session: string, name: string, info: CredentialInfo, owner: string, asker: string | null): Effect.Effect<void>;
     asks(session: string): Effect.Effect<ReadonlyArray<SecretAsk>>;
     askFor(session: string, name: string): Effect.Effect<SecretAsk | undefined>;
     close(session: string, name: string): Effect.Effect<SecretAsk | undefined>;
@@ -190,6 +201,12 @@ class Store extends Context.Service<
       purpose TEXT NOT NULL,
       at INTEGER NOT NULL,
       PRIMARY KEY (session, name))`);
+      // An ask from before keys had owners was ky's, made in the chat it shows in.
+      const columns = yield* rows(Schema.Struct({ name: Schema.String }), `PRAGMA table_info(${ASKS})`);
+
+      if (!columns.some((column) => column.name === "owner")) yield* exec(`ALTER TABLE ${ASKS} ADD COLUMN owner TEXT NOT NULL DEFAULT '${KY}'`);
+
+      if (!columns.some((column) => column.name === "asker")) yield* exec(`ALTER TABLE ${ASKS} ADD COLUMN asker TEXT`);
       yield* exec(`CREATE TABLE IF NOT EXISTS ${PASSES} (
       approval TEXT PRIMARY KEY,
       at INTEGER NOT NULL)`);
@@ -231,18 +248,20 @@ class Store extends Context.Service<
 
           return { hook: found, keys };
         }),
-        ask: Effect.fnUntraced(function* (session, name, info) {
+        ask: Effect.fnUntraced(function* (session, name, info, owner, asker) {
           const now = yield* Clock.currentTimeMillis;
 
           yield* exec(
-            `INSERT OR REPLACE INTO ${ASKS} (session, name, origin, scheme, header, purpose, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO ${ASKS} (session, name, origin, scheme, header, purpose, at, owner, asker) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             session,
             name,
             info.origin,
             info.scheme,
             info.header,
             info.purpose,
-            now
+            now,
+            owner,
+            asker
           );
         }),
         asks: (session) => asks("session = ? ORDER BY at", session),
@@ -320,8 +339,17 @@ export class Inbound {
     return "accepted";
   }
 
-  ask(session: string, name: string, info: CredentialInfo): void {
-    this.#edge.run(Store.use((store) => store.ask(session, name, info)));
+  /** Whether `session` may use keys: a chat with the user, or a specialist's turn someone can answer a card for. */
+  usable(session: string): boolean {
+    return this.desk.chat(session) || (this.desk.owner(session) !== KY && !this.desk.unattended(session));
+  }
+
+  /** `asker` asks the user for a key of its owner's: the masked field shows in the chat it works for. */
+  ask(asker: string, name: string, info: CredentialInfo): void {
+    const session = this.desk.home(asker);
+    const owner = this.desk.owner(asker);
+
+    this.#edge.run(Store.use((store) => store.ask(session, name, info, owner, asker === session ? null : asker)));
   }
 
   asks(session: string): SecretAsk[] {
@@ -336,11 +364,14 @@ export class Inbound {
     const ask = this.#edge.run(Store.use((store) => store.close(session, name)));
 
     if (!ask) return false;
-    await this.desk.tell(
-      session,
-      `[the user saved the credential ${name} for ${ask.origin} in ky's Vault. Call ${ask.origin} with it through secret_request; its value never shows to you.]`,
-      `secret:${session}:${name}:${ask.at}`
-    );
+
+    // A specialist's later turns aren't reported anywhere, so the chat the card was in hears it, and asks it again.
+    const content =
+      ask.asker === null
+        ? `[the user saved the credential ${name} for ${ask.origin} in ky's Vault. Call ${ask.origin} with it through secret_request; its value never shows to you.]`
+        : `[the user saved the credential ${name} for ${ask.origin} in ky's Vault, for ${holderOf(ask.owner)}, which asked for it. Only ${holderOf(ask.owner)} can call with it: ask ${holderOf(ask.owner)} to carry on.]`;
+
+    await this.desk.tell(session, content, `secret:${session}:${name}:${ask.at}`);
 
     return true;
   }
@@ -428,7 +459,7 @@ export class Inbound {
     const { name, url, method, headers, body, guarded } = call.value;
 
     if (action !== "accept") return this.#declined(approval, action, guarded);
-    const answer = await this.desk.vault().httpRequest(name, { url, method, headers, body });
+    const answer = await this.desk.vault().httpRequest(call.value.owner ?? KY, name, { url, method, headers, body });
 
     if ("refused" in answer && !answer.sent && settle.reopen()) {
       return this.#told(approval, guarded, `${outcome(guarded, "approved", approval.summary)}\n\nNothing was sent: ${answer.refused} The card is back in the chat.`);
@@ -485,8 +516,12 @@ export class Inbound {
     return this.#told(approval, guarded, `${outcome(guarded, CHOSE[action], approval.summary)} Don't make that call.`);
   }
 
+  /** What came of a card, told where it can go on: the conversation that asked, or for a specialist's call the chat its card was in, since its later turns aren't reported. */
   #told(approval: Approval, guarded: boolean, content: string): Promise<void> {
-    return this.desk.tell(approval.conversation, content, `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}:${crypto.randomUUID()}`);
+    const asker = approval.kind !== "secret-request" || this.desk.chat(approval.conversation) ? null : this.desk.owner(approval.conversation);
+    const told = asker === null ? content : `${content}\n\n[${holderOf(asker)} asked for this; tell the user, or ask ${holderOf(asker)} to carry on with it.]`;
+
+    return this.desk.tell(asker === null ? approval.conversation : approval.chat, told, `${guarded ? DECIDED_REQUEST : "approval:"}${approval.id}:${crypto.randomUUID()}`);
   }
 }
 

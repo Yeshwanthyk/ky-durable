@@ -61,7 +61,8 @@ function world(db: DatabaseSync) {
     config: async () => null,
     present: deps.present,
     unattended: (session: string) => session === "routine",
-    tell: async (session: string, content: string, requestId: string) => void seen.told.push([session, content, requestId])
+    tell: async (session: string, content: string, requestId: string) => void seen.told.push([session, content, requestId]),
+    ownPolicy: () => undefined
   };
 
   const approvals = new Approvals(storageOf(db), deps);

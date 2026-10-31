@@ -14,6 +14,7 @@ import type {
 import { ModelPicks, modelChoices, modelFields, Pick, choiceOf } from "./Automations";
 import { isMac } from "../machines/contract";
 import { BotAvatar } from "./BotAvatar";
+import { SpecialistTools } from "./Executor";
 import { Switch } from "./Controls";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
@@ -540,6 +541,7 @@ function SpecialistSheet({
       {specialist && access ? (
         <>
           <SpecialistMachines id={specialist.id} access={access} machines={machines} onAccess={actions.onAccess} />
+          <SpecialistTools id={specialist.id} own={access.tools} onPolicy={(tool, policy) => actions.onAccess(specialist.id, { tool, policy })} />
           <SpecialistDelete id={specialist.id} onDelete={actions.onDelete} onDeleted={() => dialog.current?.close()} />
         </>
       ) : null}

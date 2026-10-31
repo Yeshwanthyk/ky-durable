@@ -5,9 +5,9 @@ import Type, { type Static } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ApprovalAction, ApprovalView } from "../approvals/contract";
 import { MAX_HOOK_BYTES } from "../inbound/routes";
-import { AsksSchema, MadeHookSchema, RotatedSchema } from "../inbound/shapes";
+import { AsksSchema, MadeHookSchema, RotatedSchema, SecretsSchema } from "../inbound/shapes";
 import { bodyAs, decode } from "../core/decode";
-import { agent, call, connectExecutor, gateStarted, inside, mail, promptTool, said, snapshotView, shows, until } from "./drive";
+import { agent, call, connectExecutor, gateStarted, inside, mail, prompt, promptTool, said, snapshotView, shows, until } from "./drive";
 import { CREDENTIAL_API } from "./stack";
 
 /**
@@ -600,7 +600,7 @@ describe("Credentials", () => {
     const asking = await card("REMOVED");
 
     // Gone from the Vault between the ask and the tap: nothing can be sent.
-    expect((await call("/api/inbound/secrets/REMOVED", { method: "DELETE" })).status).toBe(204);
+    expect((await call("/api/inbound/secrets/ky/REMOVED", { method: "DELETE" })).status).toBe(204);
     expect(await decide(asking.id, "accept")).toEqual({});
     await said("me", "Nothing was sent:");
     expect(await statusOf(asking.id)).toBe("pending");
@@ -628,6 +628,31 @@ describe("Credentials", () => {
     expect(await statusOf(asking.id)).toBe("pending");
   });
 
+  it("keeps a specialist's key its own: ky is refused it, naming @fin, until the user shares it, and a move names only a real owner", async () => {
+    await inside("me", (instance) => void (instance.specialists.get("fin") ?? instance.specialists.create("fin", { description: "Money.", brief: "# @fin\nBe careful." }, "user")));
+    const finAsk = (text: string) => prompt("me", `tool subagent ${JSON.stringify({ action: "ask", specialist: "fin", message: text })}`);
+
+    await finAsk(`tool request_secret ${JSON.stringify({ name: "FIN_KEY", origin: CREDENTIAL_API, scheme: "bearer", purpose: "Read the books" })}`);
+    await until(async () => (await asked()).includes("FIN_KEY"), "@fin's ask for FIN_KEY");
+    expect((await call("/api/inbound/secrets", { method: "POST", body: JSON.stringify({ session: ROOT_SESSION, name: "FIN_KEY", value: VALUE }) })).status).toBe(204);
+    await said("me", "[the user saved the credential FIN_KEY");
+    expect(shows(await snapshotView("me"), "for @fin, which asked for it. Only @fin can call with it")).toBe(true);
+
+    const fromKy = () => run(`tool secret_request ${JSON.stringify({ name: "FIN_KEY", url: `${CREDENTIAL_API}/me` })}`);
+    expect((await fromKy()).result).toContain("@fin holds that key; ask @fin.");
+
+    await finAsk(`tool secret_request ${JSON.stringify({ name: "FIN_KEY", url: `${CREDENTIAL_API}/books` })}`);
+    await said("me", "/books");
+
+    expect((await call("/api/inbound/secrets/fin/FIN_KEY/move", { method: "POST", body: JSON.stringify({ to: "nobody" }) })).status).toBe(404);
+    expect((await call("/api/inbound/secrets/fin/FIN_KEY/move", { method: "POST", body: JSON.stringify({ to: "*" }) })).status).toBe(204);
+    expect((await fromKy()).result).toContain("Bearer [redacted]");
+
+    const listed = await bodyAs(await call("/api/inbound/secrets"), SecretsSchema, "The kept keys");
+    expect(["ky", "fin"].filter((owner) => listed.owners.includes(owner))).toEqual(["ky", "fin"]);
+    expect(listed.secrets.filter((secret) => secret.name === "FIN_KEY").map((secret) => secret.owner)).toEqual(["*"]);
+  });
+
   it("keeps the value out of the agent's storage: every table and every key", async () => {
     await saved("STORED");
     await run(`tool secret_request ${JSON.stringify({ name: "STORED", url: `${CREDENTIAL_API}/me` })}`);
@@ -638,6 +663,6 @@ describe("Credentials", () => {
     for (const form of forms(VALUE)) expect(stored, form).not.toContain(form);
     // The Vault has it.
     const vault = await env.Vault.getByName("owner").status();
-    expect(vault.some((secret) => secret.kind === "http" && secret.id === "STORED")).toBe(true);
+    expect(vault.some((secret) => secret.kind === "http" && secret.id === "ky:STORED")).toBe(true);
   });
 });

@@ -459,8 +459,12 @@ export type Machinery = {
   readonly open: (name: string) => SandboxRef;
 };
 
-/** A change to a specialist's machines. Only the user makes one: in Settings, or a card they answer. */
-export const AccessChangeSchema = Type.Union([Type.Object({ mac: Type.String(), grant: Type.Boolean() }), Type.Object({ home: Type.String() })]);
+/** A change to a specialist's machines, or to how its turns treat an app tool (null: as ky's policy says). Only the user makes one: in Settings, or a card they answer. */
+export const AccessChangeSchema = Type.Union([
+  Type.Object({ mac: Type.String(), grant: Type.Boolean() }),
+  Type.Object({ home: Type.String() }),
+  Type.Object({ tool: Type.String(), policy: Type.Union([Type.Literal("allow"), Type.Literal("ask"), Type.Literal("block"), Type.Null()]) })
+]);
 
 export type AccessChange = Static<typeof AccessChangeSchema>;
 
@@ -468,8 +472,8 @@ type BriefView = { readonly body: string; readonly version: number; readonly upd
 
 export type SpecialistView = SpecialistRow & { readonly brief: BriefView };
 
-/** A specialist's machines as Settings shows them: its sandbox's id, while it has one live, and the Macs the user lets it use. */
-export type SpecialistAccess = { readonly home: string | null; readonly macs: readonly string[] };
+/** A specialist's machines as Settings shows them: its sandbox's id, while it has one live, the Macs the user lets it use, and its own app tool policies. */
+export type SpecialistAccess = { readonly home: string | null; readonly macs: readonly string[]; readonly tools: Readonly<Record<string, ToolPolicy>> };
 
 export const SpecialistDraftSchema = Type.Object({
   description: Type.Optional(Type.String()),

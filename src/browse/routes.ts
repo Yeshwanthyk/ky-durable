@@ -35,7 +35,7 @@ async function logins(env: Env): Promise<Response> {
     kind === LOGIN_KIND ? [{ ...ownedLogin(id), cookies: Option.getOrElse(Option.map(cookiesOf(meta), (kept) => kept.cookies), () => 0), updatedAt }] : []
   );
 
-  return Response.json({ logins, owners: await agent(env).browserOwners() });
+  return Response.json({ logins, owners: await agent(env).owners() });
 }
 
 async function remove(env: Env, owner: string, site: string): Promise<Response> {

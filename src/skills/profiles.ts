@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import type { ToolPolicy } from "../approvals/contract";
 import type { Refusable } from "../core/edge";
 import { NoSandbox } from "../runners/contract";
 import { type AccessChange, KY, type Machinery, type Profile, ProfileSchema, ProfileStored, SKILL_TABLES, SpecialistSession } from "./contract";
@@ -154,7 +155,9 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
               ...kept,
               home: kept.home && live(kept.home) ? kept.home : null,
               sandboxes: kept.sandboxes.filter(live),
-              macs: kept.macs.filter((mac) => now.macs.includes(mac))
+              macs: kept.macs.filter((mac) => now.macs.includes(mac)),
+              // A tool policy is the user's control as it is now, so a Block set mid-run stops the run's next call.
+              tools: now.tools
             } satisfies Profile;
           });
 
@@ -205,6 +208,13 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
             return `@${id} works on ${found.name}.`;
           });
 
+        /** The user sets how `id`'s turns treat `tool`, or (null) lets ky's policy decide again. */
+        const setTool = (id: string, tool: string, policy: ToolPolicy | null) =>
+          Effect.as(
+            edit(id, (current) => ({ ...current, tools: policy === null ? Object.fromEntries(Object.entries(current.tools).filter(([each]) => each !== tool)) : { ...current.tools, [tool]: policy } })),
+            policy === null ? `@${id} follows ky's policy for ${tool}.` : `@${id}'s ${tool}: ${policy}.`
+          );
+
         const found = (id: string, mac: string | null) => keep(id, { home: null, macs: mac !== null && machines.macs().includes(mac) ? [mac] : [], tools: {} });
 
         const provide = (id: string) =>
@@ -231,7 +241,13 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
               if (owner !== KY) yield* own(conversation, owner, null);
             }),
           pin: (conversation, profile) => Effect.asVoid(own(conversation, profile.owner, JSON.stringify(profile))),
-          change: (id, change) => ("home" in change ? setHome(id, change.home) : change.grant ? grantMac(id, change.mac) : revokeMac(id, change.mac)),
+          change: (id, change) => {
+            if ("home" in change) return setHome(id, change.home);
+
+            if ("tool" in change) return setTool(id, change.tool, change.policy);
+
+            return change.grant ? grantMac(id, change.mac) : revokeMac(id, change.mac);
+          },
           dropMac: (mac) =>
             Effect.gen(function* () {
               for (const { id } of yield* roster.list) {
