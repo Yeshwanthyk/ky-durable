@@ -328,7 +328,7 @@ describe("a specialist's machines", () => {
     expect(await machineTasks(name)).toEqual([]);
   });
 
-  it("wait for a given Mac that is offline, run nowhere else, and stop there when the user takes the Mac back", async () => {
+  it("wait for a given Mac that is offline, run nowhere else, and stop there for good when the user takes the Mac back", async () => {
     const name = crypto.randomUUID();
     await make(name, "eng");
     await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
@@ -347,6 +347,9 @@ describe("a specialist's machines", () => {
     await until(async () => (await machineTasks(name)).some((task) => task.status === "stopped"), "the task to stop");
     expect(await mbp.next()).toMatchObject({ type: "stop", task: run.task });
     await until(async () => (await home(name, "eng")).includes("@eng may no longer use mbp, so ky stopped this task there."), "@eng to be told");
+
+    await prompt(name, ask("eng", tool("machine", { action: "send", task: run.task, message: "go on" })));
+    await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
     mbp.socket.close();
     socket.close();
   });

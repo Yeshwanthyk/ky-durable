@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
+import { PROTOCOL } from "../../src/machines/runner-protocol";
 import { MachineHub } from "../../src/machines/wiring";
 import { type AccessChange, KY, type Machinery, SKILL_TABLES, SpecialistAction, type SessionKind } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
@@ -257,10 +258,15 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
     );
   });
 
-  it("revoking a Mac stops the owner's runs on it, tells the conversation that started each, and leaves every other run", async () => {
+  it("revoking a Mac stops the owner's runs on it, queued or sent, tells the conversation that started each, and leaves every other run", async () => {
+    let ran = 0;
+
     await fc.assert(
-      fc.asyncProperty(fc.array(aGrant, { maxLength: 6 }), fc.array(fc.record({ owner: anOwner, mac: fc.constantFrom(...MACS) }), { maxLength: 6 }), fc.array(aGrant, { maxLength: 6 }), async (before, starts, after) => {
+      fc.asyncProperty(fc.array(aGrant, { maxLength: 6 }), fc.array(fc.record({ owner: anOwner, mac: fc.constantFrom(...MACS) }), { maxLength: 6 }), fc.array(aGrant, { maxLength: 6 }), fc.boolean(), async (before, starts, after, online) => {
         const { world, hub, specialists } = fleet();
+
+        // A runner on studio says hello, so a run there goes out to it rather than waiting.
+        if (online) await hub.onReport("studio", { type: "hello", protocol: PROTOCOL, version: "test", active: [], facts: COMPUTER }, "c1");
 
         for (const { id, mac, grant } of before) tried(specialists, id, { mac, grant });
 
@@ -281,6 +287,8 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
           if (!grant) lost.add(`${id}:${mac}`);
         }
 
+        ran += started.length;
+
         for (const run of started) {
           const task = world.feed.get(run.id);
           const kept = !lost.has(`${run.owner}:${run.mac}`);
@@ -292,11 +300,12 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
           });
 
           expect(specialists.profileOf(run.id).owner).toBe(run.owner);
-          expect({ status: task?.status, told }).toEqual(kept ? { status: "queued", told: false } : { status: "stopped", told: true });
+          expect({ stopped: task?.status === "stopped", told }).toEqual({ stopped: !kept, told: !kept });
         }
       }),
       { numRuns: 25 }
     );
+    expect(ran).toBeGreaterThan(0);
   });
 });
 
@@ -430,8 +439,8 @@ describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () =>
         const mayUse = owner === KY ? !homes.includes(requested) : requested === profile.home?.name || profile.macs.includes(requested);
         const placed = place(hub.machines(), profile, requested);
 
-        if (!mayUse) expect(placed).toHaveProperty("refusal");
-        else expect(placed).not.toHaveProperty("refusal", expect.stringContaining("can't use"));
+        if (!mayUse) expect(placed).toHaveProperty("refusal", expect.stringMatching(owner === KY ? /is a specialist's own sandbox: ky can't use it/ : /can't use .+; only the user can give it one/));
+        else expect("refusal" in placed ? placed.refusal : "").not.toMatch(/can't use/);
       }),
       { numRuns: 40 }
     );
