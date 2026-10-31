@@ -1,11 +1,11 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { Models } from "../providers/wiring";
-import { CLAUDE_TOKEN_HERE } from "../providers/contract";
+import { CLAUDE_TOKEN_HERE, type KeyVault } from "../providers/contract";
 import type { ModelChoice, Purpose } from "../settings/contract";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
-import { ANTHROPIC_KEY, OPENAI_KEY } from "../../test/fakes/vendors";
+import { ANTHROPIC_KEY, CHATGPT_ACCOUNT, CHATGPT_TOKEN, OPENAI_KEY } from "../../test/fakes/vendors";
 import { BARE, GLM, GPT_OSS, KIMI, OPENCODE_KEY } from "./stack";
 
 /**
@@ -385,6 +385,36 @@ describe("an API key added in Settings", () => {
     expect(await inside(name, (instance) => instance.models.removeKey("workers-ai").catch((error: Error) => error.message))).toBe(
       "workers-ai has no API key to remove."
     );
+  });
+});
+
+describe("a ChatGPT sign-in", () => {
+  /** A Vault signed in to ChatGPT and holding no keys, so the test leaves the shared "owner" Vault alone. */
+  const signedIn: KeyVault = {
+    auth: async () => null,
+    put: async () => {},
+    remove: async () => {},
+    chatgptToken: async () => ({ accessToken: CHATGPT_TOKEN })
+  };
+
+  it("runs main on GPT at ChatGPT's Codex backend, with the sign-in's token and account", async () => {
+    const name = await fresh("bare");
+
+    const { choice, answer, sent } = await inside(name, async (instance, state) => {
+      const models = new Models(state.storage, instance.boundary, signedIn, instance.machines, instance.pipe);
+
+      await models.refresh();
+      instance.boundary.calls.splice(0);
+      const answer = await models.complete("main", "Answer briefly.", "hello");
+
+      return { choice: models.resolve("main").choice, answer, sent: [...instance.boundary.calls] };
+    });
+
+    expect(choice).toMatchObject({ provider: "chatgpt", modelId: "gpt-6.1-sol" });
+    expect(answer).toBe("echo: hello");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ url: "https://chatgpt.com/backend-api/codex/responses", model: "gpt-6.1-sol" });
+    expect(sent[0]!.headers).toMatchObject({ authorization: `Bearer ${CHATGPT_TOKEN}`, "chatgpt-account-id": CHATGPT_ACCOUNT });
   });
 });
 

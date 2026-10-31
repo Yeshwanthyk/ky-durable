@@ -37,11 +37,14 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | `ky runner run` on each machine | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `cli/runner/` |
 | Cloud machine | A container on the user's account (Workers Paid) running `ky runner cloud`, so tasks run with every computer off; git and `ky github` reach GitHub through the Worker's `github.internal`, which holds the token. | `src/cloud.ts`, `src/github.ts`, `src/github-tools.ts`, `cli/runner/cloud.ts`, `cli/runner/github.ts`, `container/Dockerfile` |
 
-**Model sources.** Workers AI, the API-key vendors and VibeProxy are each one `Source` in `src/providers/sources/`,
+**Model sources.** Workers AI, the API-key vendors, VibeProxy and the ChatGPT subscription are each one `Source` in `src/providers/sources/`,
 listed in `src/providers/sources.ts`. A source says which records it keeps (`place`), builds an endpoint for each
 (`build`), where it sorts (`priority`) and what Settings lists as not set up (`missing`); `src/providers/models.ts`
 merges them and never names one. Adding a way in is a file there and a line in the list;
 `test/invariants/sources.test.ts` checks every source on the list, and that no other file knows VibeProxy's id or port.
+The ChatGPT source (`sources/chatgpt.ts`) sends ky's chat to ChatGPT's Codex backend over SSE with the sign-in the
+Vault keeps for Codex tasks; it asks `Vault.chatgptToken()` per request, so only the Vault refreshes the token. Its
+optional `check()` runs before a refresh places records, and `src/sockets.ts` refreshes models when a subscription changes.
 
 **SQLite tables in the DO.** pi's own conversation store, plus:
 `ky_tasks` (task feed, `src/automations/tasks.ts`), `ky_machine_inbox`, `ky_machines` and `ky_machine_turns` (`src/machines/machines.ts`),
