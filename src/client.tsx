@@ -543,7 +543,8 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
       onDelete: ky.deleteSpecialist,
       onBrief: ky.changeBrief,
       onHistory: ky.briefHistory,
-      onAvatar: (id: string) => ky.submit(avatarRequest(id))
+      onAvatar: (id: string) => ky.submit(avatarRequest(id)),
+      onAsk: (id: string, text: string) => ky.submit(`@${id} ${text}`)
     }),
     [ky.saveSpecialist, ky.changeAccess, ky.deleteSpecialist, ky.changeBrief, ky.briefHistory, ky.submit]
   );

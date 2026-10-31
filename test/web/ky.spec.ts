@@ -1579,6 +1579,7 @@ test("creates a specialist in the Soul tab, edits its brief and reverts it", asy
   await expect(form).toBeHidden();
 
   await panel(page).getByRole("button", { name: new RegExp(`^@${id}`) }).click();
+  await page.getByRole("dialog", { name: `@${id}` }).getByRole("button", { name: "Brief v1" }).click();
   const sheet = page.getByRole("dialog", { name: `@${id}` });
   await expect(sheet.getByText("Run the tests first.")).toBeVisible();
   await sheet.getByRole("button", { name: `Edit @${id}` }).click();
@@ -1616,6 +1617,7 @@ test("shows each specialist's bloub in the Soul tab, and New avatar asks ky for 
   await page.screenshot({ path: "test-results/web/specialist-avatar.png" });
 
   await row.click();
+  await page.getByRole("dialog", { name: `@${id}` }).getByRole("button", { name: "Brief v1" }).click();
   const sheet = page.getByRole("dialog", { name: `@${id}` });
   await sheet.getByRole("button", { name: "More" }).click();
   await sheet.getByRole("menuitem", { name: "New avatar" }).click();
@@ -1785,6 +1787,38 @@ test.describe("automations in Activity", () => {
 
     await automation.getByRole("button", { name: `Edit ${title}` }).click();
     await expect(panel(page).getByRole("form", { name: "Edit automation" }).getByLabel("Owner")).toHaveValue(id);
+  });
+
+  test("opens a specialist's page from the Soul tab: its workflows with Pause and Resume, and Ask sends @id to the chat", async ({ page }) => {
+    await open(page);
+    const id = `pg-${crypto.randomUUID().slice(0, 8)}`;
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: "+ Specialist" }).click();
+    const made = page.getByRole("dialog", { name: "New specialist" });
+    await made.getByRole("textbox", { name: "Id" }).fill(id);
+    await made.getByRole("textbox", { name: "Description" }).fill("Closes the books.");
+    await made.getByRole("textbox", { name: "Brief" }).fill("Be exact.");
+    await made.getByRole("button", { name: "Save" }).click();
+    await expect(made).toBeHidden();
+    const title = `Close ${crypto.randomUUID().slice(0, 8)}`;
+    await send(page, `tool automation ${JSON.stringify({ action: "create", title, prompt: "close the month", cron: "0 9 1 * *", owner: id })}`);
+
+    await panel(page).getByRole("tab", { name: "Soul" }).click();
+    await panel(page).getByRole("button", { name: new RegExp(`^@${id}`) }).click();
+    const sheet = page.getByRole("dialog", { name: `@${id}'s page` });
+    const workflows = sheet.getByRole("region", { name: "Workflows" });
+    await expect(workflows.getByText(title)).toBeVisible();
+    await sheet.screenshot({ path: "test-results/web/specialist-page.png", animations: "disabled" });
+    await workflows.getByRole("button", { name: "Pause" }).click();
+    await expect(workflows.getByText("paused")).toBeVisible();
+    await expect(workflows.getByRole("button", { name: "Run now" })).toBeHidden();
+    await workflows.getByRole("button", { name: "Resume" }).click();
+    await expect(workflows.getByText("active")).toBeVisible();
+
+    await sheet.getByRole("textbox", { name: `Ask @${id}` }).fill("what's left this month?");
+    await sheet.getByRole("button", { name: "Ask" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(chat(page).getByText(`@${id} what's left this month?`).first()).toBeVisible();
   });
 
   test("gates an automation on an Executor program: the chat sees its test, Activity its last check, and edits keep it", async ({ page }) => {
