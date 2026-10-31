@@ -441,6 +441,6 @@ These need a real outside service, so the local gate can't cover them.
 
 ## Counts
 
-- Local features: 227.
+- Local features: 234.
 - Live-only features: 19.
 - Known broken: none. `pnpm harness` has no expected failures.
