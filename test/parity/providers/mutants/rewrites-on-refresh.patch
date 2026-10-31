@@ -1,0 +1,13 @@
+diff --git a/src/providers/models.ts b/src/providers/models.ts
+index 6bab266..2733d47 100644
+--- a/src/providers/models.ts
++++ b/src/providers/models.ts
+@@ -248,7 +248,7 @@ const make = Effect.gen(function* () {
+     const wanted = [...sources.values()].flatMap((source) => source.place());
+ 
+     yield* Effect.forEach(
+-      wanted.filter((record) => stored.get(record.id) !== made(record)),
++      wanted,
+       (record) => records.add(record),
+       { discard: true }
+     );

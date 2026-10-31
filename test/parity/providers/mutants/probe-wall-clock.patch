@@ -1,13 +1,13 @@
-diff --git a/src/providers/runner-local.ts b/src/providers/runner-local.ts
-index ced4919..69717c6 100644
---- a/src/providers/runner-local.ts
-+++ b/src/providers/runner-local.ts
-@@ -76,7 +76,7 @@ export function runnerLocal(config: RunnerLocalConfig): Endpoint {
+diff --git a/src/providers/sources/vibeproxy.ts b/src/providers/sources/vibeproxy.ts
+index b70bea7..4edcce7 100644
+--- a/src/providers/sources/vibeproxy.ts
++++ b/src/providers/sources/vibeproxy.ts
+@@ -97,7 +97,7 @@ function endpoint({ machine, transport, online, ...way }: Way, host: SourceHost)
    const reachable = (): Promise<boolean> => {
-     const online = config.online();
+     const isOnline = online();
  
--    if (probe && probe.online === online && config.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
-+    if (probe && probe.online === online && Date.now() - probe.at < (config.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
+-    if (probe && probe.online === isOnline && now() - probe.at < (boundary.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
++    if (probe && probe.online === isOnline && Date.now() - probe.at < (boundary.probeTtlMs ?? PROBE_TTL_MS)) return probe.up;
  
-     const up = online
-       ? ask(`${origin}/v1/models`, { headers: probeHeaders(config.key), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).then(
+     const up = isOnline
+       ? ask(`${origin}/v1/models`, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" }, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).then(

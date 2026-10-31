@@ -17,7 +17,7 @@ import type { MachineHub } from "../machines/contract";
 import type { RunnerPipe } from "../machines/wiring";
 import { type ModelChoice, type ModelOption, nearestLevel, type ProviderInfo, type Purpose, type SettingsView } from "../settings/contract";
 import { Settings } from "../settings/wiring";
-import { apiKey, apiKeyRecord, type Vendor, VENDORS } from "./api-key";
+import { apiKey, apiKeyRecord, type Vendor, VENDORS } from "./sources/api-keys";
 import type { Now } from "./breaker";
 import {
   type AskLimits,
@@ -34,13 +34,11 @@ import {
   type ProviderKind,
   type ProviderRecord,
   SubscriptionToken,
-  TestUnfinished,
-  VIBEPROXY_PROVIDER
+  TestUnfinished
 } from "./contract";
-import type { Endpoint } from "./endpoint";
+import type { Endpoint, LiveSource, Source } from "./endpoint";
 import { Records } from "./records";
-import { tunnelPort, vibeProxy, vibeProxyRecord } from "./vibeproxy";
-import { WORKERS_AI, WORKERS_AI_RECORD, workersAI } from "./workers-ai";
+import { SOURCES } from "./sources";
 
 const SHORT: AskLimits = { timeoutMs: 30_000, maxTokens: 2_000 };
 
@@ -56,7 +54,9 @@ type CallOptions = SimpleStreamOptions & { readonly [STAND_IN]?: true; readonly 
 
 export type Resolved = { readonly choice: ModelChoice; readonly model: Model<Api> };
 
-const RANK: Readonly<Record<ProviderKind, number>> = { "runner-local": 0, "api-key": 1, "workers-ai": 2 };
+const BY_KIND: ReadonlyMap<ProviderKind, Source> = new Map(SOURCES.map((source) => [source.kind, source]));
+
+const priority = (kind: ProviderKind): number => BY_KIND.get(kind)?.priority ?? Number.POSITIVE_INFINITY;
 
 export class Host extends Context.Service<
   Host,
@@ -170,30 +170,9 @@ const make = Effect.gen(function* () {
 
   const healthy = async (endpoint: Endpoint) => (await (endpoint.reachable?.() ?? true)) && endpoint.breaker.closed();
 
-  const live = (record: ProviderRecord): Endpoint | undefined => {
-    switch (record.kind) {
-      case "workers-ai":
-        return workersAI(boundary.ai, now);
-      case "api-key": {
-        const vendor = VENDORS.find((each) => each.id === record.vendor);
+  const sources: ReadonlyMap<ProviderKind, LiveSource> = new Map(SOURCES.map((source) => [source.kind, source.start({ boundary, vault, machines, pipe, now, changed })]));
 
-        return vendor && apiKey(vendor, boundary.fetch, (id) => vault.auth(id), now);
-      }
-
-      case "runner-local": {
-        if (record.id !== VIBEPROXY_PROVIDER) return undefined;
-        const { key, tunnel } = boundary.vibeProxy;
-        const common = { key, probeTtlMs: boundary.probeTtlMs, onChange: changed, now };
-        const { machine, port } = record;
-
-        if (machine !== null && port !== null) {
-          return vibeProxy({ ...common, machine, origin: `http://127.0.0.1:${port}`, transport: pipe.fetcher(machine, port), online: () => machines.online(machine) });
-        }
-
-        return tunnel && vibeProxy({ ...common, machine: null, origin: tunnel.origin, transport: (input, init) => tunnel.binding.fetch(input, init), online: () => true });
-      }
-    }
-  };
+  const live = (record: ProviderRecord): Endpoint | undefined => sources.get(record.kind)?.build(record);
 
   const standIn = async (model: Model<Api>, options?: CallOptions): Promise<{ model: Model<Api>; options: CallOptions } | undefined> => {
     const others = endpoints.filter((endpoint) => endpoint.provider.id !== model.provider);
@@ -245,7 +224,7 @@ const make = Effect.gen(function* () {
 
     endpoints = listed
       .filter((record) => record.enabled)
-      .sort((a, b) => RANK[a.kind] - RANK[b.kind])
+      .sort((a, b) => priority(a.kind) - priority(b.kind))
       .flatMap((record) => {
         const kept = before.find((endpoint) => madeFrom.get(endpoint) === made(record));
 
@@ -262,14 +241,17 @@ const make = Effect.gen(function* () {
     for (const endpoint of endpoints) if (!before.includes(endpoint)) registry.setProvider(compacting(routed(endpoint)));
   });
 
-  const placeVibeProxy = Effect.suspend(() => {
-    const { port, tunnel } = boundary.vibeProxy;
-    const sharing = machines.machines().filter((machine) => machine.facts?.ports.includes(port));
-    const machine = sharing.find((each) => each.online) ?? sharing[0];
+  // Each source puts in place the records it wants from what ky sees now. Only a missing or moved one is written, as
+  // an upsert, so a refresh that changes nothing writes nothing, and a record's enabled flag stays the user's.
+  const place = Effect.gen(function* () {
+    const stored = new Map((yield* records.list).map((record) => [record.id, made(record)]));
+    const wanted = [...sources.values()].flatMap((source) => source.place());
 
-    if (machine) return records.add(vibeProxyRecord(machine.name, port));
-
-    return tunnel ? records.add(vibeProxyRecord(null, tunnelPort(tunnel))) : Effect.void;
+    yield* Effect.forEach(
+      wanted.filter((record) => stored.get(record.id) !== made(record)),
+      (record) => records.add(record),
+      { discard: true }
+    );
   });
 
   const mainOf = (need: ModelNeed) =>
@@ -297,9 +279,9 @@ const make = Effect.gen(function* () {
 
   const backgroundOf = (need: ModelNeed) =>
     Effect.gen(function* () {
-      const workers = endpoints.find((endpoint) => endpoint.provider.id === WORKERS_AI);
-      const first = workers?.featured[0];
-      const { choice, model } = workers && first ? { choice: choiceOf(workers, first), model: first } : yield* resolve("main", need);
+      const cheap = endpoints.find((endpoint) => BY_KIND.get(endpoint.kind)?.background);
+      const first = cheap?.featured[0];
+      const { choice, model } = cheap && first ? { choice: choiceOf(cheap, first), model: first } : yield* resolve("main", need);
 
       return { ...choice, thinkingLevel: nearestLevel(getSupportedThinkingLevels(model), "off") };
     });
@@ -383,8 +365,7 @@ const make = Effect.gen(function* () {
       return answer;
     });
 
-  yield* records.add(WORKERS_AI_RECORD);
-  yield* placeVibeProxy;
+  yield* place;
   yield* load;
 
   return {
@@ -461,7 +442,7 @@ const make = Effect.gen(function* () {
     refresh: Effect.gen(function* () {
       const before = endpoints;
 
-      yield* placeVibeProxy;
+      yield* place;
       yield* load;
 
       if (endpoints.some((endpoint) => !before.includes(endpoint))) changed();
