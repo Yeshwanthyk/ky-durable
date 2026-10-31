@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type from "typebox";
 import type { Refusable } from "../core/edge";
-import { must } from "../core/must";
+import { must } from "../core/must.ts";
 
 export const AVATAR_TABLES = Object.freeze({ avatars: "ky_avatars", setup: "ky_setup" } as const);
 
