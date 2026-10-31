@@ -91,7 +91,7 @@ describe("stored rows", () => {
   it.each(["{", "null", "[]", `{"provider":"p"}`, `{"provider":"p","modelId":"m","thinkingLevel":"loud"}`])(
     "reads the corrupt model column %j as the worker's",
     (model) => {
-      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", model: null, post: false }]);
+      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", model: null, post: false }]);
     }
   );
 
@@ -106,7 +106,7 @@ describe("stored rows", () => {
 
         const expected = Value.Check(ModelChoiceSchema, parsed) ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
 
-        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", model: expected, post: false }]);
+        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", model: expected, post: false }]);
       })
     );
   });
@@ -115,8 +115,8 @@ describe("stored rows", () => {
     expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [] }]);
   });
 
-  it("keeps a row stored without its zone column, which reads as the column's default, UTC", () => {
-    expect(automationRows([automation])).toEqual([{ ...automation, zone: "UTC", post: false }]);
+  it("keeps a row stored without its zone and owner columns, which read as the columns' defaults, UTC and ky", () => {
+    expect(automationRows([automation])).toEqual([{ ...automation, zone: "UTC", owner: "ky", post: false }]);
   });
 
   it("leaves out a row damaged past reading, keeping the rest", () => {
@@ -289,9 +289,9 @@ describe("stored data", () => {
     const automations = port(world, world.deps());
 
     expect(automations.checkIns()).toEqual({ on: false, zone: "Europe/London", pinned: false });
-    expect((await automations.list(true)).map(({ id, zone, gate, gate_errors, post, watch, model, last_run }) => ({ id, zone, gate, gate_errors, post, watch, model, last: last_run?.status ?? null }))).toEqual([
-      { id: "a2", zone: "UTC", gate: null, gate_errors: 0, post: false, watch: null, model: null, last: "done" },
-      { id: "a1", zone: "UTC", gate: null, gate_errors: 0, post: false, watch: null, model: { provider: "workers-ai", modelId: "glm", thinkingLevel: "off" }, last: null }
+    expect((await automations.list(true)).map(({ id, zone, owner, gate, gate_errors, post, watch, model, last_run }) => ({ id, zone, owner, gate, gate_errors, post, watch, model, last: last_run?.status ?? null }))).toEqual([
+      { id: "a2", zone: "UTC", owner: "ky", gate: null, gate_errors: 0, post: false, watch: null, model: null, last: "done" },
+      { id: "a1", zone: "UTC", owner: "ky", gate: null, gate_errors: 0, post: false, watch: null, model: { provider: "workers-ai", modelId: "glm", thinkingLevel: "off" }, last: null }
     ]);
     world.db.close();
   });

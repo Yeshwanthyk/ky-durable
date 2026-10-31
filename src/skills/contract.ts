@@ -380,7 +380,8 @@ export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = O
   look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", ...CHECK_IN_TOOLS]
 });
 
-const SessionKind = Schema.Literals(["home", "consult", "discuss", "group"]);
+/** How a specialist answers in a conversation; a run is one of an automation it owns. */
+const SessionKind = Schema.Literals(["home", "consult", "discuss", "group", "run"]);
 
 export type SessionKind = typeof SessionKind.Type;
 
@@ -424,19 +425,26 @@ export const ProfileStored = Schema.Struct({
   tools: Schema.fromJsonString(ToolOverrides)
 });
 
-type SandboxRef = { readonly id: string; readonly name: string };
+const SandboxRef = Schema.Struct({ id: Schema.String, name: Schema.String });
+
+type SandboxRef = typeof SandboxRef.Type;
 
 /** What an owner ("ky" or a specialist's id) may use, as read at one moment: a run keeps the one it started with. */
-export type Profile = {
-  readonly owner: string;
+export const ProfileSchema = Schema.Struct({
+  owner: Schema.String,
   /** Where its work goes unless it says otherwise; null when it has no sandbox live. */
-  readonly home: SandboxRef | null;
+  home: Schema.NullOr(SandboxRef),
   /** Every sandbox it may use: a specialist's own, or for ky each live one that is no specialist's. */
-  readonly sandboxes: readonly SandboxRef[];
+  sandboxes: Schema.Array(SandboxRef),
   /** The paired Macs it may give work to. */
-  readonly macs: readonly string[];
-  readonly tools: typeof ToolOverrides.Type;
-};
+  macs: Schema.Array(Schema.String),
+  tools: ToolOverrides
+});
+
+export type Profile = typeof ProfileSchema.Type;
+
+/** Whether `profile` lets its owner use the machine named `machine`: its own sandbox, or a Mac the user granted. */
+export const mayUse = (profile: Profile, machine: string): boolean => profile.macs.includes(machine) || profile.sandboxes.some((each) => each.name === machine);
 
 /** What profiles need from outside the skills domain (server.ts gives it). */
 export type Machinery = {

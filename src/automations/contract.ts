@@ -66,6 +66,8 @@ const StoredAutomation = Schema.Struct({
   watch: Schema.NullOr(Schema.Int),
   post: Schema.Int,
   created_by: Author,
+  /** Whose it is: "ky", or the id of the specialist it runs as. A row from before owners is ky's. */
+  owner: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("ky"))),
   status: AutomationStatus,
   schedule_id: Schema.NullOr(Schema.String),
   created_at: Schema.Number,
@@ -83,10 +85,12 @@ export const AutomationDraftSchema = Type.Object({
   machine: Nullable(Type.String()),
   chat: Type.String(),
   gate: Nullable(Type.String()),
-  post: Type.Optional(Type.Boolean())
+  post: Type.Optional(Type.Boolean()),
+  /** Settings' Owner: ky, or a specialist's id. Only the user's own save moves an automation to another owner. */
+  owner: Type.Optional(Type.String())
 });
 
-export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate"> & Partial<Pick<AutomationRow, "post">>;
+export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate"> & Partial<Pick<AutomationRow, "post" | "owner">>;
 
 function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
   return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
@@ -247,6 +251,9 @@ export const AutomationToolInput = Type.Object({
   ),
   post: Type.Optional(Type.Boolean({ description: "true: post each report as ky's own message, as written, without a reply; a card the run shows is posted just before it." })),
   createdBy: Type.Optional(Type.Union([Type.Literal("user"), Type.Literal("ky")])),
+  owner: Type.Optional(
+    Type.String({ description: "create, from ky's chats only: the specialist it is for, like fin, when the user asks for one of theirs; it then runs as that specialist." })
+  ),
   all: Type.Optional(Type.Boolean({ description: "list: include done and archived ones." }))
 });
 
@@ -322,6 +329,18 @@ export class ModelUnavailable extends Schema.TaggedError<ModelUnavailable>()("Mo
 export class CannotSchedule extends Schema.TaggedError<CannotSchedule>()("CannotSchedule", { cron: Schema.NullOr(Schema.String), why: Schema.String }) implements Refusable {
   get refusal(): string {
     return `Cannot schedule "${this.cron}": ${this.why}`;
+  }
+}
+
+export class NoOwner extends Schema.TaggedError<NoOwner>()("NoOwner", { owner: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `No specialist @${this.owner} to own it.`;
+  }
+}
+
+export class NotItsMachine extends Schema.TaggedError<NotItsMachine>()("NotItsMachine", { owner: Schema.String, machine: Schema.String, allowed: Schema.Array(Schema.String) }) implements Refusable {
+  get refusal(): string {
+    return `@${this.owner} may not use ${this.machine}; it may use ${this.allowed.join(", ") || "no machine but the cloud"}. Only the user gives it another.`;
   }
 }
 

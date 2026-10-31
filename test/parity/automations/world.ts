@@ -238,7 +238,8 @@ export class World {
       approvals: () => {},
       sites: async () => this.#did({ sites: true }),
       unwatched: (anticipation) => this.#did({ unwatched: anticipation }),
-      allows: () => true
+      allows: () => true,
+      owners: (owner) => (owner === "ky" ? { profile: { owner, home: null, sandboxes: [], macs: [MACHINE], tools: {} }, model: null } : undefined)
     };
   }
 
