@@ -79,10 +79,11 @@ function vaultOf(weather: Weather): LoginVault {
     status: async () => {
       if (!weather.vault) throw new Error("the Vault is down");
 
-      return [{ kind: LOGIN_KIND, id: "bank.test", meta: { cookies: 1 }, updatedAt: 0 }];
+      return [{ kind: LOGIN_KIND, id: "ky:bank.test", meta: { cookies: 1 }, updatedAt: 0 }];
     },
     put: async () => {},
     remove: async () => {},
+    move: async () => false,
     browserLogins: async () => [{ site: "bank.test", state: BANK_LOGIN }]
   };
 }
@@ -182,6 +183,8 @@ function world() {
     workspace: {} as ConstructorParameters<typeof Browsing>[1]["workspace"],
     reads: () => false,
     chat: present,
+    owner: () => "ky",
+    owners: () => ["ky"],
     asker: approvals,
     unattended,
     tell: async () => {},

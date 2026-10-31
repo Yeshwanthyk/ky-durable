@@ -6058,3 +6058,13 @@ button.rt-bar:focus-visible {
     justify-self: start;
   }
 }
+
+/* A browser login's Move to sits on its own line under the row, so the site and its actions keep their width. */
+.login-row {
+  flex-wrap: wrap;
+}
+
+.login-move {
+  flex-basis: 100%;
+  margin-left: 42px;
+}

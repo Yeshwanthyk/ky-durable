@@ -408,6 +408,8 @@ export class PiAgent extends DurableObject<Env> {
     workspace: this.workspace,
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
+    owner: (session) => this.specialists.profileOf(session).owner,
+    owners: () => this.browserOwners(),
     asker: this.approvals,
     unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
@@ -1171,8 +1173,18 @@ export class PiAgent extends DurableObject<Env> {
   }
 
   /** A saved browser login was removed: end the browser session that still holds it (src/browse/routes.ts). */
-  browserForgot(): Promise<void> {
-    return this.browsing.forget();
+  browserForgot(owner: string): Promise<void> {
+    return this.browsing.forget(owner);
+  }
+
+  /** Settings › Browser logins › Move to: `from`'s login for `site` becomes `to`'s (src/browse/routes.ts). */
+  browserMoved(from: string, site: string, to: string) {
+    return this.browsing.move(from, site, to);
+  }
+
+  /** Whom a browser login can belong to: ky and each specialist. */
+  browserOwners(): string[] {
+    return [KY, ...this.specialists.list().map((row) => row.id)];
   }
 
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */

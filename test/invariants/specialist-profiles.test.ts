@@ -1,6 +1,13 @@
 import fc from "fast-check";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Semaphore from "effect/Semaphore";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { type Desk, forget, move, seat, Sessions } from "../../src/browse/browse";
+import { type Browsers, loginId, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
+import { Sql } from "../../src/core/sql";
 import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
 import { PROTOCOL } from "../../src/machines/runner-protocol";
@@ -253,6 +260,125 @@ function runTool(specialists: Specialists, inputs: readonly (typeof aToolInput e
   }
 }
 
+const SITES = ["bank.test", "mail.test", "shop.test"] as const;
+
+/** What happens to logins: a sign-in through `owner`'s browser keeps the site, Remove and Move to in Settings, a browse that seats `owner`. */
+const aLoginStep = fc.oneof(
+  fc.record({ step: fc.constant("sign-in" as const), owner: anOwner, site: fc.constantFrom(...SITES) }),
+  fc.record({ step: fc.constant("remove" as const), owner: anOwner, site: fc.constantFrom(...SITES) }),
+  fc.record({ step: fc.constant("move" as const), owner: anOwner, site: fc.constantFrom(...SITES), to: anOwner }),
+  fc.record({ step: fc.constant("browse" as const), owner: anOwner })
+);
+
+type LoginStep = typeof aLoginStep extends fc.Arbitrary<infer S> ? S : never;
+
+/** A Browser Run session: the sites restored or signed in to in it, until it ends. */
+type Live = { readonly sites: Set<string>; ended: boolean };
+
+const cookieFor = (site: string) => ({ name: "sid", value: "x", domain: site, path: "/", expires: -1, httpOnly: true, secure: true, sameSite: "Lax" as const });
+
+/** The seat browse.ts drives: it restores logins into it and ends it; nothing here opens a page. */
+function seatOf(held: Live): Seat {
+  const never = () => Promise.reject(new Error("no pages in this world"));
+
+  return {
+    newTab: never,
+    lastTab: never,
+    tab: never,
+    handoff: never,
+    liveView: never,
+    complete: never,
+    record: never,
+    recorded: never,
+    storageState: never,
+    restore: async (state) => state.cookies.forEach((cookie) => held.sites.add(cookie.domain)),
+    end: async () => {
+      held.ended = true;
+    },
+    close: async () => undefined
+  };
+}
+
+/** The real seat, forget and move over a fake Browser Run and a fake Vault. */
+function logins() {
+  const db = new DatabaseSync(":memory:");
+  const runtime = ManagedRuntime.make(Sessions.layer.pipe(Layer.provide(Sql.layer(storageOf(db)))));
+  const browser = new Map<string, Live>();
+  const vault = new Map<string, string>();
+  const owners = new Map<string, string>();
+
+  const browsers: Browsers = {
+    kitesurf: () => Promise.reject(new Error("no kitesurf in this world")),
+    acquire: async () => {
+      const session = `s${browser.size + 1}`;
+
+      browser.set(session, { sites: new Set(), ended: false });
+
+      return session;
+    },
+    connect: async (session) => {
+      const held = browser.get(session);
+
+      if (held === undefined || held.ended) throw new Error(`${session} has ended`);
+
+      return seatOf(held);
+    }
+  };
+
+  const keeps: LoginVault = {
+    status: async () => [],
+    put: async () => undefined,
+    remove: async () => undefined,
+    browserLogins: async (owner) => [...vault].flatMap(([id, state]) => (ownedLogin(id).owner === owner ? [{ site: ownedLogin(id).site, state }] : [])),
+    move: async (_kind, id, to) => {
+      const state = vault.get(id);
+
+      if (state === undefined) return false;
+      vault.delete(id);
+      vault.set(to, state);
+
+      return true;
+    }
+  };
+
+  const desk: Desk = { browsers, vault: () => keeps, lock: Semaphore.makeUnsafe(1) };
+  const settle = (work: Effect.Effect<unknown, unknown, Sessions>) => runtime.runPromise(Effect.ignore(work));
+  const current = (owner: string) => runtime.runPromise(Effect.flatMap(Sessions, (sessions) => sessions.current(owner)));
+
+  return {
+    async run(step: LoginStep) {
+      if (step.step === "browse") await settle(seat(desk, step.owner));
+
+      // As a hand-off's finish keeps it: signed in to in the owner's session, then saved under the owner.
+      if (step.step === "sign-in") {
+        await settle(seat(desk, step.owner));
+        const session = await current(step.owner);
+
+        if (session !== undefined) browser.get(session)?.sites.add(step.site);
+        vault.set(loginId(step.owner, step.site), JSON.stringify({ cookies: [cookieFor(step.site)], origins: [] }));
+      }
+
+      // As src/browse/routes.ts removes one: from the Vault, then the owner's session ends.
+      if (step.step === "remove") {
+        vault.delete(loginId(step.owner, step.site));
+        await settle(forget(desk, step.owner));
+      }
+
+      if (step.step === "move" && step.to !== step.owner) await settle(move(desk, step.owner, step.site, step.to));
+      owners.clear();
+
+      for (const owner of [KY, ...IDS]) {
+        const session = await current(owner);
+
+        if (session !== undefined) owners.set(session, owner);
+      }
+    },
+    live: () => [...browser].flatMap(([session, { sites, ended }]) => (ended ? [] : [[session, sites] as const])),
+    ownerOf: (session: string) => owners.get(session),
+    kept: (owner: string) => new Set([...vault.keys()].flatMap((id) => (ownedLogin(id).owner === owner ? [ownedLogin(id).site] : [])))
+  };
+}
+
 describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs", () => {
   it("gives a new specialist a sandbox of its own, never the default, and no Mac but the one the user named", () => {
     const { specialists, opened, sandboxes } = world();
@@ -400,7 +526,25 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
 });
 
 describe("R2 SessionMatchesVault: a live browser session holds only logins its owner has in the Vault", () => {
-  it.todo("moving or removing a login logs out every session that holds it (Phase 3C)");
+  it("after any sign-ins, moves and removals, each live session holds only its owner's logins", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(aLoginStep, { minLength: 1, maxLength: 30 }), async (steps) => {
+        const here = logins();
+
+        for (const step of steps) {
+          await here.run(step);
+
+          for (const [session, held] of here.live()) {
+            const owner = here.ownerOf(session);
+
+            expect(owner, `${session} is live but no owner's session`).toBeDefined();
+            expect([...held].filter((site) => !here.kept(owner ?? "").has(site)), `${owner}'s session holds a login it doesn't keep`).toEqual([]);
+          }
+        }
+      }),
+      { numRuns: 200 }
+    );
+  });
 });
 
 describe("R3 DeleteCleans: a deleted specialist has no runs, sessions, logins, keys or Mac grants", () => {

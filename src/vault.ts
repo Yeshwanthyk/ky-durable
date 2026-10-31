@@ -4,6 +4,7 @@ import Type from "typebox";
 import { decode, decodeOr, parseAs } from "./core/decode";
 import { type ChatGptLogin, DEVICE_CODE_TTL_MS, type Device, type Fetch, type ProviderKey, VERIFICATION_URL } from "./providers/contract";
 import { pollDevice, refreshLogin, startDevice } from "./providers/wiring";
+import { loginId } from "./browse/contract";
 import type { ExecutorConnection } from "./executor/contract";
 import { type GithubLogin, listRepos } from "./github";
 import type { ChatGptCode, ChatGptState } from "./protocol";
@@ -37,9 +38,10 @@ import { credentialFetch, type CredentialReply, type CredentialRequest, Credenti
  *   (src/inbound/credentials.ts). A webhook's signing secret, ("hook-signing",
  *   its id), never leaves either: `hookSigned` checks a post with it.
  *
- * - Browser logins, ("browser-login", site), are the cookies and local storage
- *   a site left in ky's browser after the user signed in there (src/browse):
- *   `browserLogins` gives them only to that browser's next session.
+ * - Browser logins, ("browser-login", "<owner>:<site>"), are the cookies and
+ *   local storage a site left in an owner's browser (ky's, or a specialist's)
+ *   after the user signed in there (src/browse): `browserLogins` gives them
+ *   only to that owner's next session.
  *
  * - ky's VAPID key pair signs its Web Push (src/push.ts): made the first
  *   time it is needed, kept with the HMAC key, and never handed out; only
@@ -154,6 +156,8 @@ export class Vault extends DurableObject<Env> {
     if (!columns.some((column) => column.name === "nonce")) this.#sql.exec("ALTER TABLE ky_vault_tokens ADD COLUMN nonce TEXT");
     // A machine token from before pairings had ids names only the machine; no route takes it, so it goes.
     this.#sql.exec("DELETE FROM ky_vault_tokens WHERE kind = 'machine' AND instr(subject, ':') = 0");
+    // A browser login from before owners is kept by site alone, and is ky's.
+    this.#sql.exec("UPDATE OR REPLACE ky_vault_secrets SET id = 'ky:' || id WHERE kind = 'browser-login' AND id NOT GLOB '[a-z0-9]*:*'");
     this.#sql.exec("CREATE TABLE IF NOT EXISTS ky_vault_keys (name TEXT PRIMARY KEY, key TEXT NOT NULL)");
     // ChatGPT sign-ins: the device code the alarm polls with until `poll_at`, then how it ended.
     this.#sql.exec(`CREATE TABLE IF NOT EXISTS ky_vault_logins (
@@ -196,15 +200,25 @@ export class Vault extends DurableObject<Env> {
     }));
   }
 
-  /** The sites' logins ky's browser saved after a hand-off, ("browser-login", site): only its session restores them; no tool reads them. */
-  browserLogins(): { site: string; state: string }[] {
+  /** Moves a secret to id `to`, over one there: whether there was one to move. */
+  move(kind: SecretKind, id: string, to: string): boolean {
+    if (this.#sql.exec("SELECT 1 FROM ky_vault_secrets WHERE kind = ? AND id = ?", kind, id).toArray().length === 0) return false;
+    this.#sql.exec("UPDATE OR REPLACE ky_vault_secrets SET id = ? WHERE kind = ? AND id = ?", to, kind, id);
+
+    return true;
+  }
+
+  /** The sites' logins `owner`'s browser saved after a hand-off: only its session restores them; no tool reads them. */
+  browserLogins(owner: string): { site: string; state: string }[] {
+    const prefix = loginId(owner, "");
+
     return this.#sql
-      .exec("SELECT id, value FROM ky_vault_secrets WHERE kind = 'browser-login' ORDER BY id")
+      .exec("SELECT id, value FROM ky_vault_secrets WHERE kind = 'browser-login' AND substr(id, 1, ?) = ? ORDER BY id", prefix.length, prefix)
       .toArray()
       .map((row) => {
         const { id, value } = decode(LoginRow, row, "A browser login");
 
-        return { site: id, state: value };
+        return { site: id.slice(prefix.length), state: value };
       });
   }
 
