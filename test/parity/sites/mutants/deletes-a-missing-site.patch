@@ -1,12 +1,12 @@
 diff --git a/src/sites/sites.ts b/src/sites/sites.ts
-index 0a51935..20252d4 100644
+index 09e36e8..b924c7c 100644
 --- a/src/sites/sites.ts
 +++ b/src/sites/sites.ts
-@@ -201,7 +201,6 @@ const remove = ({ bucket }: SiteHost, id: string) =>
+@@ -371,7 +371,6 @@ const remove = ({ bucket }: SiteHost, id: string) =>
    Effect.gen(function* () {
      const all = SITE_ID.test(id) ? yield* Effect.promise(() => keys(bucket, id)) : [];
  
 -    if (all.length === 0) return yield* new NoSite({ id });
      const token = (yield* Effect.promise(() => meta(bucket, id)))?.token;
- 
-     if (token !== undefined) yield* Effect.promise(() => bucket.delete(publicKey(token)));
+     const store = yield* SiteStore;
+     const tokens = [...new Set([...(token === undefined ? [] : [token]), ...(yield* store.tokens(id))])];

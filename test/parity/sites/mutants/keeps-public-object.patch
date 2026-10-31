@@ -1,12 +1,12 @@
 diff --git a/src/sites/sites.ts b/src/sites/sites.ts
-index 0a51935..b9ed772 100644
+index 09e36e8..555dd5c 100644
 --- a/src/sites/sites.ts
 +++ b/src/sites/sites.ts
-@@ -191,7 +191,6 @@ const makePrivate = ({ bucket, origin }: SiteHost, id: string) =>
-     const site = yield* find(bucket, id);
+@@ -304,7 +304,6 @@ const makePrivate = ({ bucket, origin }: SiteHost, id: string) =>
+ 
      const token = site.token;
  
 -    if (token !== undefined) yield* Effect.promise(() => bucket.delete(publicKey(token)));
-     yield* Effect.promise(() => putMeta(bucket, id, { title: site.title, created: site.created }));
+     yield* Effect.promise(() => putMeta(bucket, id, without(site)));
  
      return `Private again: its public address no longer works. It stays at ${addresses(origin).private(id)}.`;

@@ -1,10 +1,10 @@
 diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
-index b1b509a..4bfe082 100644
+index c8f3b1f..571a007 100644
 --- a/src/browse/wiring.ts
 +++ b/src/browse/wiring.ts
-@@ -169,10 +169,7 @@ function browse(launch: Launch, args: Args) {
+@@ -526,10 +526,7 @@ function browse(launch: Launch, args: Args, outline: boolean) {
      Effect.try({ try: launch, catch: failed }),
-     (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),
+     (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args, outline))),
      (launching) =>
 -      Effect.forkDetach(Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.ignore)).pipe(
 -        Effect.flatMap((closing) => Fiber.join(closing).pipe(Effect.interruptible, Effect.timeoutOption(CLOSE_TIMEOUT_MS))),

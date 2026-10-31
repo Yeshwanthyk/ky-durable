@@ -1,12 +1,12 @@
 diff --git a/src/automations/automations.ts b/src/automations/automations.ts
-index 055b204..72dd370 100644
+index ec116da..5a4f720 100644
 --- a/src/automations/automations.ts
 +++ b/src/automations/automations.ts
-@@ -749,7 +749,6 @@ const make = Effect.gen(function* () {
+@@ -769,7 +769,6 @@ const make = Effect.gen(function* () {
        const slot = slotOf(fired, schedule, row);
        const task = `a-${row.id}-${slot}`;
  
 -      if (overlaps(row.id, task)) return;
+       yield* runDue(row, fired, slot, task);
  
-       if (!ran(task)) {
-         const admitted = yield* admit(row, task, fired.slot !== undefined);
+       if (row.at !== null) yield* done(row.id, schedule.id);
