@@ -124,7 +124,7 @@ const MOVES = new Map<TaskStatus, readonly TaskStatus[]>([
   ["working", ["done", "failed"]]
 ]);
 
-export class World {
+export class AutomationWorld {
   readonly db = new DatabaseSync(":memory:");
   readonly durable = openStorage(this.db);
   readonly feed = new TaskFeed(this.durable.sql());
@@ -238,7 +238,9 @@ export class World {
       approvals: () => {},
       sites: async () => this.#did({ sites: true }),
       unwatched: (anticipation) => this.#did({ unwatched: anticipation }),
-      allows: () => true
+      allows: () => true,
+      pin: () => undefined,
+      owners: (owner) => (owner === "ky" ? { profile: { owner, home: null, sandboxes: [], macs: [MACHINE], tools: {} }, model: null } : undefined)
     };
   }
 
@@ -345,10 +347,18 @@ export function schedulerOf(side: Automations): Bookings<Callbacks> {
   return side.scheduler.bookings;
 }
 
-export const port = (world: World, deps: AutomationDeps) => new Automations(world.durable.storage(), deps, (callbacks) => new Booked(callbacks));
+export const port = (world: AutomationWorld, deps: AutomationDeps) => new Automations(world.durable.storage(), deps, (callbacks) => new Booked(callbacks));
 
-export function next(clock: Clock): Instance<Action> & { world: World; side: Automations; scheduler: Bookings<Callbacks>; due(): Promise<void> } {
-  const world = new World(clock);
+/** A world's automations on deps `wire` makes from the world's own: the specialists' invariants give real owners. */
+export function wired(clock: Clock, wire: (deps: AutomationDeps, world: AutomationWorld) => AutomationDeps) {
+  const world = new AutomationWorld(clock);
+  const side = port(world, wire(world.deps(), world));
+
+  return { world, side, scheduler: schedulerOf(side) };
+}
+
+export function next(clock: Clock): Instance<Action> & { world: AutomationWorld; side: Automations; scheduler: Bookings<Callbacks>; due(): Promise<void> } {
+  const world = new AutomationWorld(clock);
   const side = port(world, world.deps());
   const scheduler = schedulerOf(side);
   side.onChange(() => {

@@ -5,9 +5,11 @@ import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
 import { PROTOCOL } from "../../src/machines/runner-protocol";
 import { MachineHub } from "../../src/machines/wiring";
-import { type AccessChange, KY, type Machinery, SKILL_TABLES, SpecialistAction, type SessionKind } from "../../src/skills/contract";
+import type { MachineInfo } from "../../src/protocol";
+import { type AccessChange, KY, type Machinery, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
 import { Specialists } from "../../src/skills/wiring";
+import { wired } from "../parity/automations/world";
 import { settle, World } from "../parity/machines/world";
 import { storageOf } from "../parity/skills/storage";
 
@@ -143,6 +145,94 @@ function tried(specialists: Specialists, id: string, change: AccessChange): bool
     return false;
   }
 }
+
+/**
+ * ky's real automations, wired as server.ts wires them: owners and pins from the real specialists, and the
+ * two Macs, each online or not as the test says. What a run started on, what it was spawned as, and what
+ * it told its chat are kept.
+ */
+function workflows() {
+  const { specialists } = made();
+  const online = new Set<string>();
+  const started: Array<{ readonly task: string; readonly machine: string }> = [];
+  const spawned: Array<Parameters<Spawn>[2]> = [];
+  const info = (name: string): MachineInfo => ({ name, online: online.has(name), seenAt: 0, reason: null, active: 0, state: "on", note: "", facts: null, login: "own", cloud: null, sandbox: null });
+
+  const { world, side, scheduler } = wired({ now: () => T }, (base, { feed }) => {
+    const machines: Pick<MachineHub, "machines" | "machine" | "defaultAgent" | "start" | "stop" | "recheck"> = {
+      machines: () => MACS.map(info),
+      machine: (name) => (MACS.some((mac) => mac === name) ? info(name) : undefined),
+      defaultAgent: () => "claude",
+      start: (machine, title, _prompt, id, parent, source) => {
+        started.push({ task: id, machine });
+        const task = feed.create({ id, kind: "machine", source, worker: machine, title, status: "queued", session: null, agent: "claude" });
+        specialists.adopt(id, parent);
+
+        return task;
+      },
+      stop: async () => undefined,
+      recheck: () => undefined
+    };
+
+    return {
+      ...base,
+      // SAFETY: automations call only these six of MachineHub.
+      machines: machines as MachineHub,
+      runtime: {
+        ...base.runtime,
+        spawn: async (_tx, owner, request) => {
+          spawned.push(request);
+
+          return owner;
+        }
+      },
+      pin: (id, profile) => specialists.pin(id, profile),
+      owners: (owner) => (owner === KY || specialists.has(owner) ? { profile: specialists.profile(owner), model: null } : undefined)
+    };
+  });
+
+  const told = () => world.effects.flatMap((effect) => ("deliver" in effect ? [JSON.stringify(effect.deliver)] : []));
+
+  /** Run it now, as the user's Run does: booked now, and fired. */
+  const run = async (id: string) => {
+    await side.run(id);
+    await scheduler.due();
+  };
+
+  /** Save it as the user does; its id. */
+  const save = async (draft: ReturnType<typeof workflow>) => {
+    const saved = await side.create(draft, "user");
+
+    if ("refused" in saved) throw new Error(saved.refused);
+
+    return saved.id;
+  };
+
+  /** Who the first run started runs as: what its cloud run was spawned as, or what its machine task is pinned to now. */
+  const runAs = (): Profile | undefined => {
+    const cloud = spawned[0]?.as;
+
+    if (cloud !== undefined) return structuredClone(cloud);
+    const task = started[0]?.task;
+
+    return task === undefined ? undefined : specialists.profileOf(task);
+  };
+
+  return { world, side, save, run, runAs, specialists, online, started, spawned, told };
+}
+
+/** A workflow for an hour from now, for `owner`, on `machine` (null: the cloud). */
+const workflow = (owner: string, machine: string | null) => ({
+  title: "Digest",
+  prompt: "digest the news",
+  cron: null,
+  at: T + 3_600_000,
+  model: null,
+  machine,
+  chat: "1",
+  gate: null,
+  owner
+});
 
 /** Every specialist tool action, with ids that are and aren't specialists. */
 const aToolInput = fc.record({
@@ -353,7 +443,40 @@ describe("R4 NoSilentFallback: a workflow whose Mac is offline waits and tells; 
     );
   });
 
-  it.todo("an owned workflow's run waits for its offline Mac and tells the user (Phase 3B)");
+  it("an owned workflow's run goes to its Mac alone, waits and says so when that Mac is offline, and doesn't start once the Mac is taken back", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(aGrant, { maxLength: 4 }), anId, fc.constantFrom(...MACS), fc.boolean(), fc.boolean(), async (grants, owner, mac, up, revoke) => {
+        const ky = workflows();
+
+        try {
+          for (const { id, mac: each, grant } of grants) tried(ky.specialists, id, { mac: each, grant });
+
+          if (up) ky.online.add(mac);
+          const made = await ky.side.create(workflow(owner, mac), "user");
+
+          if (!ky.specialists.profile(owner).macs.includes(mac)) {
+            expect(made).toHaveProperty("refused", expect.stringMatching(new RegExp(`@${owner} may not use ${mac}`)));
+
+            return;
+          }
+
+          if ("refused" in made) throw new Error(made.refused);
+
+          if (revoke) tried(ky.specialists, owner, { mac, grant: false });
+          await ky.run(made.id);
+          const said = ky.told().join("\n");
+
+          expect(ky.started.every((run) => run.machine === mac)).toBe(true);
+          expect(ky.started.length).toBe(revoke ? 0 : 1);
+          expect(said.includes(`did not run: @${owner} may not use ${mac}`)).toBe(revoke);
+          expect(said.includes(`waits for ${mac}, which is offline`)).toBe(!revoke && !up);
+        } finally {
+          ky.world.db.close();
+        }
+      }),
+      { numRuns: 60 }
+    );
+  });
 });
 
 describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
@@ -381,7 +504,43 @@ describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
     );
   });
 
-  it.todo("a workflow's run keeps the profile it started with, even if the workflow is reassigned (Phase 3B)");
+  it("a workflow's run keeps the owner and profile it started with, while the user reassigns the workflow and changes machines", async () => {
+    const aMove = fc.oneof(aChange.map((change) => ({ change })), anOwner.map((to) => ({ to })));
+
+    await fc.assert(
+      fc.asyncProperty(anId, fc.constantFrom<string | null>(null, ...MACS), fc.array(aMove, { minLength: 1, maxLength: 6 }), async (owner, machine, moves) => {
+        const ky = workflows();
+
+        try {
+          for (const mac of MACS) tried(ky.specialists, owner, { mac, grant: true });
+          const id = await ky.save(workflow(owner, machine));
+          const before = structuredClone(ky.specialists.profile(owner));
+          await ky.run(id);
+          const at = ky.runAs();
+
+          for (const move of moves) {
+            if ("to" in move) await ky.side.update(id, { owner: move.to });
+            else tried(ky.specialists, move.change.id, move.change.change);
+          }
+
+          const now = ky.specialists.profile(owner);
+          const live = (sandbox: { readonly id: string }) => now.sandboxes.some((each) => each.id === sandbox.id);
+
+          // A cloud run carries the profile read as it started; a machine task's is that, less what the user took back since.
+          const expected =
+            machine === null
+              ? before
+              : { ...before, home: before.home && live(before.home) ? before.home : null, sandboxes: before.sandboxes.filter(live), macs: before.macs.filter((mac) => now.macs.includes(mac)) };
+
+          expect(at).toEqual(before);
+          expect(ky.runAs()).toEqual(expected);
+        } finally {
+          ky.world.db.close();
+        }
+      }),
+      { numRuns: 60 }
+    );
+  });
 });
 
 describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () => {

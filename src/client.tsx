@@ -492,13 +492,14 @@ function useAutomations(ky: Ky) {
       automations: ky.automations,
       providers,
       machines: ky.machines,
+      specialists: ky.specialists,
       chats: ky.chats,
       onAction: ky.changeAutomation,
       onSave: ky.saveAutomation,
       checkIns: ky.checkIns,
       onCheckIns: ky.setCheckIns
     }),
-    [ky.automations, providers, ky.machines, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
+    [ky.automations, providers, ky.machines, ky.specialists, ky.chats, ky.changeAutomation, ky.saveAutomation, ky.checkIns, ky.setCheckIns]
   );
 }
 

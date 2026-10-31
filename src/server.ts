@@ -57,7 +57,7 @@ import { ExecutorApprovals } from "./approvals/executor";
 import { Outside } from "./outside/outside";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
-import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
+import { BACKGROUND_SOURCE, KY, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, draftFromDemo, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { Titler } from "./chats/titles";
 import type { Purpose } from "./settings/contract";
@@ -247,7 +247,9 @@ export class PiAgent extends DurableObject<Env> {
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
     },
-    allows: (work) => this.spend.allows(work)
+    allows: (work) => this.spend.allows(work),
+    pin: (id, profile) => this.specialists.pin(id, profile),
+    owners: (owner) => (owner === KY || this.specialists.has(owner) ? { profile: this.specialists.profile(owner), model: this.specialists.get(owner)?.model ?? null } : undefined)
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -488,7 +490,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(skillTools(skilling));
 
       const { machines } = machineTools({ machines: this.machines, feed: this.feed, owners: this.specialists });
-      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews });
+      const { automations, checkInGuard } = automationTools({ automations: this.automations, models: this.models, reviews: this.reviews, specialists: this.specialists });
 
       this.registry.install(memory);
       this.registry.install(recall);

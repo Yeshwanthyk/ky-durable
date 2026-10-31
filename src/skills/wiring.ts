@@ -131,6 +131,11 @@ export class Specialists {
     this.#edge.run(Profiles.use((profiles) => profiles.adopt(conversation, parent)));
   }
 
+  /** `conversation` is a run of `profile.owner`'s and keeps `profile`, the one it started with, to its end. */
+  pin(conversation: string, profile: Profile): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.pin(conversation, profile)));
+  }
+
   /** A Mac removed from ky: every grant of it goes. */
   dropMac(mac: string): void {
     this.#edge.run(Profiles.use((profiles) => profiles.dropMac(mac)));
@@ -340,8 +345,10 @@ export function delegationTools(
     {
       store,
       tools: specialists,
-      // Specialists keep memory (to search it), machines, and the subagent tool (to ask a peer).
-      remove: [soul, automationTool, specialists.manage, ui, chats, site],
+      // Specialists keep memory (to search it), machines, the subagent tool (to ask a peer) and automations (their own).
+      remove: [soul, specialists.manage, ui, chats, site],
+      // A run of one of theirs keeps its cards, and books nothing more.
+      run: [soul, automationTool, specialists.manage, chats, site],
       model: (own) => models.worker(own)
     },
     deliver

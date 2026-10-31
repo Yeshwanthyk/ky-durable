@@ -4,7 +4,7 @@ import { summarize, type TaskFeed, type TaskRow } from "../automations/contract"
 import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { type MachineInfo, osName } from "../protocol";
-import { KY, type Profile } from "../skills/contract";
+import { KY, mayUse, type Profile } from "../skills/contract";
 import { MACHINE_ACTIONS, MACHINE_EXTENSION, MACHINE_TOOL, type MachineChange, type MachineState } from "./contract";
 import { agentOf, cannotRun, PREFERRED, runs } from "./machines";
 import { type Agent, AGENT_NAMES, type MachineFacts } from "./runner-protocol";
@@ -92,14 +92,7 @@ export type Owners = {
   readonly profile: (owner: string) => Profile;
 };
 
-/** Whether `profile`'s owner may give work to the machine `name`: a sandbox of its own, or a Mac it was given; ky has every computer. */
-function mayUse(profile: Profile, name: string, machine: MachineInfo | undefined): boolean {
-  if (machine?.sandbox) return profile.sandboxes.some((each) => each.id === machine.sandbox?.id);
-
-  return profile.owner === KY || profile.macs.includes(name);
-}
-
-const usable = (machines: readonly MachineInfo[], profile: Profile) => machines.filter((machine) => mayUse(profile, machine.name, machine));
+const usable = (machines: readonly MachineInfo[], profile: Profile) => machines.filter((machine) => mayUse(profile, machine.name, machine.sandbox));
 
 function yours(profile: Profile): string {
   const own = [...profile.sandboxes.map((each) => each.name), ...profile.macs];
@@ -115,7 +108,7 @@ function notYours(profile: Profile, name: string): string {
 
 /** Why `profile`'s owner may not use the machine `name`, or null when it may. */
 function refusedTo(profile: Profile, all: readonly MachineInfo[], name: string): string | null {
-  return mayUse(profile, name, all.find((machine) => machine.name === name)) ? null : notYours(profile, name);
+  return mayUse(profile, name, all.find((machine) => machine.name === name)?.sandbox) ? null : notYours(profile, name);
 }
 
 /** Why `profile`'s owner may not change the machine `name`'s settings: a specialist changes only its own sandbox's, since a Mac is the user's. */
@@ -354,7 +347,7 @@ export async function confine(hub: Pick<MachineHub, "machines" | "withdraw">, fe
     for (const task of feed.open("machine", machine.name)) {
       const profile = owners.profileOf(task.id);
 
-      if (profile.owner === KY || mayUse(profile, machine.name, machine)) continue;
+      if (profile.owner === KY || mayUse(profile, machine.name, machine.sandbox)) continue;
       await hub.withdraw(task, `@${profile.owner} may no longer use ${machine.name}, so ky stopped this task there. Only the user can give it back.`);
     }
   }
