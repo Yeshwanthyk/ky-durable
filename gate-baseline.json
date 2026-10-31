@@ -1050,7 +1050,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "with nobody there to approve a routine that hits an approval leaves it waiting as a card in its chat, with a push, and approves nothing",
+      "name": "with nobody there to approve a routine that hits an approval is refused at once: no card and no push, Executor is told no, and the run reads why",
       "outcome": "passed",
       "file": "src/tests/approvals.test.ts"
     },
@@ -5337,11 +5337,6 @@
     },
     {
       "check": "web",
-      "name": "reloads into Access's sign-in when the socket drops after the sign-in lapses",
-      "outcome": "passed"
-    },
-    {
-      "check": "web",
       "name": "walks a new ky through setup from the main chat's first-run cards",
       "outcome": "passed"
     },
@@ -6349,12 +6344,6 @@
     {
       "check": "invariants",
       "name": "allows no lint findings in src/github-tools.ts",
-      "outcome": "passed",
-      "file": "test/invariants/lint-zones.test.ts"
-    },
-    {
-      "check": "invariants",
-      "name": "allows no lint findings in src/images.ts",
       "outcome": "passed",
       "file": "test/invariants/lint-zones.test.ts"
     },
