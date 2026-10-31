@@ -21,6 +21,7 @@ import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, request as forward, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { portOf } from "./port.ts";
 
 /** Marks the fake's answer for a start it refused: Cloudflare's `fetch` throws its error then. */
@@ -176,7 +177,8 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
     const upstream = forward({ host: "127.0.0.1", port, method: request.method, path: request.url?.slice("/port".length), headers: request.headers }, (answer) => {
       response.writeHead(answer.statusCode ?? 502, answer.headers);
 
-      if (!cut) return void answer.pipe(response);
+      // A runner that dies mid-answer breaks the answer off, as a container's dropped connection does; `pipe` would leave it open.
+      if (!cut) return void pipeline(answer, response).catch(() => {});
       cutOff++;
       answer.destroy();
       response.destroy();
