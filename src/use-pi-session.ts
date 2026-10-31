@@ -38,6 +38,8 @@ import type {
   SkillRow,
   SoulChange,
   SoulView,
+  AccessChange,
+  SpecialistAccess,
   SpecialistDraft,
   SpecialistView,
   TaskRow,
@@ -70,6 +72,8 @@ type State = SessionView & {
   readonly soul: SoulView | null;
   /** The user's specialists and their briefs. */
   readonly specialists: readonly SpecialistView[];
+  /** Each specialist's sandbox and Macs, by id. */
+  readonly specialistAccess: Readonly<Record<string, SpecialistAccess>>;
   /** The bloubs ky and the specialists wear, by "ky" or specialist id. */
   readonly avatars: AvatarsView;
   /** ky's memory as wake shows it; null until the server sends it. */
@@ -157,7 +161,8 @@ function frameHandlers({ setState, events, version, pending, asks }: Receiver): 
     chats: ({ chats, main, groups }) => replace({ chats, mainUpdatedAt: main, groups: groups ?? {} }),
     skills: ({ skills }) => replace({ skills }),
     soul: ({ soul }) => replace({ soul }),
-    specialists: ({ specialists }) => replace({ specialists }),
+    // A Worker from before specialists' machines sends no access while a deploy settles.
+    specialists: ({ specialists, access }) => replace({ specialists, specialistAccess: access ?? {} }),
     avatars: ({ avatars }) => replace({ avatars }),
     memory: ({ memory }) => replace({ memory }),
     automations: ({ automations, checkIns }) => replace({ automations, checkIns }),
@@ -195,6 +200,7 @@ const INITIAL_STATE: State = {
   skills: [],
   soul: null,
   specialists: [],
+  specialistAccess: {},
   avatars: {},
   memory: null,
   automations: [],
@@ -296,6 +302,7 @@ export function usePiSession(session: string) {
       skills: current.skills,
       soul: current.soul,
       specialists: current.specialists,
+      specialistAccess: current.specialistAccess,
       avatars: current.avatars,
       memory: current.memory,
       automations: current.automations,
@@ -535,6 +542,15 @@ export function usePiSession(session: string) {
     [ask]
   );
 
+  /** Grant or revoke a specialist a Mac, or move it to another sandbox; resolves with why it was refused, if it was. */
+  const changeAccess = useCallback(
+    (specialist: string, change: AccessChange) => ask("specialist-access", { specialist, change }).then(refusal, why),
+    [ask]
+  );
+
+  /** Delete a specialist; resolves with why it was refused, if it was. */
+  const deleteSpecialist = useCallback((specialist: string) => ask("specialist-delete", { specialist }).then(refusal, why), [ask]);
+
   /** Make specialists a chat's members, or none to make it a plain chat again. */
   const setMembers = useCallback(
     (chat: string, members: readonly string[]) => send({ type: "chat-members", id: crypto.randomUUID(), session: chat, members }),
@@ -634,6 +650,8 @@ export function usePiSession(session: string) {
     changeSoul,
     soulHistory,
     saveSpecialist,
+    changeAccess,
+    deleteSpecialist,
     setMembers,
     changeBrief,
     briefHistory,

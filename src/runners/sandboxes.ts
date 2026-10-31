@@ -185,7 +185,7 @@ const make = Effect.gen(function* () {
         const repos = yield* cleanRepos(draft.repos ?? []);
 
         yield* checkOwners(repos);
-        const first = (yield* live).length === 0 ? 1 : 0;
+        const first = draft.isDefault !== false && (yield* live).length === 0 ? 1 : 0;
 
         if (draft.from !== undefined) {
           const kept = yield* keptOne(draft.from);

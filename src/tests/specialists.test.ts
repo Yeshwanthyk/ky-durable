@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { connect, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { connect, FACTS, follow, type Follower, inside, prompt, promptTool, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -224,6 +224,79 @@ describe("specialists", () => {
       type: "error",
       message: "No specialist @nope. Specialists: @eng"
     });
+    socket.close();
+  });
+});
+
+const accessOf = (client: Follower) =>
+  client.frames.filter((frame): frame is Frame<"specialists"> => frame.type === "specialists").at(-1)?.access;
+
+describe("a specialist's machines", () => {
+  it("are a sandbox of its own, made with it, asleep and never the default; ky keeps the default and every Mac", async () => {
+    const name = crypto.randomUUID();
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+
+    expect(await promptTool(name, tool("specialist", { action: "create", id: "eng", description: "Builds.", brief: "Be brief.", machine: "mbp" }))).toEqual({
+      text: "tool said: Created @eng.",
+      failed: false
+    });
+
+    const after = await inside(name, (instance) => ({
+      live: instance.sandboxes.live().map(({ name: sandbox, isDefault }) => ({ sandbox, isDefault })),
+      machine: instance.machines.machines().find((machine) => machine.name === "eng")?.cloud,
+      eng: instance.specialists.profile("eng"),
+      ky: instance.specialists.profile("ky")
+    }));
+
+    expect(after.live).toEqual([
+      { sandbox: "cloud", isDefault: true },
+      { sandbox: "eng", isDefault: false }
+    ]);
+    expect(after.machine).toBe("asleep");
+    // ky made it, so the Mac it named stays a hint: only the user grants one.
+    expect(after.eng).toMatchObject({ owner: "eng", home: { name: "eng" }, macs: [] });
+    expect(after.ky).toMatchObject({ owner: "ky", home: { id: "cloud", name: "cloud" }, macs: ["mbp"] });
+  });
+
+  it("are the profile of each conversation it answers in, and ky's of the chat", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await prompt(name, ask("eng", "fix the build"));
+    await said(name, "[specialist @eng answered: pass on what matters] echo: fix the build");
+
+    const owners = await inside(name, (instance) => {
+      const home = instance.specialists.get("eng")?.session ?? "";
+
+      return { home: instance.specialists.profileOf(home).owner, chat: instance.specialists.profileOf("1").owner };
+    });
+
+    expect(owners).toEqual({ home: "eng", chat: "ky" });
+  });
+
+  it("are granted, revoked and moved by the user in Settings, and the specialist is deleted there", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await inside(name, (instance) => instance.machines.paired("mbp", FACTS, crypto.randomUUID()));
+    const { socket, client } = await session(name);
+    await client.until(() => accessOf(client)?.eng !== undefined);
+    const own = accessOf(client)?.eng?.home;
+
+    expect(own).toMatch(/^sb-/);
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
+    await client.until(() => accessOf(client)?.eng?.macs.includes("mbp") === true);
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "laptop", grant: true } })).toMatchObject({
+      result: { refused: "laptop isn't one of your paired Macs." }
+    });
+
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { home: "cloud" } })).toMatchObject({ result: {} });
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: false } })).toMatchObject({ result: {} });
+    await client.until(() => accessOf(client)?.eng?.home === "cloud" && accessOf(client)?.eng?.macs.length === 0);
+
+    expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: {} });
+    await client.until(() => latest(client)?.length === 0);
+    expect(await command(socket, client, { type: "specialist-delete", specialist: "eng" })).toMatchObject({ result: { refused: "No specialist @eng." } });
+    // Its sandbox stays, for now: deleting a specialist doesn't clean up after it yet.
+    expect(await inside(name, (instance) => instance.sandboxes.get(own ?? "")?.deletedAt)).toBeNull();
     socket.close();
   });
 });

@@ -34,7 +34,13 @@ const Sandbox = Schema.Struct({
 
 export type Sandbox = typeof Sandbox.Type;
 
-const SandboxDraft = Schema.Struct({ name: Schema.String, repos: Schema.optional(Schema.Array(Schema.String)), from: Schema.optional(Schema.String) });
+const SandboxDraft = Schema.Struct({
+  name: Schema.String,
+  repos: Schema.optional(Schema.Array(Schema.String)),
+  from: Schema.optional(Schema.String),
+  /** false: never the default, though it is the first live one (a specialist's own). */
+  isDefault: Schema.optional(Schema.Literal(false))
+});
 
 export type SandboxDraft = typeof SandboxDraft.Type;
 

@@ -174,7 +174,11 @@ export class PiAgent extends DurableObject<Env> {
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage);
   /** The user's standing bots, like @engineer. */
-  readonly specialists = new Specialists(this.ctx.storage);
+  readonly specialists = new Specialists(this.ctx.storage, {
+    sandboxes: () => this.sandboxes.live(),
+    macs: () => this.machines.machines().flatMap((machine) => (machine.sandbox === null && machine.facts?.kind !== "cloud" ? [machine.name] : [])),
+    open: (name) => this.createSandbox({ name, isDefault: false })
+  });
   /** The bloubs ky and the specialists wear. */
   readonly avatars = new Avatars(this.ctx.storage);
   /** Which specialists are in which chats, and their seats there. */

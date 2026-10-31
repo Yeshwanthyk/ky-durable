@@ -91,7 +91,8 @@ describe("storage", () => {
       skillVersions: "ky_skill_versions",
       skillReviews: "ky_skill_reviews",
       specialists: "ky_specialists",
-      specialistSessions: "ky_specialist_sessions"
+      specialistSessions: "ky_specialist_sessions",
+      specialistProfiles: "ky_specialist_profiles"
     });
     expect(Object.isFrozen(SKILL_TABLES)).toBe(true);
   });
@@ -525,13 +526,13 @@ describe("a skill's guards", () => {
 describe("stored specialists", () => {
   const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-  const anId = fc.oneof(fc.stringMatching(ID), fc.string({ maxLength: 8 }), fc.constantFrom("a".repeat(32), "a".repeat(33), `${"a-".repeat(16)}a`, "engineer"));
+  const anId = fc.oneof(fc.stringMatching(ID), fc.string({ maxLength: 8 }), fc.constantFrom("a".repeat(32), "a".repeat(33), `${"a-".repeat(16)}a`, "engineer", "ky"));
 
   const made = () => new Specialists(storageOf(new DatabaseSync(":memory:")));
 
   const NEW: SpecialistDraft = { description: "Builds things.", brief: "Be terse." };
 
-  it("makes a specialist exactly when its id is lowercase-with-hyphens, at most 32 characters, and not taken", () => {
+  it("makes a specialist exactly when its id is lowercase-with-hyphens, at most 32 characters, not ky, and not taken", () => {
     fc.assert(
       fc.property(fc.array(anId, { maxLength: 6 }), (ids) => {
         const specialists = made();
@@ -541,10 +542,11 @@ describe("stored specialists", () => {
           const create = () => specialists.create(id, NEW, "user");
 
           if (!ID.test(id) || id.length > 32) expect(create).toThrow("A specialist's id is lowercase-with-hyphens, at most 32 characters, like engineer.");
+          else if (id === "ky") expect(create).toThrow("@ky is ky itself; pick another id.");
           else if (have.has(id)) expect(create).toThrow(`@${id} already exists.`);
           else expect(create()).toBe(`Created @${id}.`);
 
-          if (ID.test(id) && id.length <= 32) have.add(id);
+          if (ID.test(id) && id.length <= 32 && id !== "ky") have.add(id);
         }
 
         expect(specialists.list().map(({ id }) => id)).toEqual([...have].sort());

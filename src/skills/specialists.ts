@@ -23,6 +23,8 @@ import { summarize, type TaskFeed } from "../automations/contract";
 import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import {
+  KY,
+  type Profile,
   type SessionKind,
   type SpecialistAction,
   type SpecialistDraft,
@@ -118,7 +120,13 @@ class BadDescription extends Schema.TaggedError<BadDescription>()("BadDescriptio
   }
 }
 
-class NoSpecialist extends Schema.TaggedError<NoSpecialist>()("NoSpecialist", { id: Schema.String }) implements Refusable {
+class KyItself extends Schema.TaggedError<KyItself>()("KyItself", {}) implements Refusable {
+  get refusal(): string {
+    return `@${KY} is ky itself; pick another id.`;
+  }
+}
+
+export class NoSpecialist extends Schema.TaggedError<NoSpecialist>()("NoSpecialist", { id: Schema.String }) implements Refusable {
   get refusal(): string {
     return `No specialist @${this.id}.`;
   }
@@ -137,9 +145,16 @@ interface SpecialistRoster {
   readonly list: Effect.Effect<SpecialistRow[]>;
   readonly get: (id: string) => Effect.Effect<SpecialistRow | undefined>;
   /** A new specialist, its brief the first version. */
-  readonly create: (id: string, draft: SpecialistDraft, actor: string, conversation: string | null) => Effect.Effect<string, BadId | Taken | NoBrief | BadDescription | VersionRefusal>;
+  readonly create: (
+    id: string,
+    draft: SpecialistDraft,
+    actor: string,
+    conversation: string | null
+  ) => Effect.Effect<string, BadId | KyItself | Taken | NoBrief | BadDescription | VersionRefusal>;
   /** Change a specialist's description, model or machine; its brief changes through the facade's brief(). */
   readonly set: (id: string, draft: SpecialistDraft) => Effect.Effect<string, NoSpecialist | BadDescription>;
+  /** Drop a specialist's row; its brief's versions and its conversations stay. */
+  readonly remove: (id: string) => Effect.Effect<string, NoSpecialist>;
   /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
   readonly attach: (session: string, id: string, kind: SessionKind) => Effect.Effect<void>;
   /** The specialist a conversation belongs to, and how it is used. */
@@ -170,6 +185,8 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
           create: (id, draft, actor, conversation) =>
             Effect.gen(function* () {
               if (!ID.test(id) || id.length > ID_CHARS) return yield* Effect.fail(new BadId());
+
+              if (id === KY) return yield* Effect.fail(new KyItself());
 
               if ((yield* get(id)) !== undefined) return yield* Effect.fail(new Taken({ id }));
 
@@ -208,6 +225,14 @@ export class Roster extends Context.Service<Roster, SpecialistRoster>()("ky/skil
 
               return `Saved @${id}.`;
             }),
+          remove: (id) =>
+            Effect.gen(function* () {
+              if ((yield* get(id)) === undefined) return yield* Effect.fail(new NoSpecialist({ id }));
+              yield* exec(`DELETE FROM ${SKILL_TABLES.specialists} WHERE id = ?`, id);
+              yield* changed;
+
+              return `Deleted @${id}.`;
+            }),
           attach: (session, id, kind) =>
             Effect.gen(function* () {
               const now = yield* Clock.currentTimeMillis;
@@ -241,8 +266,15 @@ The user talks to specialists in this chat directly: a message that starts with 
 /** In every chat, even with no specialists yet, so ky knows it can make them. */
 const MANAGE_RULES = `You create and manage specialists yourself with the specialist tool: their id, description, machine and brief. Create one when the user asks, and offer one when the user keeps giving you the same kind of work. Improve a brief when a specialist's answers show a standing instruction is missing or wrong. Every brief change is versioned and can be reverted; tell the user what you changed.`;
 
+/** The machines a specialist has, as its profile says; it asks the user for more. */
+function machinesLine({ home, macs }: Profile): string {
+  const sandbox = home ? `your own sandbox, ${home.name}` : "no sandbox of your own";
+
+  return `Your machines: ${sandbox}${macs.length > 0 ? `, and the user's ${macs.join(", ")}` : ""}. Only the user gives you another.`;
+}
+
 /** The specialist's own section: who it is, its brief, and what it may do in this conversation. */
-function own(specialists: Specialists, id: string, kind: SessionKind): string {
+function own(specialists: Specialists, id: string, kind: SessionKind, profile: Profile): string {
   const row = must(specialists.get(id), `No specialist @${id}.`);
   const peers = roster(specialists.list(), id);
 
@@ -263,6 +295,7 @@ function own(specialists: Specialists, id: string, kind: SessionKind): string {
     "Your brief is your standing instructions; the user or ky may refine it.",
     how[kind],
     "You can search the user's memory with memory_recall and memory_zoom, but you never write it: put anything worth keeping in your answer.",
+    kind === "discuss" ? "" : machinesLine(profile),
     row.machine ? `For work on a machine, use ${row.machine} unless told otherwise.` : "",
     peers && (kind === "home" || kind === "consult") ? `Other specialists:\n${peers}` : ""
   ]
@@ -430,9 +463,10 @@ export function specialistExtension(
         key: "specialist",
         // Read fresh each request, so a brief edit shows on the specialist's next turn.
         render: (input) => {
-          const found = specialists.bySession(String(input.conversationId));
+          const session = String(input.conversationId);
+          const found = specialists.bySession(session);
 
-          return found && own(specialists, found.specialist.id, found.kind);
+          return found && own(specialists, found.specialist.id, found.kind, specialists.profileOf(session));
         },
         tag: false
       },

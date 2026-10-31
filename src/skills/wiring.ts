@@ -6,21 +6,49 @@ import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { Models } from "../providers/wiring";
 import { Versioned, Versions } from "../dreaming/wiring";
-import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
+import type {
+  AccessChange,
+  Machinery,
+  Profile,
+  ReviewHost,
+  ReviewKind,
+  SessionKind,
+  SkillChange,
+  SkillStatus,
+  SpecialistAccess,
+  SpecialistDraft,
+  SpecialistRow,
+  SpecialistView
+} from "./contract";
+import { createSpecialist, deleteSpecialist, Machines, Profiles } from "./profiles";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 
 export { draftFromDemo } from "./skills";
 
+/** A ky with no sandboxes and no Macs: what the node tests run on. */
+const NO_MACHINES: Machinery = {
+  sandboxes: () => [],
+  macs: () => [],
+  open: () => {
+    throw new Error("This ky has no sandboxes.");
+  }
+};
+
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
-  readonly #edge: Edge<Roster | Versions>;
+  readonly #edge: Edge<Roster | Versions | Profiles>;
   readonly #listeners = new Set<() => void>();
 
   /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
-  constructor(storage: DurableObjectStorage) {
-    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners }).pipe(Layer.provideMerge(Versions.layer), Layer.provide(Sql.layer(storage))));
+  constructor(storage: DurableObjectStorage, machines: Machinery = NO_MACHINES) {
+    const hooks = { listeners: this.#listeners };
+    const roster = Roster.layer(hooks).pipe(Layer.provideMerge(Versions.layer));
+
+    this.#edge = makeEdge(
+      Profiles.layer(hooks).pipe(Layer.provideMerge(roster), Layer.provide(Layer.succeed(Machines)(machines)), Layer.provide(Sql.layer(storage)))
+    );
     this.#run(() => Effect.void);
   }
 
@@ -54,8 +82,40 @@ export class Specialists {
     return new Versioned(this.#edge, `specialist:${id}`, `@${id}'s brief`, { listeners: this.#listeners });
   }
 
+  /** A new specialist, with a sandbox of its own. */
   create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
-    return this.#run((roster) => roster.create(id, draft, actor, conversation));
+    return runOrThrow(this.#edge, createSpecialist(id, draft, actor, conversation));
+  }
+
+  /** The user deletes a specialist. */
+  delete(id: string): string {
+    return runOrThrow(this.#edge, deleteSpecialist(id));
+  }
+
+  /** The profile of whoever answers in `conversation`, as it is now: every scoped tool reads it here. */
+  profileOf(conversation: string): Profile {
+    return this.#edge.run(Profiles.use((profiles) => profiles.of(conversation)));
+  }
+
+  /** `owner`'s profile ("ky" or a specialist's id), as it is now. */
+  profile(owner: string): Profile {
+    return this.#edge.run(Profiles.use((profiles) => profiles.get(owner)));
+  }
+
+  /** Each specialist's machines, for Settings. */
+  access(): Readonly<Record<string, SpecialistAccess>> {
+    return Object.fromEntries(
+      this.list().map(({ id }) => {
+        const { home, macs } = this.profile(id);
+
+        return [id, { home: home?.id ?? null, macs }];
+      })
+    );
+  }
+
+  /** The user changes a specialist's machines; a specialist's own tools never can. */
+  changeAccess(id: string, change: AccessChange): string {
+    return runOrThrow(this.#edge, Profiles.use((profiles) => profiles.change(id, change)));
   }
 
   /** Change a specialist's description, model or machine; its brief changes through brief(). */
