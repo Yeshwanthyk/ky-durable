@@ -8,6 +8,8 @@ import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
 import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, resultText } from "../executor/contract";
 import { callOnce } from "../executor/wiring";
+import { outsideWhy } from "../outside/contract";
+import { OutsideContent } from "../outside/outside";
 import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
 import { type ApprovalAction, APPROVAL_TABLES, NOBODY_ANSWERED, type ToolPolicy, type ToolPolicyView } from "./contract";
 
@@ -41,8 +43,9 @@ const note = (result: CallResult, text: string): CallResult => ({ output: [...re
 
 const gone = (result: CallResult): boolean => Option.isSome(unavailable(resultText(result)));
 
-function verdict(policy: ToolPolicy, present: boolean): ToolPolicy {
-  if (policy === "allow" && !present) return "ask";
+/** Allow runs a tool by itself only for the user in their own turn, in a conversation no outside content reached (src/outside). */
+function verdict(policy: ToolPolicy, present: boolean, marked: boolean): ToolPolicy {
+  if (policy === "allow" && (!present || marked)) return "ask";
 
   return policy;
 }
@@ -108,13 +111,13 @@ class Store extends Context.Service<
 }
 
 export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
-  readonly #edge: Edge<Store>;
+  readonly #edge: Edge<Store | OutsideContent>;
   readonly #approvals: Asker;
   readonly #deps: ExecutorApprovalDeps;
   readonly #listeners = new Set<() => void>();
 
   constructor(storage: DurableObjectStorage, approvals: Asker, deps: ExecutorApprovalDeps) {
-    this.#edge = makeEdge(Store.layer.pipe(Layer.provide(Sql.layer(storage))));
+    this.#edge = makeEdge(Layer.mergeAll(Store.layer, OutsideContent.layer).pipe(Layer.provide(Sql.layer(storage))));
     this.#approvals = approvals;
     this.#deps = deps;
     this.#edge.run(Effect.void);
@@ -165,7 +168,9 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
     const tool = paused.toolPath ?? paused.tool ?? "";
 
     if (tool !== "" && this.#edge.run(Store.use((store) => store.asked(tool)))) this.#changed();
-    const decided = verdict(tool === "" ? "ask" : this.policyFor(tool), present);
+    const policy = tool === "" ? "ask" : this.policyFor(tool);
+    const why = this.#why(conversation);
+    const decided = verdict(policy, present, why !== undefined);
     const decline = async () => resultText(await call("resume", { requestId: paused.requestId, response: { action: "decline" } }));
 
     if (decided === "block") {
@@ -187,17 +192,26 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);
     }
 
-    return note(result, this.#carded(paused, tool, conversation, present));
+    const carded = this.#carded(paused, tool, conversation, present, why);
+
+    return note(result, policy === "allow" && present ? `${carded}\nky asked though ${tool} is set to Allow: ${why}, outside content that may have led to it.` : carded);
   }
 
-  #carded(paused: Paused, tool: string, conversation: string, present: boolean): string {
+  /** What outside content `conversation` read, as a card says it (src/outside); undefined for none. */
+  #why(conversation: string): string | undefined {
+    const marks = this.#edge.run(OutsideContent.use((outside) => outside.marked(conversation)));
+
+    return marks.length === 0 ? undefined : outsideWhy(marks.map((mark) => mark.source));
+  }
+
+  #carded(paused: Paused, tool: string, conversation: string, present: boolean, why: string | undefined): string {
     const message = paused.message?.trim() || "an action in your apps";
 
     const id = this.#approvals.requestApproval({
       kind: "executor",
       ref: paused.requestId,
       subject: tool,
-      summary: message,
+      summary: why === undefined ? message : `${message} (asked because ${why})`,
       payload: { tool, message },
       conversation
     });

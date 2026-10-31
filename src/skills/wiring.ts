@@ -309,6 +309,8 @@ export type SkillsWiring = {
   readonly peer: (session: string) => boolean;
   /** How an automation run's report reaches the user (src/automations/delivery.ts). */
   readonly deliver: (item: Delivery) => Promise<void>;
+  /** A delegate's report reaching a conversation brings what the delegate read with it (src/outside). */
+  readonly carry: (from: string, to: string) => void;
 };
 
 /** The skill tools, with the reviews of busy turns. */
@@ -321,10 +323,10 @@ export type MainTools = { readonly soul: Extension; readonly memory: Extension; 
 
 /** Specialists, subagents and their progress steps; `spawn` starts a subagent from outside a tool call. */
 export function delegationTools(
-  { specialists: store, feed, models, automations, chat, deliver }: SkillsWiring,
+  { specialists: store, feed, models, automations, chat, deliver, carry }: SkillsWiring,
   { soul, memory, machines, automations: automationTool, ui, chats, site }: MainTools
 ) {
-  const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId));
+  const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId), carry);
 
   const subagents = subagentExtension(
     feed,
@@ -334,6 +336,7 @@ export function delegationTools(
     () => models.resolve("worker").choice,
     models,
     (feedId) => automations.wanted(feedId),
+    carry,
     {
       store,
       tools: specialists,

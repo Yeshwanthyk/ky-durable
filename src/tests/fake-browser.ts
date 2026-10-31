@@ -6,7 +6,14 @@ import type { Browser, Browsers, BrowserTab, Cookie, Launch, PageRead, Response,
  * names the URL (or fails, for "fails"). A session holds its tabs, cookies and hand-offs until `killSessions` ends it.
  */
 
-type FakePage = { readonly title: string; readonly text: string; readonly status?: number; readonly headings?: PageRead["headings"] };
+/** `goesTo`: a click on that selector takes the tab to that URL, as a link does. */
+type FakePage = {
+  readonly title: string;
+  readonly text: string;
+  readonly status?: number;
+  readonly headings?: PageRead["headings"];
+  readonly goesTo?: Readonly<Record<string, string>>;
+};
 
 type Handoff = { readonly target: string; readonly instructions: string; done?: boolean };
 
@@ -27,7 +34,8 @@ class FakeTab implements BrowserTab {
   constructor(
     readonly target: string,
     readonly read: (url: string) => FakePage,
-    readonly onClose: () => void
+    readonly onClose: () => void,
+    readonly acted: string[]
   ) {}
 
   async goto(url: string) {
@@ -52,10 +60,17 @@ class FakeTab implements BrowserTab {
     return this.#url;
   }
 
-  locator() {
-    const act = async () => undefined;
+  locator(selector: string) {
+    const act = (what: string) => async () => void this.acted.push(`${what} ${selector} on ${this.#url} in ${this.target}`);
 
-    return { first: () => ({ click: act, fill: act, press: act }) };
+    const click = async () => {
+      await act("click")();
+      const next = this.read(this.#url).goesTo?.[selector];
+
+      if (next !== undefined) await this.goto(next);
+    };
+
+    return { first: () => ({ click, fill: act("fill"), press: act("press") }) };
   }
 
   context() {
@@ -86,11 +101,12 @@ class FakeSession {
 
   constructor(
     readonly id: string,
-    readonly read: (url: string) => FakePage
+    readonly read: (url: string) => FakePage,
+    readonly acted: string[]
   ) {}
 
   open(): FakeTab {
-    const tab: FakeTab = new FakeTab(`${this.id}-target-${++this.#tabs}`, this.read, () => this.tabs.splice(this.tabs.indexOf(tab), 1));
+    const tab: FakeTab = new FakeTab(`${this.id}-target-${++this.#tabs}`, this.read, () => this.tabs.splice(this.tabs.indexOf(tab), 1), this.acted);
     this.tabs.push(tab);
 
     return tab;
@@ -152,6 +168,8 @@ export class FakeBrowsers implements Browsers {
   readonly pages = new Map<string, FakePage>();
   readonly kitesurfPages = new Map<string, FakePage | "fails">();
   readonly sessions = new Map<string, FakeSession>();
+  /** Each click, fill and press a step made, as "click #pay on https://… in session-1-target-1", in any browser. */
+  readonly acted: string[] = [];
   acquired = 0;
   kitesurfs = 0;
 
@@ -164,7 +182,7 @@ export class FakeBrowsers implements Browsers {
       const page = this.kitesurfPages.get(url);
 
       return page === "fails" ? FAILS : (page ?? this.#read(url));
-    });
+    }, this.acted);
 
     const browser: Browser = { newPage: async () => session.open(), close: async () => undefined };
 
@@ -174,7 +192,7 @@ export class FakeBrowsers implements Browsers {
   async acquire(): Promise<string> {
     this.acquired += 1;
     const id = `session-${this.acquired}`;
-    this.sessions.set(id, new FakeSession(id, this.#read));
+    this.sessions.set(id, new FakeSession(id, this.#read, this.acted));
 
     return id;
   }
@@ -196,4 +214,13 @@ export function liveSession(browsers: FakeBrowsers) {
 /** Browser Run ends every session, as keep_alive running out does. */
 export function killSessions(browsers: FakeBrowsers): void {
   for (const session of browsers.sessions.values()) session.alive = false;
+}
+
+/** The steps that acted in a session holding a login: one restored into it, or signed in there. */
+export function actedSignedIn(browsers: FakeBrowsers): string[] {
+  return browsers.acted.filter((act) => {
+    const session = browsers.sessions.get(/ in (session-\d+)-target-\d+$/.exec(act)?.[1] ?? "");
+
+    return session !== undefined && (session.cookies.length > 0 || session.restored.some((state) => state.cookies.length > 0));
+  });
 }

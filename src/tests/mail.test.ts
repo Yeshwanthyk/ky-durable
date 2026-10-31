@@ -1,4 +1,5 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { MailView, PiClientMessage } from "../protocol";
 import { readMail, receive } from "../mail/wiring";
@@ -182,6 +183,23 @@ describe("mail that comes in", () => {
 
     expect(shows(await snapshotView(name), "Our weekly newsletter")).toBe(false);
     expect((await mailPage(await settings(name))).recent).toEqual([expect.objectContaining({ state: "triaged", subject: "Our weekly newsletter" })]);
+  });
+
+  it("marks a chat as having read outside content once a mail's words reach it, told or read, and not before", async () => {
+    const marks = (name: string) =>
+      inside(name, (_instance, state) => state.storage.sql.exec("SELECT conversation, source FROM ky_outside_content").toArray());
+
+    const quiet = fresh();
+    await deliver(quiet, { from: "news@shop.test", subject: "Our weekly newsletter", body: "This week's newsletter: sales!" });
+    expect(await marks(quiet)).toEqual([]);
+    const id = /^- (\S+) from news/m.exec(await mail(quiet, { action: "list" }))![1]!;
+    await mail(quiet, { action: "read", id });
+    expect(await marks(quiet)).toEqual([{ conversation: ROOT_SESSION, source: "mail" }]);
+
+    const told = fresh();
+    await deliver(told, { from: "Ana <ana@friend.test>", subject: "Dinner Friday?", body: "Are you free?" });
+    await said(told, "Mail says: Dinner Friday?");
+    expect(await marks(told)).toEqual([{ conversation: ROOT_SESSION, source: "mail" }]);
   });
 
   it("reads 20 mails in an hour, even when they come at once, and only keeps the rest", async () => {

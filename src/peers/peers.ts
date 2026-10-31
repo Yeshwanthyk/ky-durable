@@ -438,6 +438,8 @@ export type PeerDesk = {
   readonly origin: () => string | null;
   /** Post `content` into a conversation, the main chat for null, as a report it answers. */
   readonly tell: (session: string | null, content: string, requestId: string) => Promise<void>;
+  /** The conversation `to` (the main chat for null) takes what `from` read (src/outside). */
+  readonly carry: (from: string, to: string | null) => void;
   /** Run `sweepPeers` at `at`, epoch ms, even if ky sleeps till then. */
   readonly sweepAt: (at: number) => void;
 };
@@ -671,6 +673,7 @@ async function escalate(desk: PeerDesk, session: string, note: string): Promise<
   const ask = desk.asks.escalated(session);
 
   if (!ask) return "This question isn't open: it was answered, or already waits on the user.";
+  desk.carry(session, null);
   await desk.tell(null, askingUser(ask, note), `peer-escalate:${ask.peer}:${ask.id}`);
 
   return `Asked the user in their chat; their reply goes to ${ask.peer}. End your turn now, in a few words.`;

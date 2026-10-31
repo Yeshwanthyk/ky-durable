@@ -54,6 +54,7 @@ import { replyPushExtension } from "./push/replies";
 import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
+import { Outside } from "./outside/outside";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
@@ -122,6 +123,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
+  /** Which conversations read outside content (src/outside), for what one conversation tells another. */
+  readonly outside = new Outside(this.ctx.storage);
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
@@ -137,6 +140,7 @@ export class PiAgent extends DurableObject<Env> {
       const conversation = await this.harness.conversation(session ?? ROOT_SESSION);
       await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND_CONTEXT);
     },
+    carry: (from, to) => this.outside.carry(from, to ?? ROOT_SESSION),
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   /** ky's own mail (src/mail.ts). */
@@ -403,6 +407,7 @@ export class PiAgent extends DurableObject<Env> {
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
     asker: this.approvals,
+    unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
     draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
     later: (work) => this.ctx.waitUntil(work)
@@ -437,7 +442,8 @@ export class PiAgent extends DurableObject<Env> {
         background: this.#background,
         chat,
         peer: (session) => this.peerAsks.peerConversation(session),
-        deliver: (item) => this.deliveries.deliver(item)
+        deliver: (item) => this.deliveries.deliver(item),
+        carry: (from, to) => this.outside.carry(from, to)
       };
 
       const workspaceTools = createWorkspaceTools(this.workspace, { read: { maxBytes: READ_MAX_BYTES } });
@@ -641,6 +647,7 @@ export class PiAgent extends DurableObject<Env> {
     this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
     this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
     this.approvals.handle("browser-handoff", this.browsing.handler);
+    this.approvals.handle("browse-steps", this.browsing.stepsHandler);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -1053,6 +1060,7 @@ export class PiAgent extends DurableObject<Env> {
   async #answerPeer(name: string, id: string, question: string): Promise<void> {
     const { id: session } = await this.harness.sessions.create();
     this.peerAsks.answering(name, id, session);
+    this.outside.mark(session, "peer");
     await this.#configure(session, "background");
 
     const said = await runInFeed(this.#background, await this.harness.conversation(session), {
@@ -1073,6 +1081,7 @@ export class PiAgent extends DurableObject<Env> {
     const ask = this.peerAsks.answered("out", name, id, answer);
 
     if (!ask) return false;
+    this.outside.mark(ask.session, "peer");
     await this.peerDesk.tell(ask.session, peerAnswer(name, ask.question, answer), `peer-answer:${name}:${id}`);
 
     return true;

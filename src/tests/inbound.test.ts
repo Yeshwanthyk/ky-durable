@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { ROOT_SESSION } from "agents/harness/pi";
+import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ApprovalAction, ApprovalView } from "../approvals/contract";
@@ -17,12 +18,22 @@ import { CREDENTIAL_API } from "./stack";
 
 const ORIGIN = "https://ky.test";
 
+/** What a card says a chat read, by the source it was marked with (src/outside). */
+const Marked = Schema.Struct({ source: Schema.String });
+
+const READ = new Map([
+  ["web", "a web page"],
+  ["webhook", "a webhook's post"],
+  ["mail", "a mail"],
+  ["peer", "another person's ky's words"]
+]);
+
 const TableRow = Type.Object({ name: Type.String() });
 
 
 /** A hook into the main chat, as Settings › Webhooks makes one. */
-async function makeHook(signed: boolean, label = "Test hook"): Promise<Static<typeof MadeHookSchema>> {
-  const response = await call("/api/inbound/hooks", { method: "POST", body: JSON.stringify({ session: ROOT_SESSION, label, signed }) });
+async function makeHook(signed: boolean, label = "Test hook", session: string = ROOT_SESSION): Promise<Static<typeof MadeHookSchema>> {
+  const response = await call("/api/inbound/hooks", { method: "POST", body: JSON.stringify({ session, label, signed }) });
   expect(response.status).toBe(200);
 
   return bodyAs(response, MadeHookSchema, "A made hook");
@@ -242,6 +253,19 @@ describe("Webhooks", () => {
     await said("me", `so multiply ${WAITS}`);
     expect(await card("multiply", '{"value":14}')).toMatchObject({ kind: "webhook-action", chat: ROOT_SESSION });
     expect(shows(await snapshotView("me"), "tool said: 42")).toBe(false);
+  });
+
+  it("marks the chat a post reached as having read outside content, before it is told", async () => {
+    const session = await inside("me", (instance) => instance.newChat());
+
+    const marks = () =>
+      inside("me", (_instance, state) => state.storage.sql.exec("SELECT source FROM ky_outside_content WHERE conversation = ?", session).toArray());
+
+    const { url } = await makeHook(false, "Side", session);
+
+    expect(await marks()).toEqual([]);
+    expect((await post(url, "reply: marked")).status).toBe(202);
+    expect(await marks()).toEqual([{ source: "webhook" }]);
   });
 
   it("tells the sender's labels as one line with no bracket, so a post can't close the line saying whose words follow", async () => {
@@ -524,14 +548,16 @@ describe("Credentials", () => {
 
     expect(waiting.result).toContain(WAITS);
     const asking = await card("WRITES");
-    expect(asking).toMatchObject({ kind: "secret-request", summary: `POST ${CREDENTIAL_API}/things with WRITES {"body":"made"}` });
+    // The main chat read what earlier tests here posted and mailed to it, if they ran: the card says so.
+    const read = await inside("me", (_instance, state) => state.storage.sql.exec("SELECT source FROM ky_outside_content WHERE conversation = ? ORDER BY at, source", ROOT_SESSION).toArray().map((row) => READ.get(Schema.decodeUnknownSync(Marked)(row).source)));
+    const why = read.length === 0 ? "" : ` (asked because this chat read ${read.join(" and ")} earlier)`;
+    expect(asking).toMatchObject({ kind: "secret-request", summary: `POST ${CREDENTIAL_API}/things with WRITES {"body":"made"}${why}` });
 
     // Decided on the server: the Vault makes the stored call, and the chat is told the redacted answer.
     expect(await decide(asking.id, "accept")).toEqual({});
     await said("me", '"method":"POST","path":"/things","body":"made"');
     const view = JSON.stringify(await snapshotView("me"));
-
-    expect(view).toContain(`[the user approved: POST ${CREDENTIAL_API}/things with WRITES {\\"body\\":\\"made\\"}]`);
+    expect(view).toContain(`[the user approved: POST ${CREDENTIAL_API}/things with WRITES {\\"body\\":\\"made\\"}${why}]`);
 
     for (const form of forms(VALUE)) expect(view, form).not.toContain(form);
   });

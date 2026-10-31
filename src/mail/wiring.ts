@@ -6,15 +6,16 @@ import { type Edge, makeEdge } from "../core/edge";
 import { isRefusal, type Result } from "../core/refusal";
 import { toolReply as text } from "../core/reply";
 import { Sql } from "../core/sql";
+import { OutsideContent } from "../outside/outside";
 import type { MailView } from "../protocol";
 import type { InboundMail, MailRow } from "./contract";
 import { act, approve, Box, Desk, disallow, discard, keep, parse, triage, view } from "./mail";
 
 export class MailBox {
-  readonly edge: Edge<Box>;
+  readonly edge: Edge<Box | OutsideContent>;
 
   constructor(storage: DurableObjectStorage) {
-    this.edge = makeEdge(Box.layer.pipe(Layer.provide(Sql.layer(storage))));
+    this.edge = makeEdge(Layer.mergeAll(Box.layer, OutsideContent.layer).pipe(Layer.provide(Sql.layer(storage))));
     this.edge.run(Effect.void);
   }
 

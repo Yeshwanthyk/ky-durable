@@ -73,7 +73,7 @@ const actionOf = (status: ApprovalStatus): ApprovalAction | undefined =>
 
 const Row = Schema.Struct({
   id: Schema.String,
-  kind: Schema.Literals(["executor", "webhook-action", "secret-request", "browser-handoff"]),
+  kind: Schema.Literals(["executor", "webhook-action", "secret-request", "browser-handoff", "browse-steps"]),
   ref: Schema.String,
   subject: Schema.String,
   summary: Schema.String,
