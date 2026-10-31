@@ -1,5 +1,6 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { ownedId, ownedOf, ownerName, SHARED } from "../skills/contract";
 import { badInfo, type Credential, HTTP_KIND, MAX_VALUE_CHARS, MIN_VALUE_CHARS } from "./credentials";
 import { type HookDelivery, type Hook, HOOK_ID, type Received } from "./inbound";
 
@@ -119,6 +120,14 @@ export async function capped(body: ReadableStream<unknown> | null, max: number):
   return new TextDecoder().decode(bytes);
 }
 
+/** A key by its owner ("ky", a specialist's id, or "*" for shared) and name: `/api/inbound/secrets/<owner>/<name>`. */
+const KEY_PATH = /^\/api\/inbound\/secrets\/([a-z0-9*][a-z0-9_-]*\/[A-Za-z][A-Za-z0-9_-]{0,63})$/;
+
+const KEY_MOVE_PATH = /^\/api\/inbound\/secrets\/([a-z0-9*][a-z0-9_-]*\/[A-Za-z][A-Za-z0-9_-]{0,63})\/move$/;
+
+/** The Vault id of the key a route names as `<owner>/<name>`: its owner, then its name. */
+const keyAt = (path: string) => path.replace("/", ":");
+
 type Route = {
   readonly method: string;
   readonly path: RegExp;
@@ -132,7 +141,8 @@ const ROUTES: readonly Route[] = [
   { method: "DELETE", path: /^\/api\/inbound\/hooks\/([0-9a-f]{32})$/, run: (_request, env, _url, id) => removeHook(env, id) },
   { method: "GET", path: /^\/api\/inbound\/secrets$/, run: (_request, env) => listSecrets(env) },
   { method: "POST", path: /^\/api\/inbound\/secrets$/, run: (request, env) => saveSecret(request, env) },
-  { method: "DELETE", path: /^\/api\/inbound\/secrets\/([A-Za-z][A-Za-z0-9_-]{0,63})$/, run: (_request, env, _url, name) => removeSecret(env, name) },
+  { method: "DELETE", path: KEY_PATH, run: (_request, env, _url, key) => removeSecret(env, key) },
+  { method: "POST", path: KEY_MOVE_PATH, run: (request, env, _url, key) => moveSecret(request, env, key) },
   { method: "GET", path: /^\/api\/inbound\/asks$/, run: (_request, env, url) => asks(env, url) }
 ];
 
@@ -210,9 +220,9 @@ async function removeHook(env: Env, id: string): Promise<Response> {
 }
 
 async function listSecrets(env: Env): Promise<Response> {
-  const secrets = (await vault(env).status()).filter((secret) => secret.kind === HTTP_KIND).map(({ id, meta, updatedAt }) => ({ name: id, ...meta, updatedAt }));
+  const secrets = (await vault(env).status()).flatMap(({ kind, id, meta, updatedAt }) => (kind === HTTP_KIND ? [{ ...ownedOf(id), ...meta, updatedAt }] : []));
 
-  return Response.json({ secrets });
+  return Response.json({ secrets, owners: await agent(env).owners() });
 }
 
 async function saveSecret(request: Request, env: Env): Promise<Response> {
@@ -232,16 +242,34 @@ async function saveSecret(request: Request, env: Env): Promise<Response> {
   if (bad) return refused(bad);
   const credential: Credential = { ...info, value };
 
-  await vault(env).put(HTTP_KIND, name, credential, info);
+  await vault(env).put(HTTP_KIND, ownedId(ask.owner, name), credential, info);
   await agent(env).secretSaved(session, name);
 
   return new Response(null, { status: 204 });
 }
 
-async function removeSecret(env: Env, name: string): Promise<Response> {
-  await vault(env).remove(HTTP_KIND, name);
+async function removeSecret(env: Env, key: string): Promise<Response> {
+  await vault(env).remove(HTTP_KIND, keyAt(key));
 
   return new Response(null, { status: 204 });
+}
+
+const moveBodyOf = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ to: Schema.String })));
+
+/** The user gives a key to another owner, or shares it with every owner ("*"). One off an owner that is gone moves too. */
+async function moveSecret(request: Request, env: Env, key: string): Promise<Response> {
+  const to = Option.getOrNull(moveBodyOf(await request.text()))?.to;
+
+  if (to === undefined) return refused("Send { to }: ky, a specialist's id, or * for every owner.");
+
+  if (to !== SHARED && !(await agent(env).owners()).includes(to)) return refused(`There is no specialist @${to}.`, 404);
+  const { owner, name } = ownedOf(keyAt(key));
+
+  if ((await vault(env).status()).some((secret) => secret.kind === HTTP_KIND && secret.id === ownedId(to, name))) {
+    return refused(to === SHARED ? `A shared key ${name} is already kept: remove it first.` : `${ownerName(to)} already keeps a key ${name}: remove that one first.`, 409);
+  }
+
+  return (await vault(env).move(HTTP_KIND, keyAt(key), ownedId(to, name))) ? new Response(null, { status: 204 }) : refused(`${ownerName(owner)} has no key ${name}.`, 404);
 }
 
 async function asks(env: Env, url: URL): Promise<Response> {

@@ -20,7 +20,11 @@ const SecretAskSchema = Type.Object({
   scheme: SchemeSchema,
   header: Type.Union([Type.String(), Type.Null()]),
   purpose: Type.String(),
-  at: Type.Number()
+  at: Type.Number(),
+  /** Whose key it is to be: "ky", or the specialist that asked. */
+  owner: Type.String(),
+  /** The conversation that asked, when it isn't the chat the card shows in: a specialist's. */
+  asker: Type.Union([Type.String(), Type.Null()])
 });
 
 export type SecretAsk = Static<typeof SecretAskSchema>;
@@ -34,6 +38,8 @@ export type HooksView = Static<typeof HooksViewSchema>;
 
 const SecretSchema = Type.Object({
   name: Type.String(),
+  /** Whose it is: "ky", a specialist's id, or "*" for every owner's. */
+  owner: Type.String(),
   origin: Type.String(),
   scheme: SchemeSchema,
   header: Type.Union([Type.String(), Type.Null()]),
@@ -43,7 +49,8 @@ const SecretSchema = Type.Object({
 
 export type Secret = Static<typeof SecretSchema>;
 
-export const SecretsSchema = Type.Object({ secrets: Type.Array(SecretSchema) });
+/** The keys, and every owner one can move to: ky, then each specialist. */
+export const SecretsSchema = Type.Object({ secrets: Type.Array(SecretSchema), owners: Type.Array(Type.String()) });
 
 export const AsksSchema = Type.Object({ asks: Type.Array(SecretAskSchema) });
 

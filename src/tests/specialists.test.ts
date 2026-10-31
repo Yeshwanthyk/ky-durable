@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { agent, connect, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { agent, connect, connectExecutor, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -353,6 +353,40 @@ describe("a specialist's machines", () => {
     await said(name, "[specialist @eng answered: pass on what matters] tool said: @eng can't use mbp; only the user can give it one — ask them. Yours: eng.");
     mbp.socket.close();
     socket.close();
+  });
+});
+
+describe("a specialist's approvals", () => {
+  const PAUSE = 'tool executor_execute {"code":"approve gmail.send send mail to sam"}';
+
+  it("follow its own policy where the user set one, and an ask from a chat that read a page carries that read to it (R7)", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await connectExecutor(name);
+    await inside(name, (instance) => instance.executorApprovals.setPolicy("gmail.send", "allow"));
+
+    const { socket, client } = await session(name);
+    expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { tool: "gmail.send", policy: "block" } })).toMatchObject({ result: {} });
+    await client.until(() => accessOf(client)?.eng?.tools["gmail.send"] === "block");
+    socket.close();
+
+    await inside(name, (instance) => instance.outside.mark("1", "web"));
+    await prompt(name, ask("eng", PAUSE));
+    await said(name, "ky declined this request: the user set gmail.send to Block in @eng's settings.");
+
+    const marked = await inside(name, (instance, state) => {
+      const home = instance.specialists.get("eng")?.session ?? "";
+
+      return state.storage.sql.exec("SELECT source FROM ky_outside_content WHERE conversation = ?", home).toArray();
+    });
+
+    expect(marked).toEqual([{ source: "web" }]);
+
+    // Under @eng's own Allow, its write still asks the user: nobody is in its turn, and it read what the chat read.
+    await inside(name, (instance) => instance.specialists.changeAccess("eng", { tool: "gmail.send", policy: "allow" }));
+    await prompt(name, ask("eng", PAUSE));
+    await until(async () => (await inside(name, (instance) => instance.approvals.cards().filter((card) => card.kind === "executor").length)) === 1, "@eng's write on a card");
+    expect(shows(await snapshotView(name), "ky approved gmail.send itself")).toBe(false);
   });
 });
 

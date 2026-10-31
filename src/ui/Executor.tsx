@@ -186,3 +186,54 @@ function FormFoot({ testing, ready, cancel }: { testing: boolean; ready: boolean
     </div>
   );
 }
+
+/**
+ * One specialist's own policy for each app tool: as ky's (the default), or its own Allow, Ask or Block, which wins
+ * in that specialist's turns. Only the user sets one.
+ */
+export function SpecialistTools({
+  id,
+  own,
+  onPolicy
+}: {
+  id: string;
+  own: Readonly<Record<string, ToolPolicy>>;
+  /** Resolves with why the policy wasn't set, if it wasn't. */
+  onPolicy: (tool: string, policy: ToolPolicy | null) => Promise<string | undefined>;
+}) {
+  const { view } = useContext(ExecutorContext);
+  const [refused, setRefused] = useState<string>();
+  const kys = new Map((view?.policies ?? []).map(({ tool, policy }) => [tool, policy]));
+  const tools = [...new Set([...kys.keys(), ...Object.keys(own)])];
+
+  if (tools.length === 0) return null;
+
+  return (
+    <section className="card" aria-label={`@${id}'s app tools`}>
+      {tools.map((tool) => {
+        const chosen = own[tool] ?? "ky";
+
+        return (
+          <div className="row" key={tool}>
+            <span className="row-text">
+              <span className="row-label">{tool}</span>
+              <span className="row-sub row-sub-text">ky's: {POLICIES.find(([each]) => each === (kys.get(tool) ?? "ask"))?.[1]}</span>
+            </span>
+            <Segmented small role="radiogroup" aria-label={`@${id}'s approvals for ${tool}`} chosen={chosen}>
+              <SegmentedOption checked={chosen === "ky"} onChoose={() => void onPolicy(tool, null).then(setRefused)}>
+                As ky
+              </SegmentedOption>
+              {POLICIES.map(([each, label]) => (
+                <SegmentedOption key={each} checked={chosen === each} onChoose={() => void onPolicy(tool, each).then(setRefused)}>
+                  {label}
+                </SegmentedOption>
+              ))}
+            </Segmented>
+          </div>
+        );
+      })}
+      <Problem text={refused} />
+      <p className="card-foot quiet">@{id}'s choice wins in its own work. @{id} works while you're away, so its Allow still asks you; Block declines at once.</p>
+    </section>
+  );
+}

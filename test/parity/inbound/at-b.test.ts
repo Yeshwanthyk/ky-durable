@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/pi-ai";
 import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -41,18 +42,24 @@ describe("inbound rows written at B", () => {
       vault: () => ({}) as never,
       asker,
       chat: (session) => session === "0" || session === "1",
-      tell: async (...said) => void told.push(said)
+      tell: async (...said) => void told.push(said),
+      owner: () => "ky",
+      home: (session) => session,
+      unattended: () => false
     });
 
-    // ky_approvals' reminded_at and lapsed_at came after B (a card nobody answers); B's own columns read as B read them.
-    const sinceB = new Set(["reminded_at", "lapsed_at"]);
+    // ky_approvals' reminded_at and lapsed_at came after B (a card nobody answers), and an ask's owner and asker after it too
+    // (a specialist's key); B's own columns and fields read as B read them.
+    const sinceB = new Set(["reminded_at", "lapsed_at", "owner", "asker"]);
 
     const tables = () =>
       Object.fromEntries(
         TABLES.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map((row) => Object.fromEntries(Object.entries(row).filter(([column]) => !sinceB.has(column))))])
       );
 
-    expect(JSON.stringify(await readsOf({ inbound, told, tables }), null, 2)).toBe(JSON.stringify(atB.reads, null, 2));
+    const asB = (key: string, value: JsonValue) => (sinceB.has(key) ? undefined : value);
+
+    expect(JSON.stringify(await readsOf({ inbound, told, tables }), asB, 2)).toBe(JSON.stringify(atB.reads, null, 2));
     db.close();
   });
 });

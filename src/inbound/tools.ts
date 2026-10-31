@@ -4,8 +4,10 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type from "typebox";
 import { toolReply as reply } from "../core/reply";
-import { badInfo, type CredentialInfo, HTTP_KIND, replyFailed, replyText, SECRET_NAME } from "./credentials";
+import { KY, ownedOf, ownerName, SHARED } from "../skills/contract";
+import { badInfo, type CredentialInfo, heldKey, HTTP_KIND, replyFailed, replyText, SECRET_NAME } from "./credentials";
 import { SchemeSchema } from "./shapes";
+import type { SecretStatus } from "../vault";
 import { HOOK_TURN_TOOLS, type Inbound, type SecretCall } from "./inbound";
 
 const RequestSecret = Type.Object({
@@ -28,7 +30,7 @@ const SecretRequest = Type.Object({
 
 const READS = new Set(["GET", "HEAD"]);
 
-const NOT_A_CHAT = "Only a chat with the user can use credentials.";
+const NOT_A_CHAT = "Only a chat with the user, or a specialist's own work, can use credentials.";
 
 export function inboundTools(inbound: Inbound): Extension {
   const { desk } = inbound;
@@ -47,39 +49,50 @@ export function inboundTools(inbound: Inbound): Extension {
         execute: async (args, api) => {
           const session = String(api.conversationId);
 
-          if (!desk.chat(session)) return reply(NOT_A_CHAT, true);
+          if (!inbound.usable(session)) return reply(NOT_A_CHAT, true);
           const info: CredentialInfo = { origin: args.origin, scheme: args.scheme, header: args.header ?? null, purpose: args.purpose.trim() };
           const bad = badInfo(args.name, info);
 
           if (bad) return reply(bad, true);
-          inbound.ask(session, args.name, info);
+          const taken = inbound.ask(session, args.name, info);
+
+          if (taken !== undefined) return reply(taken, true);
+          const owner = desk.owner(session);
+          const where = desk.chat(session) ? "in the chat" : `in the user's chat, for ${ownerName(owner)}`;
 
           return {
-            ...reply(`A masked field for ${args.name} is showing in the chat. Your turn ends here; you're told once the user saves it.`),
+            ...reply(`A masked field for ${args.name} is showing ${where}. Your turn ends here; you're told once the user saves it.`),
             control: { terminate: true }
           };
         }
       }),
       defineTool({
         name: "list_secrets",
-        description: "The API credentials ky keeps: each one's name, the origin it is sent to, how, and what it's for. Never their values.",
+        description:
+          "The API credentials you may call with, your own and those shared with every owner: each one's name, the origin it is sent to, how, and what " +
+          "it's for. Never their values. Then the names others hold: ask that one to make the call.",
         parameters: Type.Object({}),
         replay: "safe",
         execute: async (_args, api) => {
-          if (!desk.chat(String(api.conversationId))) return reply(NOT_A_CHAT, true);
-          const kept = (await desk.vault().status()).filter((secret) => secret.kind === HTTP_KIND);
+          const session = String(api.conversationId);
+
+          if (!inbound.usable(session)) return reply(NOT_A_CHAT, true);
+          const owner = desk.owner(session);
+          const kept = (await desk.vault().status()).flatMap((secret) => (secret.kind === HTTP_KIND ? [{ ...secret, ...ownedOf(secret.id) }] : []));
+          const usable = kept.filter((key) => key.owner === owner || key.owner === SHARED);
+          const others = kept.filter((key) => key.owner !== owner && key.owner !== SHARED);
 
           if (kept.length === 0) return reply("No credentials yet. Ask for one with request_secret.");
 
-          return reply(
-            kept
-              .map(({ id, meta }) => {
-                const how = meta?.scheme === "header" ? `header ${String(meta.header)}` : String(meta?.scheme);
+          const lines = usable.map(({ name, owner: holder, meta }) => {
+            const how = meta?.scheme === "header" ? `header ${String(meta.header)}` : String(meta?.scheme);
 
-                return `${id}: ${String(meta?.origin)} (${how}): ${String(meta?.purpose)}`;
-              })
-              .join("\n")
-          );
+            return `${name}${holder === SHARED ? " (shared)" : ""}: ${String(meta?.origin)} (${how}): ${String(meta?.purpose)}`;
+          });
+
+          const held = others.map(({ name, owner: holder }) => `${name}: ${ownerName(holder)} holds it`);
+
+          return reply([...(lines.length > 0 ? lines : ["None of your own yet. Ask for one with request_secret."]), ...(held.length > 0 ? ["", "Held by others:", ...held] : [])].join("\n"));
         }
       }),
       defineTool({
@@ -94,15 +107,16 @@ export function inboundTools(inbound: Inbound): Extension {
           const conversation = String(api.conversationId);
           const method = (args.method ?? "GET").toUpperCase();
 
-          if (!desk.chat(conversation)) return reply(NOT_A_CHAT, true);
+          if (!inbound.usable(conversation)) return reply(NOT_A_CHAT, true);
 
           if (!/^[A-Z]{1,16}$/.test(method)) return reply("A method is a word, like GET or POST.", true);
 
-          const call: SecretCall = { name: args.name, url: args.url, method, headers: args.headers ?? {}, body: args.body ?? null, guarded: inbound.guarded(conversation) };
+          const owner = desk.owner(conversation);
+          const call: SecretCall = { name: args.name, url: args.url, method, headers: args.headers ?? {}, body: args.body ?? null, guarded: inbound.guarded(conversation), owner };
 
           if (!READS.has(method)) return askToCall(inbound, call, conversation, { ...args, method });
 
-          const answer = await desk.vault().httpRequest(call.name, { url: call.url, method, headers: call.headers, body: call.body });
+          const answer = await desk.vault().httpRequest(owner, call.name, { url: call.url, method, headers: call.headers, body: call.body });
 
           return reply(replyText(answer), replyFailed(answer));
         }
@@ -111,9 +125,25 @@ export function inboundTools(inbound: Inbound): Extension {
   });
 }
 
+const httpIds = (kept: readonly SecretStatus[]) => kept.flatMap((secret) => (secret.kind === HTTP_KIND ? [secret.id] : []));
+
+/** What a card says a call with a key does: what it sends where, whose key, and why it asks. */
+function summaryOf(call: SecretCall, kept: readonly SecretStatus[], why: string | undefined): string {
+  const held = heldKey(call.owner ?? KY, call.name, httpIds(kept));
+  const id = "id" in held ? held.id : undefined;
+  const whose = call.owner === undefined || call.owner === KY ? "" : ` for ${ownerName(call.owner)}`;
+  const header = headerOf(keptHeaderOf(kept.find((secret) => secret.kind === HTTP_KIND && secret.id === id)?.meta));
+
+  return `${call.method} ${call.url} with ${call.name}${whose}${sentWith(header, call)}${call.guarded ? WHILE_ON_HOOK : why && ` (asked because ${why})`}`;
+}
+
 async function askToCall(inbound: Inbound, call: SecretCall, conversation: string, args: JsonObject) {
-  const why = inbound.outsideWhy(conversation);
-  const summary = `${call.method} ${call.url} with ${call.name}${await sentWith(inbound, call)}${call.guarded ? WHILE_ON_HOOK : why && ` (asked because ${why})`}`;
+  const kept = await inbound.desk.vault().status();
+  const held = heldKey(call.owner ?? KY, call.name, httpIds(kept));
+
+  // Another owner's key would fail after the user's yes, and the card come back; one not kept yet may be saved before they tap.
+  if ("refused" in held && kept.some((secret) => secret.kind === HTTP_KIND && ownedOf(secret.id).name === call.name)) return reply(held.refused, true);
+  const summary = summaryOf(call, kept, inbound.outsideWhy(conversation));
 
   const asked = await inbound.requestApproval(
     { kind: "secret-request", subject: call.name, summary, payload: call, conversation },
@@ -176,9 +206,12 @@ const keptHeaderOf = Schema.decodeUnknownOption(Schema.Struct({ header: Schema.N
 
 const WHILE_ON_HOOK = ", while working on a webhook";
 
-async function sentWith(inbound: Inbound, call: SecretCall): Promise<string> {
-  const meta = (await inbound.desk.vault().status()).find((secret) => secret.kind === HTTP_KIND && secret.id === call.name)?.meta;
-  const own = Option.getOrElse(Option.flatMapNullishOr(keptHeaderOf(meta), (kept) => kept.header), () => "Authorization").toLowerCase();
+/** The header a kept key goes in, from its Vault meta: Authorization unless it names its own. */
+const headerOf = (kept: Option.Option<{ readonly header: string | null }>): string => Option.getOrElse(Option.flatMapNullishOr(kept, (each) => each.header), () => "Authorization");
+
+/** What else a call sends, as its card shows it: every header but the key's own, and the body. */
+function sentWith(header: string, call: SecretCall): string {
+  const own = header.toLowerCase();
   const headers = Object.fromEntries(Object.entries(call.headers).filter(([key]) => key.toLowerCase() !== own));
   const sent: JsonObject = {};
 

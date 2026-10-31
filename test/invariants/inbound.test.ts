@@ -224,7 +224,7 @@ describe("a credential ask", () => {
         world.time.at += 1_000;
         world.ky.inbound.ask("1", ask.name, ask.info);
         model.delete(ask.name);
-        model.set(ask.name, { session: "1", name: ask.name, ...ask.info, at: world.time.at });
+        model.set(ask.name, { session: "1", name: ask.name, ...ask.info, at: world.time.at, owner: "ky", asker: null });
       }
 
       expect(world.ky.inbound.asks("1")).toEqual([...model.values()]);

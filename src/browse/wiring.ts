@@ -18,7 +18,7 @@ import { Sql } from "../core/sql";
 import { spillPath } from "../guardrails";
 import { CHANGES_WAIT, OUTSIDE_DATA } from "../outside/contract";
 import { OutsideContent } from "../outside/outside";
-import { type Drafted, KY, type NoDraft } from "../skills/contract";
+import { type Drafted, KY, type NoDraft, ownerName } from "../skills/contract";
 import { type Desk, type Finished, finish, forget, handOff, move, savedLogins, seat, Sessions, siteOfUrl } from "./browse";
 import {
   type Args,
@@ -31,7 +31,6 @@ import {
   type LoginVault,
   OnlyInChat,
   NoLoginOwner,
-  ownerName,
   NotAPdf,
   NothingToRead,
   PageRead,

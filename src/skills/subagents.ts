@@ -155,7 +155,7 @@ export function subagentExtension(
   model: () => ModelChoice,
   models: Pick<Models, "valid" | "choices">,
   wanted: (feedId: string) => boolean,
-  /** The conversation a report reaches takes what the one that wrote it read (src/outside). */
+  /** Marks travel with words (src/outside): the one asked takes what the asker read, and a report's reader what its writer read. */
   carry: (from: string, to: string) => void,
   specialists?: SpecialistDeps,
   handOver?: (item: Delivery) => Promise<void>
@@ -180,6 +180,9 @@ export function subagentExtension(
 
         feed.update(feedId, { status: "working", session: String(conversationId) });
         const subagent = must(await runtime.conversation(conversationId, context), `${name}'s conversation is gone.`);
+        // What the asker read reaches the one it asks before that one acts: an ask from a chat that read a mail makes
+        // @fin's writes wait for the user's OK too (R7).
+        carry(String(runtime.conversationId), String(conversationId));
 
         const submission = await subagent.submit(
           {

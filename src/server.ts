@@ -296,8 +296,7 @@ export class PiAgent extends DurableObject<Env> {
   readonly approvals = new Approvals(this.ctx.storage, {
     // A card in the user's own turn pushes too once they have left ky: they sent it and went.
     present: (session) => this.userHere(session) && this.watched(),
-    // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
-    home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
+    home: (session) => this.cardChat(session),
     notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
     defer: (work) => this.ctx.waitUntil(work),
     later: (at) => this.ctx.waitUntil(this.automations.sweepApprovalsAt(at))
@@ -307,7 +306,12 @@ export class PiAgent extends DurableObject<Env> {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
     unattended: (session) => this.unattended(session),
-    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
+    tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId),
+    ownPolicy: (session, tool) => {
+      const { owner, tools } = this.specialists.profileOf(session);
+
+      return Object.hasOwn(tools, tool) ? { owner, policy: tools[tool] ?? "ask" } : undefined;
+    }
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
   readonly deliveries: Deliveries = new Deliveries(this.ctx.storage.sql, {
@@ -343,6 +347,9 @@ export class PiAgent extends DurableObject<Env> {
     vault: () => this.env.Vault.getByName("owner"),
     asker: this.approvals,
     chat: (session) => this.isChat(session),
+    owner: (session) => this.specialists.profileOf(session).owner,
+    home: (session) => this.cardChat(session),
+    unattended: (session) => this.unattended(session),
     // After the turn running there, so outside data never lands in the middle of the user's own turn.
     tell: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session);
@@ -409,7 +416,7 @@ export class PiAgent extends DurableObject<Env> {
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
     owner: (session) => this.specialists.profileOf(session).owner,
-    owners: () => this.browserOwners(),
+    owners: () => this.owners(),
     asker: this.approvals,
     unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
@@ -696,11 +703,17 @@ export class PiAgent extends DurableObject<Env> {
     return session === ROOT_SESSION || this.chats.has(session);
   }
 
+  /** The chat a card from `session` shows in: itself; or for a subagent's, a routine's or a specialist's, the chat its task reports to; a peer's conversation works for the main chat. */
+  cardChat(session: string): string {
+    return this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION;
+  }
+
   /**
    * Whether the user is in the turn running in `session`: their own message started it (src/history.ts
    * startedByUser), in the main chat or a side chat of theirs in the list. A turn a report, a mail, a peer's
    * question or another chat started has nobody there to approve anything. Nor does a run that works on a webhook's
    * data (src/inbound/inbound.ts guarded), even once the user steers it: their message doesn't make the post theirs.
+   * A specialist's turn is never the user's: its Allow asks too.
    */
   userHere(session: string): boolean {
     return (
@@ -1182,8 +1195,8 @@ export class PiAgent extends DurableObject<Env> {
     return this.browsing.move(from, site, to);
   }
 
-  /** Whom a browser login can belong to: ky and each specialist. */
-  browserOwners(): string[] {
+  /** Who can hold a browser login or an API key: ky and each specialist. */
+  owners(): string[] {
     return [KY, ...this.specialists.list().map((row) => row.id)];
   }
 

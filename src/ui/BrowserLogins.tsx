@@ -1,8 +1,8 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useState } from "react";
-import { type Login, Logins, ownerName } from "../browse/contract";
-import { KY } from "../skills/contract";
+import { type Login, Logins } from "../browse/contract";
+import { KY, ownerName } from "../skills/contract";
 import { EmptyState, VaultBadge } from "./Controls";
 import { Icon } from "./Icon";
 import { Problem } from "./Subscriptions";

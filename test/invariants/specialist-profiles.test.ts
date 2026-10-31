@@ -5,15 +5,22 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Semaphore from "effect/Semaphore";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { Approvals } from "../../src/approvals/approvals";
+import type { ToolPolicy } from "../../src/approvals/contract";
+import { ExecutorApprovals } from "../../src/approvals/executor";
 import { type Desk, forget, move, seat, Sessions } from "../../src/browse/browse";
-import { type Browsers, loginId, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
+import { type Browsers, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
+import { makeEdge } from "../../src/core/edge";
 import { Sql } from "../../src/core/sql";
+import type { CallResult, ExecutorCall } from "../../src/executor/contract";
+import { heldKey } from "../../src/inbound/credentials";
 import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
 import { PROTOCOL } from "../../src/machines/runner-protocol";
 import { MachineHub } from "../../src/machines/wiring";
+import { OutsideContent } from "../../src/outside/outside";
 import type { MachineInfo } from "../../src/protocol";
-import { type AccessChange, KY, type Machinery, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
+import { type AccessChange, KY, type Machinery, ownedId, ownedOf, SHARED, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
 import { Specialists } from "../../src/skills/wiring";
 import { wired } from "../parity/automations/world";
@@ -355,12 +362,12 @@ function logins() {
         const session = await current(step.owner);
 
         if (session !== undefined) browser.get(session)?.sites.add(step.site);
-        vault.set(loginId(step.owner, step.site), JSON.stringify({ cookies: [cookieFor(step.site)], origins: [] }));
+        vault.set(ownedId(step.owner, step.site), JSON.stringify({ cookies: [cookieFor(step.site)], origins: [] }));
       }
 
       // As src/browse/routes.ts removes one: from the Vault, then the owner's session ends.
       if (step.step === "remove") {
-        vault.delete(loginId(step.owner, step.site));
+        vault.delete(ownedId(step.owner, step.site));
         await settle(forget(desk, step.owner));
       }
 
@@ -430,7 +437,7 @@ describe("R1 RunnerScope: work runs only on its owner's sandbox or allowed Macs"
 
         runTool(specialists, inputs);
 
-        for (const [id, access] of Object.entries(specialists.access())) expect(access).toEqual(before[id] ?? { home: `sb-${id}`, macs: [] });
+        for (const [id, access] of Object.entries(specialists.access())) expect(access).toEqual(before[id] ?? { home: `sb-${id}`, macs: [], tools: {} });
       })
     );
   });
@@ -687,6 +694,57 @@ describe("R5 OneOwnerPerRun: a run keeps the owner it started with", () => {
   });
 });
 
+/** Conversations for the approval rules: the user's chat with ky, @fin's home conversation, and a run of @fin's; only the chat is the user's turn (server.ts userHere). */
+const CONVERSATIONS = ["chat", "fin-home", "fin-run"] as const;
+
+type Conversation = (typeof CONVERSATIONS)[number];
+
+const OWNER = { chat: KY, "fin-home": "fin", "fin-run": "fin" } as const satisfies Record<Conversation, string>;
+
+const PRESENT: ReadonlySet<string> = new Set<Conversation>(["chat"]);
+
+const TOOL = "gmail.send";
+
+const aPolicy = fc.constantFrom<ToolPolicy>("allow", "ask", "block");
+
+/** ky's approvals, as server.ts wires them: ky's policies in Settings › Executor, and each specialist's own over them. */
+function guarded() {
+  const db = new DatabaseSync(":memory:");
+  const own = new Map<string, ToolPolicy | undefined>();
+  const present = (session: string) => PRESENT.has(session);
+  const approvals = new Approvals(storageOf(db), { present, home: () => "chat", notify: () => {}, defer: () => {}, later: () => {} });
+
+  const ownPolicy = (session: string, tool: string) => {
+    const c = CONVERSATIONS.find((each) => each === session);
+    const owner = c === undefined ? KY : OWNER[c];
+    // ky's profile has no tools of its own: its policies are Settings › Executor.
+    const policy = tool === TOOL && owner !== KY ? own.get(owner) : undefined;
+
+    return policy === undefined ? undefined : { owner, policy };
+  };
+
+  const executor = new ExecutorApprovals(storageOf(db), approvals, { config: async () => null, present, unattended: (session) => session === "fin-run", tell: async () => {}, ownPolicy });
+  const outside = makeEdge(OutsideContent.layer.pipe(Layer.provide(Sql.layer(storageOf(db)))));
+  let requests = 0;
+
+  const write = async (c: Conversation) => {
+    let ran = false;
+
+    const call: ExecutorCall = async (_, args) => {
+      if (JSON.stringify(args).includes('"accept"')) ran = true;
+
+      return { output: [{ type: "text", text: "done" }] } satisfies CallResult;
+    };
+
+    const paused = JSON.stringify({ status: "approval-required", requestId: `request-${requests++}`, message: "Send the mail", toolPath: TOOL });
+    const replied = await executor.replied({ output: [{ type: "text", text: paused }], isError: false }, c, call);
+
+    return { ran, note: JSON.stringify(replied) };
+  };
+
+  return { executor, outside, own, write };
+}
+
 describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () => {
   it("profile resolution: each conversation is the specialist's it is attached to, and ky's otherwise", () => {
     fc.assert(
@@ -749,11 +807,78 @@ describe("R6 ToolEnforced: the tools enforce the profile, not the prompt", () =>
     );
   });
 
-  it.todo("the browse, secret and executor tools refuse what the profile doesn't allow, whatever the prompt says (Phase 3C, 3D)");
+  it("a call with a key uses the caller's own or a shared one, its own first; another owner's is refused, naming who holds it", () => {
+    const aKey = fc.record({ owner: fc.constantFrom<string>(KY, SHARED, ...IDS), name: fc.constantFrom("API", "GH") });
+
+    fc.assert(
+      fc.property(fc.uniqueArray(aKey, { selector: (key) => ownedId(key.owner, key.name) }), anOwner, fc.constantFrom("API", "GH"), (keys, owner, name) => {
+        const named = keys.filter((key) => key.name === name);
+        const held = heldKey(owner, name, keys.map((key) => ownedId(key.owner, key.name)));
+        const usable = named.find((key) => key.owner === owner) ?? named.find((key) => key.owner === SHARED);
+
+        if (usable) expect(held).toEqual({ id: ownedId(usable.owner, name) });
+        else if (named.length === 0) expect(held).toHaveProperty("refused", expect.stringMatching(/There is no credential/));
+        else expect(held).toHaveProperty("refused", expect.stringContaining(named[0]?.owner === KY ? "ky holds" : `@${named[0]?.owner} holds`));
+
+        if ("id" in held) expect([owner, SHARED]).toContain(ownedOf(held.id).owner);
+      })
+    );
+  });
+
+  it("an Executor write runs on the policy of the conversation's owner: its own where it set one, else ky's", async () => {
+    const aWrite = fc.record({ c: fc.constantFrom<Conversation>(...CONVERSATIONS), ky: aPolicy, own: fc.option(aPolicy, { nil: undefined }) });
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(aWrite, { minLength: 1, maxLength: 6 }), async (writes) => {
+        const ky = guarded();
+
+        for (const { c, ky: kys, own } of writes) {
+          ky.executor.setPolicy(TOOL, kys);
+          ky.own.set(OWNER[c], own);
+          const said = await ky.write(c);
+          const policy = OWNER[c] === KY ? kys : (own ?? kys);
+
+          expect(said.ran, `${c}: ky's ${kys}, own ${own}`).toBe(policy === "allow" && PRESENT.has(c));
+
+          if (policy === "block") expect(said.note).toContain(OWNER[c] !== KY && own !== undefined ? `@${OWNER[c]}'s settings` : "Settings › Executor");
+        }
+      })
+    );
+  });
 });
 
 describe("R7 NoLaundering: a change outside content led to needs the user's OK", () => {
-  it.todo("a write or act from a conversation that read outside content, directly or through a delegation, waits for the user (Phase 1)");
+  it("a write from a conversation that read outside content, or asked or was asked by one that did, or read its report, waits for the user, whatever @fin's own policy", async () => {
+    const anOp = fc.oneof(
+      fc.record({ t: fc.constant("read" as const), c: fc.constantFrom<Conversation>(...CONVERSATIONS) }),
+      // An ask carries the asker's marks to the one asked; its report carries the one asked's back (src/skills/subagents.ts).
+      fc.record({ t: fc.constant("ask" as const), from: fc.constantFrom<Conversation>(...CONVERSATIONS), to: fc.constantFrom<Conversation>(...CONVERSATIONS) }),
+      fc.record({ t: fc.constant("write" as const), c: fc.constantFrom<Conversation>(...CONVERSATIONS) })
+    );
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(anOp, { maxLength: 16 }), async (ops) => {
+        const ky = guarded();
+        const marked = new Set<Conversation>();
+        ky.executor.setPolicy(TOOL, "allow");
+        ky.own.set("fin", "allow");
+
+        for (const op of ops) {
+          if (op.t === "read") {
+            ky.outside.run(OutsideContent.use((outside) => outside.mark(op.c, "web")));
+            marked.add(op.c);
+          } else if (op.t === "ask") {
+            ky.outside.run(OutsideContent.use((outside) => outside.carry(op.from, op.to)));
+            ky.outside.run(OutsideContent.use((outside) => outside.carry(op.to, op.from)));
+
+            if (marked.has(op.from) || marked.has(op.to)) for (const c of [op.from, op.to]) marked.add(c);
+          } else {
+            expect((await ky.write(op.c)).ran, `${op.c}, marked ${marked.has(op.c)}`).toBe(PRESENT.has(op.c) && !marked.has(op.c));
+          }
+        }
+      })
+    );
+  });
 });
 
 describe("rows from before profiles", () => {

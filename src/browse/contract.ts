@@ -1,7 +1,7 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
-import { KY } from "../skills/contract";
+import { ownedOf, ownerName } from "../skills/contract";
 
 export const PageRead = Schema.Struct({
   title: Schema.String,
@@ -99,20 +99,15 @@ export const BROWSE_TABLES = { session: "ky_browser_sessions", beforeOwners: "ky
 
 export const LOGIN_KIND = "browser-login";
 
-/** A browser login's Vault id: whose it is ("ky" or a specialist's id), and its site. */
-export const loginId = (owner: string, site: string) => `${owner}:${site}`;
+/** Whose a login is, and for which site. */
+type LoginOf = { readonly owner: string; readonly site: string };
 
-const OWNED = /^([a-z0-9]+(?:-[a-z0-9]+)*):(.+)$/;
+/** Whose login a Vault id (src/skills/contract ownedId) is, and for which site; one from before owners is ky's. */
+export function ownedLogin(id: string): LoginOf {
+  const { owner, name } = ownedOf(id);
 
-/** Whose login a Vault id is, and for which site; one from before owners is ky's. */
-export function ownedLogin(id: string): { readonly owner: string; readonly site: string } {
-  const [, owner, site] = OWNED.exec(id) ?? [];
-
-  return owner === undefined || site === undefined ? { owner: KY, site: id } : { owner, site };
+  return { owner, site: name };
 }
-
-/** How a tool's reply names an owner. */
-export const ownerName = (owner: string) => (owner === KY ? KY : `@${owner}`);
 
 export type Cookie = typeof Cookie.Type;
 

@@ -155,14 +155,14 @@ export class Specialists {
   access(): Readonly<Record<string, SpecialistAccess>> {
     return Object.fromEntries(
       this.list().map(({ id }) => {
-        const { home, macs } = this.profile(id);
+        const { home, macs, tools } = this.profile(id);
 
-        return [id, { home: home?.id ?? null, macs }];
+        return [id, { home: home?.id ?? null, macs, tools }];
       })
     );
   }
 
-  /** The user changes a specialist's machines; a specialist's own tools never can. */
+  /** The user changes a specialist's machines or tool policies; a specialist's own tools never can. */
   changeAccess(id: string, change: AccessChange): string {
     return runOrThrow(this.#edge, Profiles.use((profiles) => profiles.change(id, change)));
   }
