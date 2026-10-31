@@ -145,6 +145,21 @@ function changeRefusal(automations: Automations, id: string, args: Args, by: str
   return row === undefined || by === KY || row.owner === by ? undefined : `"${row.title}" is ${whose(row.owner)}; you may change only your own.`;
 }
 
+/** The automation `named` means: its id, or else the exact title of one `by` may change, so "@fin run monthly close" needs no list first. */
+async function idOf(automations: Automations, named: string, by: string, action: ToolAction): Promise<{ readonly id: string } | { readonly refused: string }> {
+  if (automations.get(named) !== undefined) return { id: named };
+  const title = named.trim().toLowerCase();
+  const archived = action === "unarchive";
+
+  const matches = (await automations.list(true)).filter(
+    (view) => (by === KY || view.owner === by) && view.title.toLowerCase() === title && (view.status === "archived") === archived
+  );
+
+  if (matches.length > 1) return { refused: `"${named}" names ${matches.length} automations; use its id (list shows them).` };
+
+  return { id: matches[0]?.id ?? named };
+}
+
 async function dispatch(automations: Automations, call: Call): Promise<string> {
   const { action, args, fallback, dream, by } = call;
 
@@ -155,11 +170,15 @@ async function dispatch(automations: Automations, call: Call): Promise<string> {
   if (dream) return "A dream may only create check-ins and list automations.";
 
   if (!args.id) return `${action} needs an id.`;
-  const refused = changeRefusal(automations, args.id, args, by);
+  const found = await idOf(automations, args.id, by, action);
+
+  if ("refused" in found) return found.refused;
+  const { id } = found;
+  const refused = changeRefusal(automations, id, args, by);
 
   if (refused !== undefined) return refused;
 
-  return action === "update" ? update(automations, args.id, args, fallback) : BY_ID[action](automations, args.id);
+  return action === "update" ? update(automations, id, args, fallback) : BY_ID[action](automations, id);
 }
 
 async function update(automations: Automations, id: string, args: Args, fallback: ModelChoice): Promise<string> {
@@ -194,7 +213,7 @@ export function automationExtension(
           "A cloud run has the ui tool: a card it shows (a status, stats, a chart, facts, a table) is posted in its chat as ky's own, just before its report, once the run succeeds; " +
           "ask for one in the prompt when the report reads better as a card, like a daily forecast. It may ask the user something (a choice, buttons): their answer comes to you here as their next message. A machine run has none. " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
-          "pause, resume, archive, unarchive, run, stop, delete (id): run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
+          "pause, resume, archive, unarchive, run, stop, delete (id): id may be the exact title instead, as in \"run monthly close\"; run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed. " +
           "For \"tell me when X happens\" (new mail from someone, a PR review, a price), add a gate and a frequent cron like */15 * * * *: " +
           "the gate is an executor_execute program body run before each fire with no model, so a fire costs nothing until it finds something. " +
