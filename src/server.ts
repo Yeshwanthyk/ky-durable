@@ -37,7 +37,7 @@ import { sandboxRoute } from "./sandbox-routes";
 import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
-import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
+import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary } from "./providers/contract";
@@ -54,6 +54,7 @@ import { replyPushExtension } from "./push/replies";
 import { Pushes } from "./push/wiring";
 import { Approvals } from "./approvals/approvals";
 import { ExecutorApprovals } from "./approvals/executor";
+import { Outside } from "./outside/outside";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
@@ -122,6 +123,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
+  /** Which conversations read outside content (src/outside), for what one conversation tells another. */
+  readonly outside = new Outside(this.ctx.storage);
   /** The questions this ky and its peers ask each other. */
   readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
   /** ky's repo and address, for self-edits. */
@@ -137,6 +140,7 @@ export class PiAgent extends DurableObject<Env> {
       const conversation = await this.harness.conversation(session ?? ROOT_SESSION);
       await conversation.submit({ type: "input", content, whenBusy: "steer", requestId }, BACKGROUND_CONTEXT);
     },
+    carry: (from, to) => this.outside.carry(from, to ?? ROOT_SESSION),
     sweepAt: (at) => this.ctx.waitUntil(this.automations.sweepPeersAt(at))
   };
   /** ky's own mail (src/mail.ts). */
@@ -174,7 +178,11 @@ export class PiAgent extends DurableObject<Env> {
   /** SOUL.md, ky's persona. */
   readonly soul = new Soul(this.ctx.storage);
   /** The user's standing bots, like @engineer. */
-  readonly specialists = new Specialists(this.ctx.storage);
+  readonly specialists = new Specialists(this.ctx.storage, {
+    sandboxes: () => this.sandboxes.live(),
+    macs: () => this.machines.machines().flatMap((machine) => (isMac(machine) ? [machine.name] : [])),
+    open: (name) => this.createSandbox({ name, isDefault: false })
+  });
   /** The bloubs ky and the specialists wear. */
   readonly avatars = new Avatars(this.ctx.storage);
   /** Which specialists are in which chats, and their seats there. */
@@ -399,6 +407,7 @@ export class PiAgent extends DurableObject<Env> {
     reads: (conversation) => this.mayCall(String(conversation), "read"),
     chat: (session) => this.isChat(session),
     asker: this.approvals,
+    unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
     draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
     later: (work) => this.ctx.waitUntil(work)
@@ -433,7 +442,8 @@ export class PiAgent extends DurableObject<Env> {
         background: this.#background,
         chat,
         peer: (session) => this.peerAsks.peerConversation(session),
-        deliver: (item) => this.deliveries.deliver(item)
+        deliver: (item) => this.deliveries.deliver(item),
+        carry: (from, to) => this.outside.carry(from, to)
       };
 
       const workspaceTools = createWorkspaceTools(this.workspace, { read: { maxBytes: READ_MAX_BYTES } });
@@ -622,6 +632,7 @@ export class PiAgent extends DurableObject<Env> {
 
     // Before anything asks: the pair route asks whether a name is a sandbox's.
     if (this.machines.cloud) this.sandboxes.migrate();
+    this.specialists.migrate();
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
     meter(this.spend, { answers: (listener) => this.models.onAnswer(listener), spent: (listener) => this.feed.onSpend(listener) });
@@ -636,6 +647,7 @@ export class PiAgent extends DurableObject<Env> {
     this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
     this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
     this.approvals.handle("browser-handoff", this.browsing.handler);
+    this.approvals.handle("browse-steps", this.browsing.stepsHandler);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -1046,6 +1058,7 @@ export class PiAgent extends DurableObject<Env> {
   async #answerPeer(name: string, id: string, question: string): Promise<void> {
     const { id: session } = await this.harness.sessions.create();
     this.peerAsks.answering(name, id, session);
+    this.outside.mark(session, "peer");
     await this.#configure(session, "background");
 
     const said = await runInFeed(this.#background, await this.harness.conversation(session), {
@@ -1066,6 +1079,7 @@ export class PiAgent extends DurableObject<Env> {
     const ask = this.peerAsks.answered("out", name, id, answer);
 
     if (!ask) return false;
+    this.outside.mark(ask.session, "peer");
     await this.peerDesk.tell(ask.session, peerAnswer(name, ask.question, answer), `peer-answer:${name}:${id}`);
 
     return true;
@@ -1163,6 +1177,7 @@ export class PiAgent extends DurableObject<Env> {
   async removeMachine(machine: string): Promise<{ pairing: string | null } | undefined> {
     if (this.machines.machine(machine) === undefined) return undefined;
     this.sockets.revokeRunner(machine, `${machine} was removed from ky; pair it again to use it.`);
+    this.specialists.dropMac(machine);
 
     return { pairing: await this.machines.remove(machine) };
   }

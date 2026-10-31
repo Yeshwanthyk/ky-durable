@@ -22,6 +22,7 @@ import type {
   SoulChange,
   SoulVersion,
   SoulView,
+  SpecialistAccess,
   SpecialistView,
   TaskRow,
   ToolInfo,
@@ -78,6 +79,7 @@ export function Panel({
   memory,
   memoryActions,
   specialists,
+  specialistAccess,
   specialistActions,
   subscriptions,
   theme,
@@ -113,6 +115,7 @@ export function Panel({
   memory: MemoryView | null;
   memoryActions: MemoryActions;
   specialists: readonly SpecialistView[];
+  specialistAccess: Readonly<Record<string, SpecialistAccess>>;
   specialistActions: SpecialistActions;
   subscriptions: SubscriptionsData;
   theme: Theme;
@@ -186,9 +189,10 @@ export function Panel({
           memory={memory}
           memoryActions={memoryActions}
           specialists={specialists}
+          specialistAccess={specialistAccess}
           specialistActions={specialistActions}
           providers={settings?.providers ?? []}
-          machines={machines.map((machine) => machine.name)}
+          machines={machines}
         />
       ) : (
         <Settings

@@ -11,7 +11,7 @@ import type { FileRow } from "./files/contract";
 import type { MachineFacts, MachineLogin, MachineState } from "./machines/contract";
 import type { SettingsView } from "./settings/contract";
 import type { SetupView } from "./avatars/contract";
-import type { SkillRow, SpecialistView } from "./skills/contract";
+import type { SkillRow, SpecialistAccess, SpecialistView } from "./skills/contract";
 import type { MemoryView, Recalled, SoulView } from "./dreaming/contract";
 import type { TaskRow } from "./automations/contract";
 
@@ -203,7 +203,7 @@ export type PiServerMessage =
   /** The bloubs ky and the specialists wear, by "ky" or specialist id; sent on connect and on change. */
   | { readonly type: "avatars"; readonly avatars: AvatarsView }
   /** The specialists and their briefs; sent on connect and on change. */
-  | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[] }
+  | { readonly type: "specialists"; readonly specialists: readonly SpecialistView[]; readonly access?: Readonly<Record<string, SpecialistAccess>> }
   | { readonly type: "memory"; readonly memory: MemoryView }
   /** Context turn-start recall gave the model for the user's messages in `session`, by entry id; on watch, and as each is made. */
   | { readonly type: "recalled"; readonly session: string; readonly recalls: readonly Recalled[] }
@@ -242,7 +242,7 @@ export type { DreamLedgerRow, PostVerdict, PostVerdicts, ProactivityLevel, Proac
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
-export type { SpecialistDraft, SpecialistView } from "./skills/contract";
+export type { AccessChange, SpecialistAccess, SpecialistDraft, SpecialistView } from "./skills/contract";
 
 export type { FileRow } from "./files/contract";
 

@@ -12,6 +12,7 @@ import {
   Failed,
   type Handoff,
   LOGIN_KIND,
+  LoginsUnknown,
   type LoginVault,
   NoBrowser,
   type Recorded,
@@ -99,9 +100,8 @@ function loginOf(state: StorageState, site: string): StorageState {
 }
 
 export const savedSites = (vault: () => LoginVault) =>
-  Effect.tryPromise(() => vault().status()).pipe(
-    Effect.map((secrets) => new Set(secrets.flatMap((secret) => (secret.kind === LOGIN_KIND ? [secret.id] : [])))),
-    Effect.orElseSucceed(() => new Set<string>())
+  Effect.tryPromise({ try: () => vault().status(), catch: () => new LoginsUnknown() }).pipe(
+    Effect.map((secrets) => new Set(secrets.flatMap((secret) => (secret.kind === LOGIN_KIND ? [secret.id] : []))))
   );
 
 const restore = (desk: Desk, seat: Seat) =>

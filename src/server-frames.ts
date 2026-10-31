@@ -107,7 +107,11 @@ export const ServerFrameSchema = Type.Union([
   Type.Object({ type: Type.Literal("chats"), chats: Type.Array(Chat), main: Type.Number(), groups: Type.Optional(Type.Record(Text, Texts)) }),
   Type.Object({ type: Type.Literal("skills"), skills: Type.Array(Skill) }),
   Type.Object({ type: Type.Literal("soul"), soul: Type.Object({ body: Text, version: Type.Number(), updated_at: Type.Number() }) }),
-  Type.Object({ type: Type.Literal("specialists"), specialists: Type.Array(Specialist) }),
+  Type.Object({
+    type: Type.Literal("specialists"),
+    specialists: Type.Array(Specialist),
+    access: Type.Optional(Type.Record(Text, Type.Object({ home: Type.Union([Text, Type.Null()]), macs: Texts })))
+  }),
   Type.Object({ type: Type.Literal("avatars"), avatars: Type.Record(Text, BloubSpecSchema) }),
   Type.Object({
     type: Type.Literal("memory"),
@@ -205,6 +209,8 @@ export const ANSWERS = {
   "set-github": Refusable,
   "set-executor": Refusable,
   "specialist-save": Refusable,
+  "specialist-access": Refusable,
+  "specialist-delete": Refusable,
   "automation-save": Refusable,
   "peer-pair": Refusable,
   "peer-remove": Refusable,

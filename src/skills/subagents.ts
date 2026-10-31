@@ -151,6 +151,8 @@ export function subagentExtension(
   model: () => ModelChoice,
   models: Pick<Models, "valid" | "choices">,
   wanted: (feedId: string) => boolean,
+  /** The conversation a report reaches takes what the one that wrote it read (src/outside). */
+  carry: (from: string, to: string) => void,
   specialists?: SpecialistDeps,
   handOver?: (item: Delivery) => Promise<void>
 ): SubagentTools {
@@ -241,6 +243,8 @@ export function subagentExtension(
         const feedId = reporter.input.feedId ?? String(reporter.id);
 
         if (report !== undefined && wanted(feedId)) {
+          carry(String(reporter.input.conversationId), String(runtime.conversationId));
+
           if (reporter.input.deliver && handOver) {
             await handOver({
               id: `subagent-report:${reporter.id}`,
@@ -312,6 +316,8 @@ export function subagentExtension(
     const state = await tx.doc(Subagents, owner);
     const anchor = await tx.createTask(Anchor, null, background(owner));
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
+    // A specialist's subagent works with what the specialist may use.
+    specialists?.store.adopt(String(child.id), String(owner));
 
     if (run) (await tx.doc(RunCards, child.id)).run = true;
     await configure(tx, child.id, {

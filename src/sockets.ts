@@ -163,6 +163,17 @@ function textOf(input: UserInput): string {
   return input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n") || "Image";
 }
 
+/** `{}` once `work` is done, or `{ refused }` with why it threw. */
+function refusable(work: () => void): JsonValue {
+  try {
+    work();
+
+    return {};
+  } catch (error) {
+    return { refused: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function send(socket: WebSocket, message: PiServerMessage): void {
   if (socket.readyState !== OPEN) return;
 
@@ -336,11 +347,7 @@ export class PiSessionSockets {
 
       for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
     });
-    specialists.onChange(() => {
-      const message = this.#specialistsMessage();
-
-      for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
-    });
+    specialists.onChange(() => this.#broadcastSpecialists());
     approvals.store.onChange(() => this.#broadcastApprovals());
     approvals.executor.onPolicies(() => {
       this.#broadcastExecutorView().catch((error) => console.warn("executor not sent", error));
@@ -366,7 +373,11 @@ export class PiSessionSockets {
       this.#runsKey = runs;
       this.#broadcastAutomations().catch((error) => console.warn("automations not sent", error));
     });
-    hub.onChange(() => this.broadcastTasks());
+    // A sandbox or a Mac coming or going changes what a specialist's settings offer.
+    hub.onChange(() => {
+      this.broadcastTasks();
+      this.#broadcastSpecialists();
+    });
     files.onChange(() => this.broadcastTasks());
 
     const broadcastSettings = () => {
@@ -446,8 +457,14 @@ export class PiSessionSockets {
     return { type: "skills", skills: this.#skills.all() };
   }
 
+  #broadcastSpecialists(): void {
+    const message = this.#specialistsMessage();
+
+    for (const socket of this.#getWebSockets(UI_TAG)) send(socket, message);
+  }
+
   #specialistsMessage(): PiServerMessage {
-    return { type: "specialists", specialists: this.#specialists.views() };
+    return { type: "specialists", specialists: this.#specialists.views(), access: this.#specialists.access() };
   }
 
   #soulMessage(): PiServerMessage {
@@ -498,14 +515,9 @@ export class PiSessionSockets {
 
   /** Create or change a specialist as the user; a save that is refused says why, as an automation's does. */
   #saveSpecialist(message: ClientMessages["specialist-save"]): JsonValue {
-    try {
-      if (message.create) this.#specialists.create(message.specialist, message.draft, "user");
-      else this.#specialists.set(message.specialist, message.draft);
-
-      return {};
-    } catch (error) {
-      return { refused: error instanceof Error ? error.message : String(error) };
-    }
+    return refusable(() =>
+      message.create ? this.#specialists.create(message.specialist, message.draft, "user") : this.#specialists.set(message.specialist, message.draft)
+    );
   }
 
   /** A specialist's brief, to change or read the history of; one that doesn't exist is an error. */
@@ -1075,6 +1087,8 @@ export class PiSessionSockets {
     "specialist-save": (message) => this.#saveSpecialist(message),
     "specialist-brief": (message) => this.#brief(message.specialist).apply(message.change, "user"),
     "specialist-history": (message) => this.#brief(message.specialist).history(),
+    "specialist-access": (message) => refusable(() => this.#specialists.changeAccess(message.specialist, message.change)),
+    "specialist-delete": (message) => refusable(() => this.#specialists.delete(message.specialist)),
     "task-steps": (message) => this.#feed.log(message.task),
     "memory-search": (message) => this.#memory.search(message.query),
     "memory-zoom": (message) => this.#memory.children(message.block),

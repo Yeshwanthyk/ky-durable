@@ -13,7 +13,7 @@ import { AutomationActionSchema, AutomationDraftSchema } from "./automations/con
 import { ProactivityLevelSchema, RIGHT_AWAY_MOST, SoulChangeSchema } from "./dreaming/contract";
 import { MachineLoginSchema, MachineStateSchema } from "./machines/contract";
 import { ModelChoiceSchema, PurposeSchema } from "./settings/contract";
-import { SkillChange, SpecialistDraftSchema } from "./skills/contract";
+import { AccessChangeSchema, SkillChange, SpecialistDraftSchema } from "./skills/contract";
 import type { PiServerMessage } from "./protocol";
 import { CardAnswerSchema } from "./cards/contract";
 
@@ -132,6 +132,10 @@ export const ClientMessageSchema = Type.Union([
   message("specialist-brief", { specialist: Text, change: SoulChangeSchema }),
   /** A specialist's brief versions, newest first, as the result. */
   message("specialist-history", { specialist: Text }),
+  /** Grant or revoke a specialist a Mac, or move it to another sandbox, as the user. */
+  message("specialist-access", { specialist: Text, change: AccessChangeSchema }),
+  /** Delete a specialist, as the user. */
+  message("specialist-delete", { specialist: Text }),
   /** Answers with every step a task's log kept, oldest first, for its timeline. */
   message("task-steps", { task: Text }),
   /** Answers with a MemorySearch. */

@@ -65,6 +65,10 @@ export const CLOUD_FACTS: MachineFacts = {
   kind: "cloud"
 };
 
+/** Whether a listed machine is one of the user's paired computers, not a sandbox. */
+export const isMac = (machine: { readonly sandbox: object | null; readonly facts: { readonly kind?: string } | null }) =>
+  machine.sandbox === null && machine.facts?.kind !== "cloud";
+
 export const MACHINE_ACTIONS = ["list", "run", "send", "stop", "move", "set"] as const;
 
 const STATES = ["on", "paused", "off"] as const;

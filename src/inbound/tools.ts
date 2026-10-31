@@ -112,7 +112,8 @@ export function inboundTools(inbound: Inbound): Extension {
 }
 
 async function askToCall(inbound: Inbound, call: SecretCall, conversation: string, args: JsonObject) {
-  const summary = `${call.method} ${call.url} with ${call.name}${await sentWith(inbound, call)}${call.guarded ? WHILE_ON_HOOK : ""}`;
+  const why = inbound.outsideWhy(conversation);
+  const summary = `${call.method} ${call.url} with ${call.name}${await sentWith(inbound, call)}${call.guarded ? WHILE_ON_HOOK : why && ` (asked because ${why})`}`;
 
   const asked = await inbound.requestApproval(
     { kind: "secret-request", subject: call.name, summary, payload: call, conversation },

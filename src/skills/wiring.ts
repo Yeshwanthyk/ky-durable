@@ -6,21 +6,49 @@ import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import type { Models } from "../providers/wiring";
 import { Versioned, Versions } from "../dreaming/wiring";
-import type { ReviewHost, ReviewKind, SessionKind, SkillChange, SkillStatus, SpecialistDraft, SpecialistRow, SpecialistView } from "./contract";
+import type {
+  AccessChange,
+  Machinery,
+  Profile,
+  ReviewHost,
+  ReviewKind,
+  SessionKind,
+  SkillChange,
+  SkillStatus,
+  SpecialistAccess,
+  SpecialistDraft,
+  SpecialistRow,
+  SpecialistView
+} from "./contract";
+import { Machines, Profiles } from "./profiles";
 import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from "./skills";
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 
 export { draftFromDemo } from "./skills";
 
+/** A ky with no sandboxes and no Macs: what the node tests run on. */
+const NO_MACHINES: Machinery = {
+  sandboxes: () => [],
+  macs: () => [],
+  open: () => {
+    throw new Error("This ky has no sandboxes.");
+  }
+};
+
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
-  readonly #edge: Edge<Roster | Versions>;
+  readonly #edge: Edge<Roster | Versions | Profiles>;
   readonly #listeners = new Set<() => void>();
 
   /** One edge for the Durable Object's life; its first run makes the tables, as B's constructor did. */
-  constructor(storage: DurableObjectStorage) {
-    this.#edge = makeEdge(Roster.layer({ listeners: this.#listeners }).pipe(Layer.provideMerge(Versions.layer), Layer.provide(Sql.layer(storage))));
+  constructor(storage: DurableObjectStorage, machines: Machinery = NO_MACHINES) {
+    const hooks = { listeners: this.#listeners };
+    const roster = Roster.layer(hooks).pipe(Layer.provideMerge(Versions.layer));
+
+    this.#edge = makeEdge(
+      Profiles.layer(hooks).pipe(Layer.provideMerge(roster), Layer.provide(Layer.succeed(Machines)(machines)), Layer.provide(Sql.layer(storage)))
+    );
     this.#run(() => Effect.void);
   }
 
@@ -54,8 +82,84 @@ export class Specialists {
     return new Versioned(this.#edge, `specialist:${id}`, `@${id}'s brief`, { listeners: this.#listeners });
   }
 
+  /** A new specialist, with a sandbox of its own and, when the user made it, the Mac they named. */
   create(id: string, draft: SpecialistDraft, actor: string, conversation: string | null = null): string {
-    return this.#run((roster) => roster.create(id, draft, actor, conversation));
+    return runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        const created = yield* Roster.use((roster) => roster.create(id, draft, actor, conversation));
+        const profiles = yield* Profiles;
+        yield* profiles.found(id, actor === "user" ? (draft.machine ?? null) : null);
+        yield* profiles.provide(id);
+
+        return created;
+      })
+    );
+  }
+
+  /** ky's own example specialist: its sandbox is made when it is first asked, so a ky no one asks has one sandbox. */
+  seed(id: string, draft: SpecialistDraft): void {
+    runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        yield* Roster.use((roster) => roster.create(id, draft, "ky", null));
+        yield* Profiles.use((profiles) => profiles.found(id, null));
+      })
+    );
+  }
+
+  /** The user deletes a specialist: its row and its grants. Its sandbox, conversations and brief's versions stay. */
+  delete(id: string): string {
+    return runOrThrow(
+      this.#edge,
+      Effect.gen(function* () {
+        const deleted = yield* Roster.use((roster) => roster.remove(id));
+        yield* Profiles.use((profiles) => profiles.forget(id));
+
+        return deleted;
+      })
+    );
+  }
+
+  /** At boot, after the sandboxes: each specialist made before profiles gets its own. */
+  migrate(): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.migrate));
+  }
+
+  /** `conversation`, started from `parent`, belongs to whoever owns `parent`. */
+  adopt(conversation: string, parent: string): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.adopt(conversation, parent)));
+  }
+
+  /** A Mac removed from ky: every grant of it goes. */
+  dropMac(mac: string): void {
+    this.#edge.run(Profiles.use((profiles) => profiles.dropMac(mac)));
+  }
+
+  /** The profile of whoever answers in `conversation`, as it is now: every scoped tool reads it here. */
+  profileOf(conversation: string): Profile {
+    return this.#edge.run(Profiles.use((profiles) => profiles.of(conversation)));
+  }
+
+  /** `owner`'s profile ("ky" or a specialist's id), as it is now. */
+  profile(owner: string): Profile {
+    return this.#edge.run(Profiles.use((profiles) => profiles.get(owner)));
+  }
+
+  /** Each specialist's machines, for Settings. */
+  access(): Readonly<Record<string, SpecialistAccess>> {
+    return Object.fromEntries(
+      this.list().map(({ id }) => {
+        const { home, macs } = this.profile(id);
+
+        return [id, { home: home?.id ?? null, macs }];
+      })
+    );
+  }
+
+  /** The user changes a specialist's machines; a specialist's own tools never can. */
+  changeAccess(id: string, change: AccessChange): string {
+    return runOrThrow(this.#edge, Profiles.use((profiles) => profiles.change(id, change)));
   }
 
   /** Change a specialist's description, model or machine; its brief changes through brief(). */
@@ -63,9 +167,14 @@ export class Specialists {
     return this.#run((roster) => roster.set(id, draft));
   }
 
-  /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. */
+  /** Record a conversation as one of `id`'s; a home one becomes its shared conversation. Its first gives it a sandbox, if it has none. */
   attach(session: string, id: string, kind: SessionKind): void {
-    this.#run((roster) => roster.attach(session, id, kind));
+    this.#edge.run(
+      Effect.gen(function* () {
+        yield* Roster.use((roster) => roster.attach(session, id, kind));
+        yield* Profiles.use((profiles) => profiles.provide(id));
+      })
+    );
   }
 
   /** The specialist a conversation belongs to, and how it is used. */
@@ -200,6 +309,8 @@ export type SkillsWiring = {
   readonly peer: (session: string) => boolean;
   /** How an automation run's report reaches the user (src/automations/delivery.ts). */
   readonly deliver: (item: Delivery) => Promise<void>;
+  /** A delegate's report reaching a conversation brings what the delegate read with it (src/outside). */
+  readonly carry: (from: string, to: string) => void;
 };
 
 /** The skill tools, with the reviews of busy turns. */
@@ -212,10 +323,10 @@ export type MainTools = { readonly soul: Extension; readonly memory: Extension; 
 
 /** Specialists, subagents and their progress steps; `spawn` starts a subagent from outside a tool call. */
 export function delegationTools(
-  { specialists: store, feed, models, automations, chat, deliver }: SkillsWiring,
+  { specialists: store, feed, models, automations, chat, deliver, carry }: SkillsWiring,
   { soul, memory, machines, automations: automationTool, ui, chats, site }: MainTools
 ) {
-  const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId));
+  const specialists = specialistExtension(store, feed, chat, (feedId) => automations.wanted(feedId), carry);
 
   const subagents = subagentExtension(
     feed,
@@ -225,6 +336,7 @@ export function delegationTools(
     () => models.resolve("worker").choice,
     models,
     (feedId) => automations.wanted(feedId),
+    carry,
     {
       store,
       tools: specialists,
