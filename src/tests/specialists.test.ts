@@ -420,6 +420,29 @@ describe("a specialist's automations", () => {
     expect(await inside(name, (instance) => instance.specialists.profileOf(run?.session ?? "").owner)).toBe("eng");
   });
 
+  it("runs its own by title, not ky's of the same name, and ky is told to use the id when a title names two", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+    await prompt(name, automation({ action: "create", title: "Monthly close", owner: "eng" }));
+    await prompt(name, automation({ action: "create", title: "Monthly close" }));
+
+    expect(await inside(name, async (instance) => (await instance.automations.list(true)).map((each) => each.owner).sort())).toEqual(["eng", "ky"]);
+    await prompt(name, ask("eng", tool("automation", { action: "run", id: "monthly close" })));
+    await said(name, 'tool said: Running "Monthly close" now');
+    await runDurableObjectAlarm(agent(name));
+
+    const runs = await inside(name, async (instance) => {
+      const owned = new Map((await instance.automations.list(true)).map((each) => [`automation:${each.id}`, each.owner]));
+
+      return instance.feed.list().flatMap((task) => owned.get(task.source ?? "") ?? []);
+    });
+
+    expect(runs).toEqual(["eng"]);
+    expect((await prompt(name, tool("automation", { action: "run", id: "Monthly close" }))).text).toBe(
+      'tool said: "Monthly close" names 2 automations; use its id (list shows them).'
+    );
+  });
+
   it("refuses a machine its owner may not use, for a specialist's and for ky's", async () => {
     const name = crypto.randomUUID();
     await make(name, "eng");
