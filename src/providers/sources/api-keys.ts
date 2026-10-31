@@ -3,11 +3,11 @@ import type { Provider } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-import { Breaker, type Now } from "./breaker";
-import type { ProviderKey, ProviderRecord } from "./contract";
-import type { Endpoint } from "./endpoint";
-import { type Offer, offered } from "./offer";
-import { sending } from "./transport";
+import { Breaker, type Now } from "../breaker";
+import type { ProviderKey, ProviderRecord } from "../contract";
+import type { Endpoint, Source } from "../endpoint";
+import { type Offer, offered } from "../offer";
+import { sending } from "../transport";
 
 export type Vendor = {
   readonly id: string;
@@ -82,3 +82,17 @@ export function apiKey(vendor: Vendor, fetch: FetchFunction, key: (providerId: s
     connected: () => true
   };
 }
+
+/** The vendors the user pasted a key for: a record each, added and removed in Settings, never placed. */
+export const apiKeys: Source = {
+  kind: "api-key",
+  priority: 1,
+  start: ({ boundary, vault, now }) => ({
+    place: () => [],
+    build: (record) => {
+      const vendor = VENDORS.find((each) => each.id === record.vendor);
+
+      return vendor && apiKey(vendor, boundary.fetch, (id) => vault.auth(id), now);
+    }
+  })
+};

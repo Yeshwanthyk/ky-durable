@@ -3,7 +3,7 @@ import type { AiBinding } from "@earendil-works/pi-ai/api/cloudflare-ai-binding"
 import type { AgentChange } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
-import type { Missing as NotSetUp } from "../avatars/contract";
+import type { VibeProxyBoundary } from "./sources/vibeproxy";
 
 export const PROVIDER_TABLES = Object.freeze({ providers: "ky_providers" } as const);
 
@@ -38,27 +38,11 @@ export type KeyVault = {
   remove(kind: "provider", id: string): Promise<void>;
 };
 
-export type VibeProxyTunnel = { readonly binding: Pick<Fetcher, "fetch">; readonly origin: string };
-
-export type VibeProxyBoundary = { readonly port: number; readonly key: string | undefined; readonly tunnel: VibeProxyTunnel | undefined };
-
 export type ModelsBoundary = {
   readonly ai: AiBinding;
   readonly fetch: FetchFunction;
   readonly vibeProxy: VibeProxyBoundary;
   readonly probeTtlMs?: number;
-};
-
-export const VIBEPROXY_PROVIDER = "vibeproxy";
-
-export const VIBEPROXY_PORT = 8317;
-
-export const VIBEPROXY_NAME = "Claude via VibeProxy";
-
-export const VIBEPROXY_NOT_SET_UP: NotSetUp = {
-  id: VIBEPROXY_PROVIDER,
-  name: VIBEPROXY_NAME,
-  needs: `a paired machine whose runner shares port ${VIBEPROXY_PORT} (KY_RUNNER_PORTS=${VIBEPROXY_PORT}), or the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret`
 };
 
 export const CLAUDE_TOKEN_HERE =

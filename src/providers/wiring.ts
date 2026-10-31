@@ -14,6 +14,10 @@ import * as ChatGpt from "./chatgpt";
 import type { AskLimits, ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, ModelNeed } from "./contract";
 import { Host, Providers, type Resolved } from "./models";
 
+export { notSetUp } from "./sources";
+
+export { vibeProxyFrom } from "./sources/vibeproxy";
+
 type Service = Providers["Service"];
 
 async function answered<A, E extends Refusable, R>(edge: Edge<R>, effect: Effect.Effect<A, E, R>): Promise<A> {

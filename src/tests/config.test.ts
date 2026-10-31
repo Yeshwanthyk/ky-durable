@@ -3,9 +3,9 @@ import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.mode
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { describe, expect, it } from "vitest";
 import { peerLimits } from "../peers/peers";
-import { apiKey, VENDORS } from "../providers/api-key";
+import { apiKey, VENDORS } from "../providers/sources/api-keys";
 import { missing } from "../providers/offer";
-import { VIBEPROXY_OFFER } from "../providers/vibeproxy";
+import { VIBEPROXY_OFFER } from "../providers/sources/vibeproxy";
 import { notSetUp, PiAgent } from "../server";
 
 /**

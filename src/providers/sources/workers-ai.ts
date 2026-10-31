@@ -7,15 +7,15 @@ import {
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
-import { Breaker, type Now } from "./breaker";
-import type { ProviderRecord } from "./contract";
-import type { Endpoint } from "./endpoint";
-import { offered } from "./offer";
-import { sending } from "./transport";
+import { Breaker, type Now } from "../breaker";
+import type { ProviderRecord } from "../contract";
+import type { Endpoint, Source } from "../endpoint";
+import { offered } from "../offer";
+import { sending } from "../transport";
 
 export const WORKERS_AI = "workers-ai";
 
-export const WORKERS_AI_RECORD: ProviderRecord = {
+const WORKERS_AI_RECORD: ProviderRecord = {
   id: WORKERS_AI,
   kind: "workers-ai",
   vendor: null,
@@ -86,3 +86,14 @@ export function workersAI(ai: AiBinding, now: Now): Endpoint {
     connected: () => true
   };
 }
+
+/** Workers AI, through this deploy's AI binding: always there, always last, and the default for background work. */
+export const workersAi: Source = {
+  kind: "workers-ai",
+  priority: 2,
+  background: true,
+  start: ({ boundary, now }) => ({
+    place: () => [WORKERS_AI_RECORD],
+    build: () => workersAI(boundary.ai, now)
+  })
+};
