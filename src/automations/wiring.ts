@@ -101,6 +101,11 @@ export class Automations {
     return this.#say(Automator.use((automator) => automator.pause(id)));
   }
 
+  /** A deleted specialist's workflows become ky's, paused. */
+  handOver(owner: string): Promise<void> {
+    return this.#edge.runPromise(Automator.use((automator) => automator.handOver(owner)));
+  }
+
   stop(id: string): Promise<string> {
     return this.#say(Automator.use((automator) => automator.stop(id)));
   }

@@ -9,11 +9,11 @@ import { Approvals } from "../../src/approvals/approvals";
 import type { ToolPolicy } from "../../src/approvals/contract";
 import { ExecutorApprovals } from "../../src/approvals/executor";
 import { type Desk, forget, move, seat, Sessions } from "../../src/browse/browse";
-import { type Browsers, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
+import { type Browsers, LOGIN_KIND, type LoginVault, ownedLogin, type Seat } from "../../src/browse/contract";
 import { makeEdge } from "../../src/core/edge";
 import { Sql } from "../../src/core/sql";
 import type { CallResult, ExecutorCall } from "../../src/executor/contract";
-import { heldKey } from "../../src/inbound/credentials";
+import { HTTP_KIND, heldKey } from "../../src/inbound/credentials";
 import { isMac } from "../../src/machines/contract";
 import { confine, place } from "../../src/machines/tool";
 import { PROTOCOL } from "../../src/machines/runner-protocol";
@@ -22,7 +22,7 @@ import { OutsideContent } from "../../src/outside/outside";
 import type { MachineInfo } from "../../src/protocol";
 import { type AccessChange, KY, type Machinery, ownedId, ownedOf, SHARED, type Profile, SKILL_TABLES, SpecialistAction, type SessionKind, type Spawn } from "../../src/skills/contract";
 import { MANAGE } from "../../src/skills/specialists";
-import { Specialists } from "../../src/skills/wiring";
+import { deleteSpecialist, Specialists } from "../../src/skills/wiring";
 import { wired } from "../parity/automations/world";
 import { settle, World } from "../parity/machines/world";
 import { storageOf } from "../parity/skills/storage";
@@ -554,6 +554,60 @@ describe("R2 SessionMatchesVault: a live browser session holds only logins its o
   });
 });
 
+/** A workflow an owner saves, on the cloud or a Mac, and maybe runs; a run of an owner's, live or over; a login or key, an owner's, shared, or from before owners. */
+const aWorkflow = fc.record({ owner: anOwner, machine: fc.constantFrom<string | null>(null, ...MACS), run: fc.boolean() });
+
+const aRun = fc.record({ owner: anOwner, live: fc.boolean() });
+
+const anEntry = fc.record({ kind: fc.constantFrom(LOGIN_KIND, HTTP_KIND, "provider"), owner: fc.constantFrom<string | null>(SHARED, null, ...IDS, KY), name: fc.constantFrom("a", "b") });
+
+type Entry = { readonly kind: string; readonly id: string };
+
+/** ky with `drafts`' workflows and `runs` made, and the Vault holding `entries`; what deleting `gone` is handed, and what it should stop. */
+async function deletion(
+  ky: ReturnType<typeof workflows>,
+  gone: string,
+  drafts: ReadonlyArray<typeof aWorkflow extends fc.Arbitrary<infer T> ? T : never>,
+  runs: ReadonlyArray<typeof aRun extends fc.Arbitrary<infer T> ? T : never>,
+  entries: ReadonlyArray<typeof anEntry extends fc.Arbitrary<infer T> ? T : never>
+) {
+  for (const id of IDS) for (const mac of MACS) tried(ky.specialists, id, { mac, grant: true });
+
+  const live: string[] = [];
+
+  for (const draft of drafts) {
+    const id = await ky.save(workflow(draft.owner, draft.machine));
+    const started = ky.started.length;
+
+    if (draft.run && draft.machine !== null) await ky.run(id);
+    const task = ky.started[started]?.task;
+
+    if (task !== undefined && draft.owner === gone) live.push(task);
+  }
+
+  runs.forEach(({ owner, live: going }, n) => {
+    ky.world.feed.create({ id: `t${n}`, kind: "cloud", source: "1", worker: "cloud", title: "a run", status: going ? "working" : "done", session: `s${n}` });
+    ky.specialists.pin(`s${n}`, ky.specialists.profile(owner));
+
+    if (going && owner === gone) live.push(`t${n}`);
+  });
+  const vault = new Map<string, Entry>(entries.map(({ kind, owner, name }) => ({ kind, id: owner === null ? name : ownedId(owner, name) })).map((entry) => [`${entry.kind} ${entry.id}`, entry]));
+  const stopped: string[] = [];
+  const ended: string[] = [];
+
+  const left = {
+    tasks: () => ky.world.feed.list(),
+    stop: async (ids: readonly string[]) => void stopped.push(...ids),
+    kept: { status: async () => [...vault.values()], remove: async (kind: string, id: string) => void vault.delete(`${kind} ${id}`) },
+    browser: async (owner: string) => void ended.push(owner),
+    workflows: ky.side
+  };
+
+  const saved = (await ky.side.list()).map(({ id, owner, status }) => ({ id, owner, status }));
+
+  return { left, live, vault, kept: [...vault.values()], saved, stopped, ended };
+}
+
 describe("R3 DeleteCleans: a deleted specialist has no runs, sessions, logins, keys or Mac grants", () => {
   it("leaves a deleted specialist's conversations its own, with nothing granted", () => {
     fc.assert(
@@ -576,7 +630,32 @@ describe("R3 DeleteCleans: a deleted specialist has no runs, sessions, logins, k
     expect(() => specialists.create("engineer", NEW, "user")).toThrow("@engineer was deleted; pick another id.");
   });
 
-  it.todo("deleting a specialist ends its runs and sessions, removes its logins, keys and grants, and gives its workflows to ky, paused (Phase 4)");
+  it("deleting a specialist stops its runs, ends its browser, removes the logins and keys it kept, and gives its workflows to ky, paused", async () => {
+    await fc.assert(
+      fc.asyncProperty(anId, fc.array(aWorkflow, { maxLength: 5 }), fc.array(aRun, { maxLength: 5 }), fc.array(anEntry, { maxLength: 8 }), async (gone, drafts, runs, entries) => {
+        const ky = workflows();
+
+        try {
+          const before = await deletion(ky, gone, drafts, runs, entries);
+          await deleteSpecialist(ky.specialists, gone, before.left);
+
+          expect(before.stopped.sort()).toEqual(before.live.sort());
+          expect(before.ended).toEqual([gone]);
+          expect([...before.vault.values()]).toEqual(before.kept.filter(({ kind, id }) => kind === "provider" || ownedOf(id).owner !== gone));
+
+          for (const { id, owner, status } of before.saved) {
+            expect(ky.side.get(id)?.owner).toBe(owner === gone ? KY : owner);
+            expect(ky.side.get(id)?.status).toBe(owner === gone && status === "active" ? "paused" : status);
+          }
+
+          await expect(deleteSpecialist(ky.specialists, gone, before.left)).rejects.toThrow(`No specialist @${gone}.`);
+        } finally {
+          ky.world.db.close();
+        }
+      }),
+      { numRuns: 60 }
+    );
+  });
 });
 
 describe("R4 NoSilentFallback: a workflow whose Mac is offline waits and tells; never runs on another machine", () => {

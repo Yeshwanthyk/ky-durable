@@ -42,6 +42,7 @@ import type { Avatars, Setup } from "./avatars/wiring";
 import { decodeVerdict, type DreamLedger, type Memory, type Presence, type Proactivity, type Recall, type Soul } from "./dreaming/contract";
 import type { Verdicts } from "./dreaming/wiring";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
+import { deleteSpecialist, type Leftovers } from "./skills/wiring";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files/wiring";
@@ -246,6 +247,8 @@ export class PiSessionSockets {
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
   readonly #newChat: () => Promise<PiSessionId>;
+  /** The Vault and the browser, for what a deleted specialist leaves. */
+  readonly #leftovers: Pick<Leftovers, "kept" | "browser">;
 
   constructor(
     harness: PiHarness,
@@ -283,6 +286,7 @@ export class PiSessionSockets {
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
+    leftovers: Pick<Leftovers, "kept" | "browser">,
     /** The deploy's version id, sent in each hello. */
     version: string
   ) {
@@ -319,6 +323,7 @@ export class PiSessionSockets {
     this.#spend = spend;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
+    this.#leftovers = leftovers;
     this.#version = version;
     chats.onChange(() => {
       const message = this.#chatsMessage();
@@ -516,6 +521,19 @@ export class PiSessionSockets {
     return refusable(() =>
       message.create ? this.#specialists.create(message.specialist, message.draft, "user") : this.#specialists.set(message.specialist, message.draft)
     );
+  }
+
+  /** The user deletes a specialist; refused when there is none. */
+  async #deleteSpecialist(id: string): Promise<JsonValue> {
+    const left = { tasks: () => this.#feed.list(), stop: (ids: readonly string[]) => this.#stopTasks(ids), workflows: this.#automations, ...this.#leftovers };
+
+    try {
+      await deleteSpecialist(this.#specialists, id, left);
+
+      return {};
+    } catch (error) {
+      return { refused: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** A specialist's brief, to change or read the history of; one that doesn't exist is an error. */
@@ -1086,7 +1104,7 @@ export class PiSessionSockets {
     "specialist-brief": (message) => this.#brief(message.specialist).apply(message.change, "user"),
     "specialist-history": (message) => this.#brief(message.specialist).history(),
     "specialist-access": (message) => refusable(() => this.#specialists.changeAccess(message.specialist, message.change)),
-    "specialist-delete": (message) => refusable(() => this.#specialists.delete(message.specialist)),
+    "specialist-delete": (message) => this.#deleteSpecialist(message.specialist),
     "task-steps": (message) => this.#feed.log(message.task),
     "memory-search": (message) => this.#memory.search(message.query),
     "memory-zoom": (message) => this.#memory.children(message.block),
