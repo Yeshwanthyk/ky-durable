@@ -240,11 +240,11 @@ describe("backup and restore", () => {
 
     // The new deploy's Executor never had the request: the tap expires it, and the chat is told.
     await connectExecutor(target);
-    const [card] = await inside(target, (instance) => instance.approvals.pending());
+    const [card] = await inside(target, (instance) => instance.approvals.cards());
     expect(card).toMatchObject({ kind: "executor", subject: "gmail.send", summary: "send mail to sam" });
     expect(await inside(target, (instance) => instance.approvals.onDecision(card!.id, "accept"))).toEqual({});
     await said(target, "Executor no longer has request request-1: it expired");
-    expect(await inside(target, (instance) => instance.approvals.pending())).toEqual([]);
+    expect(await inside(target, (instance) => instance.approvals.cards())).toEqual([]);
     expect(await inside(target, (instance) => instance.executorApprovals.policyFor("drive.delete"))).toBe("block");
   });
 

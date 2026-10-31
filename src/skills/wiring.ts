@@ -11,6 +11,8 @@ import { Library, REVIEW_AFTER, ReviewLog, skillsExtension, type Watcher } from 
 import { Roster, specialistExtension } from "./specialists";
 import { subagentExtension, subagentProgressExtension } from "./subagents";
 
+export { draftFromDemo } from "./skills";
+
 /** The specialists, with B's methods: a refusal throws in B's words, and storage is the Durable Object's. */
 export class Specialists {
   readonly #edge: Edge<Roster | Versions>;

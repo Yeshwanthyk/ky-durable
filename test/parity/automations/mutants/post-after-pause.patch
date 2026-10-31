@@ -1,8 +1,8 @@
 diff --git a/src/automations/automations.ts b/src/automations/automations.ts
-index 055b204..342b5ff 100644
+index ec116da..0267c6a 100644
 --- a/src/automations/automations.ts
 +++ b/src/automations/automations.ts
-@@ -1032,7 +1032,7 @@ const make = Effect.gen(function* () {
+@@ -1039,7 +1039,7 @@ const make = Effect.gen(function* () {
          if (task?.status === "stopped") return false;
          const status = (yield* get(source.slice(SOURCE.length)))?.status;
  
@@ -10,4 +10,4 @@ index 055b204..342b5ff 100644
 +        return status !== undefined;
        }),
  
-     bookAt: (callback: "machines" | "peers", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+     bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),

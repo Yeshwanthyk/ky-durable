@@ -1,29 +1,56 @@
+import type { Workspace } from "@cloudflare/computer";
+import type { BrowserContext, BrowserWorker, Browser as CloudBrowser, Page } from "@cloudflare/playwright";
 import { Type } from "@earendil-works/pi-ai";
-import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
-import type { BrowserWorker } from "@cloudflare/playwright";
+import { type ConversationId, defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { makeEdge } from "../core/edge";
-import { isRefusal } from "../core/refusal";
+import * as Semaphore from "effect/Semaphore";
+import type { Approval, ApprovalHandler, Asker, Settle } from "../approvals/approvals";
+import { type ApprovalAction, NOBODY_ANSWERED } from "../approvals/contract";
+import { type Edge, makeEdge } from "../core/edge";
+import { isRefusal, type Refusal } from "../core/refusal";
 import { toolReply as reply } from "../core/reply";
+import { Sql } from "../core/sql";
+import { spillPath } from "../guardrails";
+import type { Drafted, NoDraft } from "../skills/contract";
+import { type Desk, type Finished, finish, forget, handOff, savedSites, seat, Sessions, siteOfUrl } from "./browse";
 import {
   type Args,
+  type Browser,
+  type BrowserPage,
+  type Browsers,
   Failed,
+  Handoff,
+  type Launch,
+  type LoginVault,
+  OnlyInChat,
   NotAPdf,
   NothingToRead,
   PageRead,
   type Part,
   PdfAnswered,
+  type Recorded,
   PdfInfo,
   type Reply,
+  type Response,
+  type Seat,
   type Step,
   Stopped,
+  StorageState,
+  type BrowserTab,
   TookTooLong,
   TooLarge
 } from "./contract";
+import { readDocument } from "./document";
+import { demoText, keepRecording, readLog, readRecording, RECORDER, recorder, recordingOf, showed } from "./teach";
+
+export type { Browser, BrowserPage, Launch } from "./contract";
+
+export { browseRoute } from "./routes";
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
@@ -45,6 +72,16 @@ const MAX_LINKS = 60;
 
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
+const USABLE_CHARS = 200;
+
+const LONG_TEXT = 20_000;
+
+const HEAD_CHARS = 4_000;
+
+const MAX_HEADINGS = 60;
+
+const KEEP_ALIVE_MS = 600_000;
+
 const DOWNLOADED = /Download is starting|net::ERR_ABORTED/;
 
 const StepParameter = Type.Object({
@@ -57,37 +94,23 @@ const StepParameter = Type.Object({
 
 type Shown = { headers(): Record<string, string>; body(): Promise<Uint8Array> };
 
-type Response = Shown & { ok(): boolean; status(): number; url(): string };
+type Save = (bytes: Uint8Array, type?: string) => Promise<string>;
 
-type Locator = {
-  click(options: { timeout: number }): Promise<void>;
-  fill(value: string, options: { timeout: number }): Promise<void>;
-  press(key: string, options: { timeout: number }): Promise<void>;
+type Read = { reply: Reply; usable: boolean; long?: { text: string; outlined: (path: string) => Reply } };
+
+export type BrowseDesk = {
+  readonly browsers: Browsers;
+  readonly vault: () => LoginVault;
+  readonly save: Save;
+  readonly workspace: Pick<Workspace, "fs">;
+  readonly reads: (conversation: ConversationId) => boolean;
+  readonly chat: (session: string) => boolean;
+  readonly asker: Pick<Asker, "requestApproval">;
+  readonly tell: (session: string, content: string, requestId: string) => Promise<void>;
+  /** A skill drafted from a show-me hand-off's recording, in a skill review of the chat (src/skills/skills.ts). */
+  readonly draft: (session: string, demo: string) => Effect.Effect<Drafted, NoDraft>;
+  readonly later: (work: Promise<void>) => void;
 };
-
-type CdpSession = {
-  send(method: "Page.captureScreenshot", params: { format: "png"; captureBeyondViewport: boolean }): Promise<{ data: string }>;
-  detach(): Promise<void>;
-};
-
-export interface BrowserPage {
-  goto(url: string, options: { waitUntil: "domcontentloaded"; timeout: number }): Promise<Response | null>;
-  waitForLoadState(state: "networkidle" | "domcontentloaded", options: { timeout: number }): Promise<void>;
-  evaluate(read: (maxLinks: number) => PageRead, maxLinks: number): Promise<PageRead>;
-  url(): string;
-  locator(selector: string): { first(): Locator };
-  context(): { newCDPSession(page: Pick<BrowserPage, "url">): Promise<CdpSession> };
-}
-
-export type Browser = {
-  newPage(options: { viewport: { width: number; height: number } }): Promise<BrowserPage>;
-  close(): Promise<void>;
-  _connection?: { toImpl?(browser: Browser): { _connection?: { _transport?: { close(): void } } } };
-};
-
-export type Launch = () => Promise<Browser>;
-
-type Save = (png: Uint8Array) => Promise<string>;
 
 const failed = (cause: unknown) => new Failed({ said: cause instanceof Error ? cause.message : String(cause) });
 
@@ -97,38 +120,373 @@ function within<A>(ms: number, what: string, work: () => Promise<A>) {
   return Effect.tryPromise({ try: work, catch: failed }).pipe(Effect.timeoutOrElse({ duration: ms, orElse: tookTooLong(ms, what) }));
 }
 
-export function browseExtension(binding: BrowserWorker, save: Save): Extension {
-  const edge = makeEdge(Layer.empty);
-  const launch: Launch = () => import("@cloudflare/playwright").then((playwright) => playwright.launch(binding, { browser: "kitesurf" }));
+const HandoffArgs = Type.Object({
+  url: Type.Optional(Type.String({ description: "The page to hand over, such as the site's sign-in page. Leave it out for the page the last hand-off left open." })),
+  instructions: Type.String({
+    maxLength: 500,
+    description: "One sentence the user reads on the card: what to do and why, e.g. \"Sign in to GitHub so I can read your notifications.\""
+  }),
+  teach: Type.Optional(
+    Type.Boolean({
+      description: "Show me: ky records what the user clicks, types and sends while they do the task, and drafts a skill from it once they're done. Use it when the user offers to show you how."
+    })
+  )
+});
 
-  return defineExtension({
+const RECORDING_NOTE = "ky records what you click and type to learn it, never a password, code or card number.";
+
+const CHOSE: Readonly<Record<ApprovalAction, string>> = { accept: "finished", decline: "couldn't do it", cancel: "cancelled the hand-off" };
+
+const handoffOf = Schema.decodeUnknownOption(Handoff);
+
+const shortUrl = (url: string) => Option.getOrElse(Option.map(Option.liftThrowable(() => new URL(url))(), (parsed) => `${parsed.origin}${parsed.pathname}`), () => url);
+
+/**
+ * browse, and the browser the user hands over: ky's one Chromium session, kept alive and found again by the id in
+ * ky_browser_session; the sites' logins the user signed in to there, kept in the Vault and restored into a new one.
+ */
+export class Browsing {
+  readonly #edge: Edge<Sessions>;
+  readonly #desk: Desk;
+  readonly #save: Save;
+  readonly #keep: BrowseDesk;
+
+  constructor(storage: DurableObjectStorage, desk: BrowseDesk) {
+    this.#edge = makeEdge(Sessions.layer.pipe(Layer.provide(Sql.layer(storage))));
+    this.#desk = { browsers: desk.browsers, vault: desk.vault, lock: Semaphore.makeUnsafe(1) };
+    this.#save = desk.save;
+    this.#keep = desk;
+    this.#edge.run(Effect.void);
+  }
+
+  readonly #chromium: Launch = async () => {
+    const opened = await this.#edge.runPromise(seat(this.#desk));
+
+    if (isRefusal(opened)) throw new Error(opened.refused);
+
+    return seated(opened);
+  };
+
+  /** One browse call: on Chromium for a site with a saved login, else Kitesurf first and Chromium when it can't read the page. */
+  read(args: Args, conversation: ConversationId, call: string, signal?: AbortSignal) {
+    const chromium = browse(this.#chromium, args, true);
+    const desk = this.#desk;
+
+    return Effect.gen(function* () {
+      const signed = (yield* savedSites(desk.vault)).has(siteOfUrl(args.url) ?? "");
+
+      return yield* signed ? chromium : fallback(browse(desk.browsers.kitesurf, args, true), chromium);
+    }).pipe(
+      Effect.timeoutOrElse({ duration: CALL_TIMEOUT_MS, orElse: tookTooLong(CALL_TIMEOUT_MS, "the whole browse call") }),
+      Effect.raceFirst(stoppedBy(signal)),
+      Effect.flatMap((read) => this.#outlined(read, conversation, call)),
+      Effect.flatMap((result) => keepShots(result, this.#save))
+    );
+  }
+
+  #outlined(read: Read, conversation: ConversationId, call: string) {
+    const { long } = read;
+
+    if (long === undefined || !this.#keep.reads(conversation)) return Effect.succeed(read.reply);
+    const path = spillPath(conversation, `${call}-page`);
+    const { fs } = this.#keep.workspace;
+
+    return Effect.tryPromise(async () => {
+      await fs.mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+      await fs.writeFile(path, long.text);
+    }).pipe(
+      Effect.as(long.outlined(path)),
+      Effect.orElseSucceed(() => read.reply)
+    );
+  }
+
+  readonly extension: Extension = defineExtension({
     name: "browse",
     tools: [
       defineTool({
         name: "browse",
         description:
-          "Open a URL in a cloud browser (no user logins) and read it: title, final URL, visible text and links, optionally a screenshot; " +
-          "returns the page's main content; reads PDFs as text. " +
+          "Open a URL in a cloud browser and read it: title, final URL, visible text and links, optionally a screenshot; " +
+          "returns the page's main content, or for a long page its outline and start with the whole text in a file; reads PDFs as text. " +
           "steps run in order after the page loads: click, fill, press or wait. " +
-          "Use it when Exa web search cannot read a page: it needs JavaScript, a click or a form. Use a machine only when the page needs the user's logins.",
+          "A site the user signed in to through browse_handoff is read signed in, in ky's own browser. " +
+          "Use it when Exa web search cannot read a page: it needs JavaScript, a click or a form. Use a machine only when the page needs the user's logins on their computer.",
         parameters: Type.Object({
           url: Type.String(),
           steps: Type.Optional(Type.Array(StepParameter, { maxItems: 20 })),
           screenshot: Type.Optional(Type.Boolean({ description: "Attach a PNG of the viewport." }))
         }),
         replay: "safe",
-        execute: async (args, _api, context) => {
-          const result = await edge.runPromise(browseCall(launch, args, save, context.abortSignal));
+        execute: async (args, api, context) => {
+          const result = await this.#edge.runPromise(this.read(args, api.conversationId, api.callId, context.abortSignal));
 
           return isRefusal(result) ? reply(`Could not browse ${args.url}: ${result.refused}`, true) : result;
         }
       })
     ]
   });
+
+  /** A hand-off: the page opened in ky's browser, handed to the user, and a card in the chat to take it over. */
+  async handOff(session: string, args: { readonly url?: string | undefined; readonly instructions: string; readonly teach?: boolean | undefined }) {
+    if (!this.#keep.chat(session)) return reply(new OnlyInChat().refusal, true);
+    const started = await this.#edge.runPromise(handOff(this.#desk, args));
+
+    if (isRefusal(started)) return reply(`Could not hand the browser over: ${started.refused}`, true);
+    const { handoff, view } = started;
+
+    const summary = view.teach === undefined ? view.instructions : `${view.instructions} ${RECORDING_NOTE}`;
+    this.#keep.asker.requestApproval({ kind: "browser-handoff", ref: handoff, subject: view.site, summary, payload: view, conversation: session });
+    const after = view.teach === undefined ? "you're told the page they end on once they're done" : "once they're done, ky drafts a skill from what they did and tells you its name";
+
+    return {
+      ...reply(`${view.site} is open in ky's browser, and the user has a card to take it over. Your turn ends here; ${after}.`),
+      control: { terminate: true }
+    };
+  }
+
+  readonly handoffExtension: Extension = defineExtension({
+    name: "browse-handoff",
+    tools: [
+      defineTool({
+        name: "browse_handoff",
+        description:
+          "Hand ky's cloud browser to the user for what only they can do there: sign in, pass a code or CAPTCHA check, accept terms. " +
+          "It opens url in ky's browser and shows the user a card: they take the live page over, then tap I'm done or I couldn't. " +
+          "Your turn ends here; you're told the page they ended on. Once they're done ky keeps that site's login in its Vault, never shown to you, " +
+          "and browse reads the site signed in from then on. teach: true records what they do, to draft a skill from it. Only in a chat with the user.",
+        parameters: HandoffArgs,
+        replay: "unsafe",
+        execute: (args, api) => this.handOff(String(api.conversationId), args)
+      })
+    ]
+  });
+
+  readonly handler: ApprovalHandler = {
+    decide: (approval, action, settle) => this.#decided(approval, action, settle),
+    lost: (approval, action) =>
+      this.#told(approval, `[the user ${CHOSE[action]} in ky's browser: ${approval.summary}] ky restarted before it finished, so the card is back in the chat.`),
+    lapsed: (approval) => this.#told(approval, `[${NOBODY_ANSWERED} to take over ky's browser: ${approval.summary}] Its card shows expired. Ask again if it still matters.`)
+  };
+
+  async #decided(approval: Approval, action: ApprovalAction, settle: Settle): Promise<void> {
+    const view = handoffOf(approval.payload);
+
+    if (Option.isNone(view)) {
+      settle.expire();
+
+      return this.#told(approval, `[ky couldn't end the hand-off the user ${CHOSE[action]}: ${approval.summary}.]`);
+    }
+
+    const done = await this.#edge.runPromise(finish(this.#desk, view.value, action === "accept"));
+    const told = toldOf(view.value, action, done);
+    const { teach } = view.value;
+
+    if (teach === undefined) return this.#told(approval, told);
+    const recorded = Option.flatMap(done, (finished) => finished.recorded);
+
+    if (action !== "accept" || Option.isNone(recorded)) return this.#told(approval, `${told} No skill was made from it.`);
+    const kept = await this.#edge.runPromise(this.#kept(view.value, recorded.value, teach.from));
+
+    if (isRefusal(kept)) return this.#told(approval, `${told} ky couldn't keep what the user did (${kept.refused}), so no skill was made.`);
+
+    if (kept.path === undefined) return this.#told(approval, `${told} ky saw nothing the user did there, so no skill was made.`);
+    const { path, demo } = kept;
+
+    this.#keep.later(
+      this.#edge
+        .runPromise(this.#keep.draft(approval.conversation, demo))
+        .then((drafted) => this.#told(approval, `${told} ${draftedOf(drafted, path)}`))
+        .catch((error) => console.warn("demo skill not drafted", approval.id, error))
+    );
+  }
+
+  #kept(view: Handoff, recorded: Recorded, from: number) {
+    const { fs } = this.#keep.workspace;
+
+    return Effect.gen(function* () {
+      const recording = recordingOf(recorded, from, { site: view.site, instructions: view.instructions, at: yield* Clock.currentTimeMillis });
+
+      if (!showed(recording)) return { path: undefined };
+      const path = yield* keepRecording(fs, recording);
+
+      return { path, demo: demoText(yield* readRecording(fs, path), path) };
+    });
+  }
+
+  #told(approval: Approval, content: string): Promise<void> {
+    return this.#keep.tell(approval.conversation, content, `handoff:${approval.id}:${crypto.randomUUID()}`);
+  }
+
+  /** After a login is removed: the session that holds it ends, and the next one restores the logins still kept. */
+  forget(): Promise<void> {
+    return this.#edge.runPromise(forget(this.#desk));
+  }
+}
+
+function draftedOf(drafted: Drafted | Refusal, path: string): string {
+  const kept = `The recording is in ${path}.`;
+
+  if (isRefusal(drafted)) return `ky couldn't draft a skill from what they showed: ${drafted.refused}. ${kept}`;
+  const changed = [...new Set(drafted.changed.map((version) => version.name))];
+  const also = changed.length === 0 ? "" : ` It also changed ${changed.join(", ")}: skill_view history shows each version, and skill_manage revert undoes one.`;
+
+  if (drafted.draft === undefined) return `ky made no new skill from what they showed.${also} ${kept}`;
+  const name = drafted.draft;
+
+  return (
+    `From what they showed, ky drafted the skill ${name}, kept archived so nothing uses it yet. ` +
+    `Tell the user in a line what it does and ask if it's right (skill_view ${name} shows it). On yes, make any edit they ask for, then turn it on with skill_manage restore; on no, leave it archived.${also} ${kept}`
+  );
+}
+
+function toldOf(view: Handoff, action: ApprovalAction, done: Option.Option<Finished>): string {
+  const head = `[the user ${CHOSE[action]} in ky's browser: ${view.instructions}]`;
+
+  if (action !== "accept") return `${head} Don't hand it over again unless they ask.`;
+
+  if (Option.isNone(done)) return `${head} ky's browser session had ended, so nothing was kept. Hand it over again if it's still needed.`;
+  const { title, url, saved } = done.value;
+  const page = `The page is now ${title ? `"${title}", ` : ""}${shortUrl(url)}.`;
+
+  if (saved.length === 0) return `${head} ${page} Nothing was signed in to keep.`;
+
+  return `${head} ${page} ky keeps the login for ${saved.join(", ")} in its Vault: browse reads ${saved.length === 1 ? "that site" : "those sites"} signed in from now on.`;
+}
+
+function fallback<E>(kitesurf: Effect.Effect<Read, E>, chromium: Effect.Effect<Read, E>) {
+  return kitesurf.pipe(
+    Effect.matchEffect({
+      onFailure: () => chromium,
+      onSuccess: (read) => (read.usable ? Effect.succeed(read) : chromium.pipe(Effect.orElseSucceed(() => read)))
+    })
+  );
+}
+
+function seated(opened: Seat): Browser {
+  const tabs: BrowserTab[] = [];
+
+  return {
+    newPage: async () => {
+      const tab = await opened.newTab();
+      tabs.push(tab);
+
+      return tab;
+    },
+    close: async () => {
+      await Promise.allSettled(tabs.map((tab) => tab.close()));
+      await opened.close();
+    }
+  };
+}
+
+/** Browser Run, through its binding: Kitesurf for a quick read, and ky's Chromium session by its id. */
+export function cloudBrowsers(binding: BrowserWorker): Browsers {
+  const playwright = () => import("@cloudflare/playwright");
+
+  return {
+    kitesurf: () => playwright().then((loaded) => loaded.launch(binding, { browser: "kitesurf" })),
+    acquire: async () => (await (await playwright()).acquire(binding, { keep_alive: KEEP_ALIVE_MS })).sessionId,
+    connect: async (session) => {
+      const options = { sessionId: session, persistent: true };
+      const browser = await (await playwright()).connect(binding, options);
+      const context = browser.contexts()[0];
+
+      if (context !== undefined) return seatOf(browser, context);
+      await browser.close();
+
+      throw new Error("the session has no browser context");
+    }
+  };
+}
+
+function seatOf(browser: CloudBrowser, context: BrowserContext): Seat {
+  const cdp = async <A>(page: Page, work: (session: Awaited<ReturnType<BrowserContext["newCDPSession"]>>) => Promise<A>) => {
+    const session = await context.newCDPSession(page);
+
+    try {
+      return await work(session);
+    } finally {
+      await session.detach().catch(() => undefined);
+    }
+  };
+
+  const targetOf = (page: Page) => cdp(page, async (session) => (await session.send("Target.getTargetInfo")).targetInfo.targetId);
+  const pageOf = (tab: BrowserTab) => context.pages().find((page) => page === tab);
+
+  const on = <A>(tab: BrowserTab, work: (session: Awaited<ReturnType<BrowserContext["newCDPSession"]>>) => Promise<A>) => {
+    const page = pageOf(tab);
+
+    return page === undefined ? Promise.reject(new Error("the page closed")) : cdp(page, work);
+  };
+
+  return {
+    newTab: async () => {
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      return page;
+    },
+    lastTab: async () => context.pages().findLast((page) => page.url() !== "about:blank"),
+    tab: async (target) => {
+      for (const page of context.pages()) if ((await targetOf(page).catch(() => undefined)) === target) return page;
+
+      return undefined;
+    },
+    handoff: (tab, instructions, ms) =>
+      on(tab, async (session) => {
+        const started = await session.send("Cloudflare.handoff", { instructions, timeout: ms });
+
+        return { target: started.targetId, handoff: started.handoffId };
+      }),
+    liveView: (tab, ms) => on(tab, async (session) => (await session.send("Cloudflare.getLiveView", { mode: "tab", expiresInMs: ms })).devtoolsFrontendUrl),
+    complete: (tab, success) => on(tab, async (session) => void (await session.send("Cloudflare.handoffComplete", { success }))),
+    record: async (tab) => {
+      const page = pageOf(tab);
+
+      if (page === undefined) throw new Error("the page closed");
+      await page.addInitScript(recorder, RECORDER);
+      await Promise.allSettled(page.frames().map((frame) => frame.evaluate(recorder, RECORDER)));
+
+      return (await cdp(page, (session) => session.send("Page.getNavigationHistory"))).currentIndex;
+    },
+    recorded: async (tab) => {
+      const page = pageOf(tab);
+
+      if (page === undefined) throw new Error("the page closed");
+      const logs = await Promise.allSettled(page.frames().map((frame) => frame.evaluate(readLog, RECORDER)));
+      const history = await cdp(page, (session) => session.send("Page.getNavigationHistory"));
+
+      return { logs: logs.flatMap((log) => (log.status === "fulfilled" ? [log.value] : [])), history };
+    },
+    storageState: async () => Schema.decodeUnknownPromise(StorageState)(await context.storageState()),
+    restore: async (state) => {
+      await context.addCookies([...state.cookies]);
+
+      for (const { origin, localStorage: items } of state.origins) {
+        if (items.length === 0) continue;
+        const page = await context.newPage();
+
+        try {
+          await page.goto(origin, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+          await page.evaluate((kept) => kept.forEach((item) => localStorage.setItem(item.name, item.value)), [...items]);
+        } catch {
+          // A login's cookies are kept even when its origin's storage can't be.
+        } finally {
+          await page.close().catch(() => undefined);
+        }
+      }
+    },
+    end: async () => {
+      const session = await browser.newBrowserCDPSession();
+      await session.send("Browser.close").catch(() => undefined);
+    },
+    close: () => browser.close()
+  };
 }
 
 export function browseCall(launch: Launch, args: Args, save: Save, signal?: AbortSignal) {
-  return browse(launch, args).pipe(
+  return browse(launch, args, false).pipe(
+    Effect.map((read) => read.reply),
     Effect.timeoutOrElse({ duration: CALL_TIMEOUT_MS, orElse: tookTooLong(CALL_TIMEOUT_MS, "the whole browse call") }),
     Effect.raceFirst(stoppedBy(signal)),
     Effect.flatMap((result) => keepShots(result, save))
@@ -164,10 +522,10 @@ export function keepShots(result: Reply, save: Save) {
   }).pipe(Effect.map((parts) => ({ ...result, output: parts.flat() })));
 }
 
-function browse(launch: Launch, args: Args) {
+function browse(launch: Launch, args: Args, outline: boolean) {
   return Effect.acquireUseRelease(
     Effect.try({ try: launch, catch: failed }),
-    (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args))),
+    (launching) => within(OPERATION_TIMEOUT_MS, "starting the browser", () => launching).pipe(Effect.flatMap((browser) => readPage(browser, args, outline))),
     (launching) =>
       Effect.forkDetach(Effect.tryPromise(() => launching).pipe(Effect.flatMap(closeBrowser), Effect.ignore)).pipe(
         Effect.flatMap((closing) => Fiber.join(closing).pipe(Effect.interruptible, Effect.timeoutOption(CLOSE_TIMEOUT_MS))),
@@ -176,7 +534,7 @@ function browse(launch: Launch, args: Args) {
   );
 }
 
-function readPage(browser: Browser, args: Args) {
+function readPage(browser: Browser, args: Args, outline: boolean) {
   return Effect.gen(function* () {
     const page = yield* within(OPERATION_TIMEOUT_MS, "opening a page", () => browser.newPage({ viewport: { width: 1280, height: 900 } }));
 
@@ -190,31 +548,49 @@ function readPage(browser: Browser, args: Args) {
 
     yield* Effect.tryPromise(() => page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS })).pipe(Effect.ignore);
 
-    if (downloaded || reached(false, response?.headers()["content-type"]) === "pdf") return yield* pdfReply(response?.url() ?? args.url, response, args);
+    if (downloaded || reached(false, response?.headers()["content-type"]) === "pdf") {
+      return { reply: yield* pdfReply(response?.url() ?? args.url, response, args), usable: true } satisfies Read;
+    }
 
     for (const [index, step] of (args.steps ?? []).entries()) {
       const stepFailed = yield* runStep(page, step).pipe(Effect.match({ onFailure: (error) => error.said, onSuccess: () => undefined }));
 
-      if (stepFailed !== undefined) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true);
+      if (stepFailed !== undefined) return { reply: reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true), usable: true } satisfies Read;
     }
 
     const read = yield* within(OPERATION_TIMEOUT_MS, "reading the page", () => page.evaluate(readDocument, MAX_LINKS)).pipe(
       Effect.flatMap((raw) => Schema.decodeUnknownEffect(PageRead)(raw).pipe(Effect.mapError((error) => new Failed({ said: error.message }))))
     );
 
-    const output: Part[] = [{ type: "text", text: summaryOf(read, page.url(), response) }];
+    const shots: Part[] = args.screenshot ? [yield* screenshot(page)] : [];
 
-    if (args.screenshot) output.push(yield* screenshot(page));
-
-    return { output, isError: false };
+    return readOf(read, page.url(), response, shots, outline);
   });
 }
 
-function summaryOf(read: typeof PageRead.Type, url: string, response: Response | null): string {
+function readOf(read: PageRead, url: string, response: Response | null, shots: Part[], outline: boolean): Read {
+  const usable = read.text.length >= USABLE_CHARS && (response === null || response.status() < 400);
+  const replyWith = (body: string): Reply => ({ output: [{ type: "text", text: summaryOf(read, url, response, body) }, ...shots], isError: false });
+  const whole = replyWith(cut(read.text));
+
+  if (!outline || read.text.length <= LONG_TEXT) return { reply: whole, usable };
+
+  return { reply: whole, usable, long: { text: read.text, outlined: (path) => replyWith(outlineOf(read, path)) } };
+}
+
+function summaryOf(read: PageRead, url: string, response: Response | null, body: string): string {
   const status = response && !response.ok() ? ` (HTTP ${response.status()})` : "";
   const links = read.links.length === 0 ? "" : `Links:\n${read.links.map((link) => `- ${link.text}: ${link.href}`).join("\n")}`;
 
-  return [`${read.title}\n${url}${status}`, cut(read.text), links].filter(Boolean).join("\n\n");
+  return [`${read.title}\n${url}${status}`, body, links].filter(Boolean).join("\n\n");
+}
+
+function outlineOf(read: PageRead, path: string): string {
+  const headings = (read.headings ?? []).slice(0, MAX_HEADINGS).map((heading) => `${"#".repeat(Math.min(Math.max(heading.level, 1), 6))} ${heading.text}`);
+  const outline = headings.length === 0 ? "" : `Outline:\n${headings.join("\n")}`;
+  const kept = `[The page's text is ${read.text.length} characters; above are its first ${HEAD_CHARS}. The whole text is in ${path}: read it with \`read\` or search it with \`grep\`.]`;
+
+  return [outline, read.text.slice(0, HEAD_CHARS), kept].filter(Boolean).join("\n\n");
 }
 
 function screenshot(page: BrowserPage) {
@@ -389,52 +765,4 @@ function closeBrowser(browser: Browser) {
     browser._connection?.toImpl?.(browser)?._connection?._transport?.close();
     yield* Effect.promise(() => closing);
   });
-}
-
-export function readDocument(maxLinks: number): PageRead {
-  const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")]
-    .flatMap((a) => {
-      const text = (a.textContent ?? "").trim().replace(/\s+/g, " ");
-
-      return text && a.href.startsWith("http") ? [{ text, href: a.href }] : [];
-    })
-    .slice(0, maxLinks);
-
-  const body = document.body;
-
-  if (!body) return { title: document.title, text: "", links };
-  const all = body.innerText;
-
-  const largest = [...document.querySelectorAll<HTMLElement>("main, article, [role=main]")]
-    .flatMap((element) =>
-      element.checkVisibility({ visibilityProperty: true }) ||
-      (getComputedStyle(element).display === "contents" && element.parentElement?.checkVisibility({ visibilityProperty: true }) === true)
-        ? [{ element, length: element.innerText.length }]
-        : []
-    )
-    .sort((a, b) => b.length - a.length)[0];
-
-  const root = largest && largest.length >= all.length * 0.4 ? largest.element : body;
-  const copy = root.cloneNode(true);
-
-  if (!(copy instanceof HTMLElement)) return { title: document.title, text: all, links };
-
-  copy
-    .querySelectorAll(
-      "nav, header:not(article header), footer, aside, iframe, video, audio, [role=navigation], [role=banner], " +
-        "[role=contentinfo], [aria-hidden=true], [id*=cookie i], [class*=cookie i], [id*=consent i], [class*=consent i]"
-    )
-    .forEach((element) => element.remove());
-
-  copy.style.cssText = `position: fixed; top: 0; left: -100000px; width: ${root.clientWidth || document.documentElement.clientWidth}px`;
-  body.appendChild(copy);
-  let text = "";
-
-  try {
-    text = copy.innerText.replace(/\n{3,}/g, "\n\n").trim();
-  } finally {
-    copy.remove();
-  }
-
-  return { title: document.title, text: text.length < 200 ? all : text, links };
 }

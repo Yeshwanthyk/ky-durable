@@ -1,9 +1,9 @@
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readDocument } from "../../src/browse/wiring";
+import { readDocument } from "../../src/browse/document";
 
 /**
- * What the browse tool reads from a page (src/browse.ts `readDocument`), run in real Chromium as
+ * What the browse tool reads from a page (src/browse/document.ts `readDocument`), run in real Chromium as
  * Kitesurf runs it: innerText follows the layout, which no fake DOM does.
  */
 

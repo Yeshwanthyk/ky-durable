@@ -30,8 +30,8 @@ describe("approval rows written at B", () => {
       }
     }
 
-    const approvals = new Approvals(storageOf(db), { present: () => false, home: () => "here", notify: () => {}, defer: () => {} });
-    const executor = new ExecutorApprovals(storageOf(db), approvals, { config: async () => null, present: () => false, tell: async () => {} });
+    const approvals = new Approvals(storageOf(db), { present: () => false, home: () => "here", notify: () => {}, defer: () => {}, later: () => {} });
+    const executor = new ExecutorApprovals(storageOf(db), approvals, { config: async () => null, present: () => false, unattended: () => false, tell: async () => {} });
 
     expect(JSON.stringify(readsOf({ approvals, executor }), null, 2)).toBe(JSON.stringify(atB.reads, null, 2));
     db.close();

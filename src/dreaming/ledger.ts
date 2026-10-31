@@ -9,7 +9,7 @@ import { Sql } from "../core/sql";
 import { isMachine, type SkillWrite } from "../skills/contract";
 import type { Reviews, Skills } from "../skills/wiring";
 import type { DreamLedgerRow } from "./contract";
-import type { Memory, MemoryForget } from "./memory";
+import type { Memory, MemoryForget, MemoryNoted } from "./memory";
 
 const DESTRUCTIVE: ReadonlySet<string> = new Set(["edit", "patch", "archive", "revert", "forget"]);
 
@@ -96,6 +96,7 @@ export class Ledger extends Context.Service<
     readonly skillWrite: (write: SkillWrite) => Effect.Effect<number, AlreadyChanged>;
     readonly landed: (id: number, version: number) => Effect.Effect<void>;
     readonly forget: (forget: MemoryForget) => Effect.Effect<void, AlreadyChanged>;
+    readonly noted: (noted: MemoryNoted) => Effect.Effect<void, AlreadyChanged>;
     readonly lastNight: Effect.Effect<DreamLedgerRow[]>;
     readonly undo: (id: number) => Effect.Effect<string, NoChange | AlreadyUndone | ChangedSince | PinnedSince | Refused>;
   }
@@ -189,6 +190,15 @@ export class Ledger extends Context.Service<
             const run = yield* Effect.sync(() => reviews.run(conversation));
             yield* record({ run, actor: kind, kind: "memory", action: "forget", target: block, before: text, reason: null, absorbed_into: null }, yield* Clock.currentTimeMillis);
           }),
+          // A background run's note is undone by a later one that withdraws it: the log is append-only.
+          noted: Effect.fn("Ledger.noted")(function* ({ id, text, conversation }) {
+            if (conversation === null) return;
+            const kind = yield* Effect.sync(() => reviews.kind(conversation));
+
+            if (kind === undefined) return;
+            const run = yield* Effect.sync(() => reviews.run(conversation));
+            yield* record({ run, actor: kind, kind: "memory", action: "note", target: `#${id}`, before: text, reason: null, absorbed_into: null }, yield* Clock.currentTimeMillis);
+          }),
           lastNight: rows(`SELECT * FROM ky_dream_ledger WHERE ${DREAMS} AND at > (SELECT MAX(at) FROM ky_dream_ledger WHERE ${DREAMS}) - ? ORDER BY id`, NIGHT_MS),
           undo: Effect.fn("Ledger.undo")(function* (id) {
             const [row] = yield* rows("SELECT * FROM ky_dream_ledger WHERE id = ?", id);
@@ -196,7 +206,8 @@ export class Ledger extends Context.Service<
             if (!row) return yield* new NoChange({ id });
 
             if (row.undone_at !== null) return yield* new AlreadyUndone({ actor: row.actor, action: row.action, target: row.target });
-            const done = row.kind === "memory" ? yield* Effect.try({ try: () => memory.renote(String(row.before)), catch: refusedBy }) : yield* undoSkill(row);
+            const restore = row.action === "note" ? `Withdrawn: ${row.target} no longer holds; the user took back ky's note "${String(row.before)}".` : String(row.before);
+            const done = row.kind === "memory" ? yield* Effect.try({ try: () => memory.renote(restore), catch: refusedBy }) : yield* undoSkill(row);
             yield* exec("UPDATE ky_dream_ledger SET undone_at = ? WHERE id = ?", yield* Clock.currentTimeMillis, id);
 
             return done;
@@ -214,6 +225,7 @@ export class DreamLedger {
     this.#edge.run(Effect.void);
     deps.skills.onWrite((write) => (isMachine(write.actor) ? this.#skillWrite(write) : undefined));
     deps.memory.onForget((forget) => runOrThrow(this.#edge, Ledger.use((ledger) => ledger.forget(forget))));
+    deps.memory.onNote((noted) => runOrThrow(this.#edge, Ledger.use((ledger) => ledger.noted(noted))));
   }
 
   #skillWrite(write: SkillWrite): (version: number) => void {

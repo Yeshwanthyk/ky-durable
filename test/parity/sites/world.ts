@@ -2,9 +2,16 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Extension, ToolExecutionApi } from "@earendil-works/pi-durable";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { DatabaseSync } from "node:sqlite";
 import { vi } from "vitest";
 import type { Json } from "../kit";
+import { storageOf } from "../skills/storage";
 import type { SiteBody, SiteBucket, SiteFiles, SiteObject } from "../../../src/sites/contract";
+import { LivingSites } from "../../../src/sites/wiring";
+
+/** The sites' SQL over `bucket`, in memory; nothing here tells a chat or books a flush. */
+export const livingOf = (bucket: SiteBucket) =>
+  new LivingSites(storageOf(new DatabaseSync(":memory:")), { bucket, chat: () => true, tell: async () => {}, flushAt: async () => {} });
 
 const text = new TextDecoder();
 

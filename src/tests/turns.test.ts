@@ -61,14 +61,16 @@ describe("buildTurns", () => {
     const messages: PiMessage[] = [
       { id: "u", role: "user", parts: [{ type: "text", text: "Hi" }], timestamp: 1_000 },
       { id: "a", role: "assistant", parts: [{ type: "text", text: "Hello." }], timestamp: 2_000, stopReason: "stop" },
-      { id: "p", role: "assistant", parts: [{ type: "text", text: "Kai: warm jacket." }], timestamp: later, stopReason: "stop", posted: true },
+      { id: "p", role: "assistant", parts: [{ type: "text", text: "Kai: warm jacket." }], timestamp: later, stopReason: "stop", posted: true, post: "look:2026-10-30:08:00:memory:3" },
       { id: "r", role: "assistant", parts: [{ type: "text", text: "A run's answer after it." }], timestamp: later + 1, stopReason: "stop" }
     ];
 
     const [turn, post, after] = buildTurns(messages, null, false, []);
 
     expect(turn).toMatchObject({ id: "u", endedAt: new Date(2_000).toISOString(), items: [{ kind: "text", text: "Hello.", final: true }] });
-    expect(post).toMatchObject({ id: "p", user: "", items: [{ kind: "text", text: "Kai: warm jacket.", final: true }] });
+    expect(post).toMatchObject({ id: "p", user: "", post: "look:2026-10-30:08:00:memory:3", items: [{ kind: "text", text: "Kai: warm jacket.", final: true }] });
+    expect(turn?.post).toBeUndefined();
+    expect(after?.post).toBeUndefined();
     expect(after?.items).toMatchObject([{ kind: "text", text: "A run's answer after it." }]);
   });
 

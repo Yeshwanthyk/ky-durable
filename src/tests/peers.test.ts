@@ -194,7 +194,7 @@ describe("asking a peer", () => {
     await until(async () => (await tasks(ben)).filter((task) => task.status === "done").length === 2, "Ben's ky answered both questions");
 
     expect(await inside(ben, (instance) => instance.boundary.executorFake.resumes)).toEqual([]);
-    const [card] = await inside(ben, (instance) => instance.approvals.pending());
+    const [card] = await inside(ben, (instance) => instance.approvals.cards());
     expect(card).toMatchObject({ kind: "executor", subject: "gmail.send", chat: ROOT_SESSION });
 
     // Ben's tap on the card in his chat carries it out, and his chat hears the result.

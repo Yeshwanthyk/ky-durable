@@ -238,13 +238,15 @@ export type { SkillChange, SkillRow, SkillVersion } from "./skills/contract";
 
 export type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "./dreaming/contract";
 
-export type { DreamLedgerRow, ProactivityLevel, ProactivityView, Recalled } from "./dreaming/contract";
+export type { DreamLedgerRow, PostVerdict, PostVerdicts, ProactivityLevel, ProactivityView, Recalled, VerdictView } from "./dreaming/contract";
 
 export type { SoulChange, SoulVersion, SoulView } from "./dreaming/contract";
 
 export type { SpecialistDraft, SpecialistView } from "./skills/contract";
 
 export type { FileRow } from "./files/contract";
+
+export type { SpendTotals, SpendView } from "./spend/contract";
 
 export type { ModelChoice, ModelOption, ProviderInfo, Purpose, SettingsView, VendorOption } from "./settings/contract";
 

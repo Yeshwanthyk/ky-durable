@@ -34,7 +34,7 @@ describe("inbound rows written at B", () => {
 
     const told: (readonly [string, string, string])[] = [];
 
-    const asker = new Approvals(storageOf(db), { present: () => false, home: (session) => session, notify: () => {}, defer: () => {} });
+    const asker = new Approvals(storageOf(db), { present: () => false, home: (session) => session, notify: () => {}, defer: () => {}, later: () => {} });
 
     const inbound = new Inbound(storageOf(db), {
       // SAFETY: the reads make no credential call, so nothing reaches the Vault.
@@ -44,7 +44,13 @@ describe("inbound rows written at B", () => {
       tell: async (...said) => void told.push(said)
     });
 
-    const tables = () => Object.fromEntries(TABLES.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map((row) => ({ ...row }))]));
+    // ky_approvals' reminded_at and lapsed_at came after B (a card nobody answers); B's own columns read as B read them.
+    const sinceB = new Set(["reminded_at", "lapsed_at"]);
+
+    const tables = () =>
+      Object.fromEntries(
+        TABLES.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map((row) => Object.fromEntries(Object.entries(row).filter(([column]) => !sinceB.has(column))))])
+      );
 
     expect(JSON.stringify(await readsOf({ inbound, told, tables }), null, 2)).toBe(JSON.stringify(atB.reads, null, 2));
     db.close();

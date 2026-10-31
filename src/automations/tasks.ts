@@ -49,6 +49,7 @@ function stretch(current: TaskRow, status: TaskStatus, now: number): Pick<TaskRo
 export class TaskFeed {
   readonly #sql: SqlStorage;
   readonly #listeners = new Set<(tasks: TaskRow[]) => void>();
+  readonly #spent = new Set<(task: TaskRow, costUsd: number) => void>();
   #namer: TaskNamer | undefined;
 
   constructor(sql: SqlStorage) {
@@ -93,6 +94,12 @@ export class TaskFeed {
     this.#listeners.add(listener);
 
     return () => this.#listeners.delete(listener);
+  }
+
+  onSpend(listener: (task: TaskRow, costUsd: number) => void): () => void {
+    this.#spent.add(listener);
+
+    return () => this.#spent.delete(listener);
   }
 
   nameWith(namer: TaskNamer): void {
@@ -304,6 +311,9 @@ export class TaskFeed {
       costUsd,
       id
     );
+    const task = this.get(id);
+
+    if (task) for (const listener of this.#spent) listener(task, costUsd);
     this.#emit();
   }
 

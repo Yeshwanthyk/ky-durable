@@ -9,7 +9,8 @@ const LookRow = Schema.Struct({
   by: Schema.optionalKey(Schema.String),
   message: Schema.optionalKey(Schema.String),
   gate: Schema.optionalKey(Schema.String),
-  prompt: Schema.optionalKey(Schema.String)
+  prompt: Schema.optionalKey(Schema.String),
+  changed: Schema.optionalKey(Schema.String)
 });
 
 export type LookRow = typeof LookRow.Type;
@@ -32,11 +33,22 @@ export type LookContext = {
   readonly next: number | null;
   readonly known: ReadonlySet<string>;
   readonly said: ReadonlyMap<string, SaidRef>;
+  /** Each ref whose last post the user marked not useful, and when. */
+  readonly unwanted?: ReadonlyMap<string, number>;
 };
 
 export const LOOK_POSTS = 3;
 
 export const SAID_QUIET_MS = 48 * 3_600_000;
+
+export const UNWANTED_MS = 30 * 86_400_000;
+
+// A 👎'd ref is said already and unwanted: it goes again only on a row that says what changed since.
+const unwanted = (row: LookRow, { unwanted: marked, now }: LookContext) => {
+  const at = marked?.get(row.ref);
+
+  return at !== undefined && now - at < UNWANTED_MS && (row.changed ?? "").trim() === "";
+};
 
 const sayAgain = (said: SaidRef, now: number) => said.replied || (!said.open && now - said.at >= SAID_QUIET_MS);
 
@@ -48,7 +60,7 @@ function due(row: LookRow, { now, next }: LookContext): boolean {
 
 export function decide(rows: readonly LookRow[], context: LookContext): LookRow[] {
   const wanted = rows.filter((row) => {
-    if (row.action === "skip" || (row.message ?? "").trim() === "" || !context.known.has(row.ref)) return false;
+    if (row.action === "skip" || (row.message ?? "").trim() === "" || !context.known.has(row.ref) || unwanted(row, context)) return false;
     const said = context.said.get(row.ref);
 
     if (said !== undefined && !sayAgain(said, context.now)) return false;

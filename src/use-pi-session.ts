@@ -24,6 +24,8 @@ import type {
   MachineInfo,
   MemoryView,
   ModelChoice,
+  PostVerdict,
+  PostVerdicts,
   ProactivityLevel,
   Purpose,
   ServerMessage,
@@ -478,6 +480,12 @@ export function usePiSession(session: string) {
   /** Settings › Proactivity's. New on each connect, so a page that asked while the socket was closed asks again. */
   const proactivityActions = useMemo(() => proactivityActionsOf(ask, state.status === "open"), [ask, state.status]);
 
+  /** Settings › Spend's, new on each connect as Proactivity's are. */
+  const spendActions = useMemo(
+    () => ({ open: state.status === "open", onView: () => ask("spend", {}), onCap: (usd: number | null) => ask("set-spend-cap", { usd }) }),
+    [ask, state.status]
+  );
+
   /** Start a side chat; resolves with its session. */
   const newChat = useCallback(
     () => ask("new-chat", {}).then(({ session }) => session),
@@ -590,6 +598,8 @@ export function usePiSession(session: string) {
     [ask, open]
   );
 
+  const verdictActions = useVerdicts(ask, open);
+
   return {
     ...state,
     connection,
@@ -613,7 +623,9 @@ export function usePiSession(session: string) {
     mailActions,
     approvalActions,
     proactivityActions,
+    spendActions,
     ledgerActions,
+    verdictActions,
     newChat,
     archiveChat,
     renameChat,
@@ -1085,4 +1097,31 @@ function useResumeReconnect(agent: { readonly readyState: number; reconnect(): v
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [agent]);
+}
+
+/**
+ * The user's verdicts on ky's unasked posts, read on each connect, and how to give one. A verdict's answer is every
+ * verdict since, so this page shows what the server kept.
+ */
+function useVerdicts(ask: AskFn, open: boolean) {
+  const [kept, setKept] = useState<PostVerdicts | null>(null);
+
+  useEffect(() => {
+    if (open) ask("post-verdicts", {}).then(setKept, () => undefined);
+  }, [ask, open]);
+
+  return useMemo(
+    () => ({
+      verdicts: Object.fromEntries((kept?.verdicts ?? []).map((each) => [each.item, each])),
+      rate: kept === null ? null : { useful: kept.useful, judged: kept.judged },
+      onJudge: (item: string, verdict: PostVerdict, reason?: string) =>
+        ask("post-verdict", { verdict: reason === undefined ? { item, verdict } : { item, verdict, reason } }).then((answer) => {
+          if ("refused" in answer) return answer.refused;
+          setKept(answer);
+
+          return undefined;
+        }, why)
+    }),
+    [ask, kept]
+  );
 }

@@ -20,9 +20,10 @@ import { uiExtension } from "./cards/wiring";
 import { ChatList, chatActivityExtension } from "./chats/chats";
 import type { Opener } from "./chats/contract";
 import { chatsExtension } from "./chats/tool";
-import { CHECK_IN_TOOLS } from "./automations/contract";
+import { AUTOMATION_SOURCE, CHECK_IN_TOOLS } from "./automations/contract";
 import { Automations, automationTools, Deliveries, deliveryExtension, TaskFeed } from "./automations/wiring";
-import { browseExtension } from "./browse/wiring";
+import type { Browsers } from "./browse/contract";
+import { browseRoute, Browsing, cloudBrowsers } from "./browse/wiring";
 import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring";
 import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
@@ -33,10 +34,12 @@ import type { SandboxNow } from "./cloud";
 import { machineSubject, saveKey, type Sandbox, type SandboxChange, type SandboxDraft } from "./runners/contract";
 import { ownerRoute, Sandboxes, tokenRoute } from "./runners/wiring";
 import { sandboxRoute } from "./sandbox-routes";
-import { publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
+import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
+import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
+import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
-import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced } from "./dreaming/wiring";
+import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { agentModel, type ModelsBoundary, VIBEPROXY_NOT_SET_UP, VIBEPROXY_PORT, VIBEPROXY_PROVIDER } from "./providers/contract";
 import { Models } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
@@ -54,7 +57,7 @@ import { ExecutorApprovals } from "./approvals/executor";
 import { BROWSER_TAG, PiSessionSockets, watching } from "./sockets";
 import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
-import { delegationTools, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
+import { delegationTools, draftFromDemo, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { Titler } from "./chats/titles";
 import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
@@ -75,6 +78,8 @@ export { GithubProxy } from "./github";
 export type Boundary = ModelsBoundary & {
   /** Browser Rendering, for browse. */
   readonly browser: BrowserWorker;
+  /** Kitesurf and ky's Chromium session; Browser Rendering's, through `browser`, unless set. */
+  readonly browsers?: Browsers;
   /** How requests reach Executor, once the user connects it in Settings; global fetch unless set. */
   readonly executorFetch?: typeof fetch;
   /** Seed the starter skills, specialist and automations on the first start (src/seeds.ts). */
@@ -96,6 +101,8 @@ export function notSetUp({ vibeProxy }: Boundary, providers: readonly string[] =
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
+  /** What the models cost, by day in the user's zone, and the daily cap that holds unasked work (src/spend). */
+  readonly spend: Spend = new Spend(this.ctx.storage, () => this.automations.checkIns().zone);
   readonly files = new FileStore(this.ctx.storage);
   /** ky's sandboxes, its own machines in Cloudflare (src/sandboxes.ts). */
   readonly sandboxes = new Sandboxes(this.ctx.storage);
@@ -227,9 +234,12 @@ export class PiAgent extends DurableObject<Env> {
     dream: { cron: dreamCron, run: () => this.ctx.waitUntil(this.dreaming.run()) },
     looks: { booked: (zone) => this.looks.booked(zone), run: (time) => this.ctx.waitUntil(this.looks.run(time)) },
     peers: () => this.sweepPeers(),
+    approvals: () => this.approvals.sweep(),
+    sites: () => this.sites.flush(),
     unwatched: (id) => {
       if (this.anticipations.open().some((row) => row.id === id)) this.anticipations.close(id, "dismissed", "user", "watch deleted by the user");
-    }
+    },
+    allows: (work) => this.spend.allows(work)
   });
   readonly registry = createRegistry();
   /** Where skill reviews and dreams run and report. */
@@ -238,7 +248,8 @@ export class PiAgent extends DurableObject<Env> {
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
     context: BACKGROUND_CONTEXT,
-    model: () => agentModel(this.models.resolve("background").choice)
+    model: () => agentModel(this.models.resolve("background").choice),
+    allows: (work) => this.spend.allows(work)
   };
   /** When the user was last here; the dream waits until they are away. */
   readonly presence = new Presence(this.ctx.storage);
@@ -246,6 +257,8 @@ export class PiAgent extends DurableObject<Env> {
   readonly anticipations = new Anticipations(this.ctx.storage, this.memory, (session) => this.isChat(session));
   /** What ky put in front of the user unasked, and what they did with it. */
   readonly surfaced = new Surfaced(this.ctx.storage);
+  /** The user's 👍 or 👎 on each unasked post. */
+  readonly verdicts = new Verdicts(this.ctx.storage);
   /** How proactive ky is, from Settings › Proactivity. */
   readonly proactivity = new Proactivity(this.ctx.storage);
   /** What ky already knows about a message the user sends in a chat, recalled before it answers. */
@@ -276,12 +289,14 @@ export class PiAgent extends DurableObject<Env> {
     // A subagent's or a routine's chat is the one its task reports to; a peer's conversation works for the main chat.
     home: (session) => (this.isChat(session) && !this.#archived(session) ? session : this.feed.working(session)?.chat || ROOT_SESSION),
     notify: (chat, text) => this.ctx.waitUntil(this.pushes.notify(chat, text)),
-    defer: (work) => this.ctx.waitUntil(work)
+    defer: (work) => this.ctx.waitUntil(work),
+    later: (at) => this.ctx.waitUntil(this.automations.sweepApprovalsAt(at))
   });
   /** Executor's pauses for approval, taken from the model and asked of the user; and each app tool's policy. */
   readonly executorApprovals = new ExecutorApprovals(this.ctx.storage, this.approvals, {
     config: () => this.executor.config(),
     present: (session) => this.userHere(session),
+    unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.peerDesk.tell(session, content, requestId)
   });
   /** How an automation's report reaches the user: in full, in its chat, between turns. */
@@ -300,13 +315,13 @@ export class PiAgent extends DurableObject<Env> {
 
       return true;
     },
-    post: async (session, text, requestId, cards) => {
+    post: async (session, text, requestId, cards, item) => {
       const conversation = await this.harness.conversation(session);
       // A write waits for no run, so a busy chat is turned away here, as submit's whenBusy does.
       const busy = await conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
 
       if (busy) return false;
-      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards), requestId }, BACKGROUND_CONTEXT);
+      await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards, item), requestId }, BACKGROUND_CONTEXT);
 
       return true;
     },
@@ -323,6 +338,13 @@ export class PiAgent extends DurableObject<Env> {
       const conversation = await this.harness.conversation(session);
       await conversation.submit({ type: "input", content, whenBusy: "followUp", requestId }, BACKGROUND_CONTEXT);
     }
+  });
+  /** Living sites' data, share links and versions; edits through a link are told as the inbound tells a webhook (src/sites/living.ts). */
+  readonly sites: LivingSites = new LivingSites(this.ctx.storage, {
+    bucket: this.env.FILES,
+    chat: (session) => this.isChat(session),
+    tell: (session, content, key) => this.inbound.tellOutside(session, content, key),
+    flushAt: (at): Promise<void> => this.automations.flushSitesAt(at)
   });
   readonly dreaming = new Dreaming(this.ctx.storage, {
     history: this.history,
@@ -345,7 +367,8 @@ export class PiAgent extends DurableObject<Env> {
         .filter((each) => each.created_by === "dream" && each.status === "active")
         .map((each) => `- ${new Date(each.at ?? 0).toISOString()} "${each.title}"`)
     }),
-    surfaced: this.surfaced
+    surfaced: this.surfaced,
+    verdicts: this.verdicts
   });
   /** ky's looks over the user's day, at their look times while Proactivity is on. */
   readonly looks: Looks = new Looks(this.ctx.storage, {
@@ -364,10 +387,23 @@ export class PiAgent extends DurableObject<Env> {
     proactivity: this.proactivity,
     zone: () => this.automations.checkIns().zone,
     deliver: (item, now) => this.deliveries.deliver(item, now),
-    automations: this.automations
+    automations: this.automations,
+    verdicts: this.verdicts
   });
-  /** Subagents browse; the main agent delegates it, since a page can take a minute. */
-  readonly browse = browseExtension(this.boundary.browser, (png) => saveImage(this.env.FILES, png));
+  /** ky's browser: subagents browse, the main agent delegates it, since a page can take a minute; a chat hands it to the user. */
+  readonly browsing = new Browsing(this.ctx.storage, {
+    browsers: this.boundary.browsers ?? cloudBrowsers(this.boundary.browser),
+    vault: () => this.env.Vault.getByName("owner"),
+    save: (bytes, type) => saveImage(this.env.FILES, bytes, type),
+    workspace: this.workspace,
+    reads: (conversation) => this.mayCall(String(conversation), "read"),
+    chat: (session) => this.isChat(session),
+    asker: this.approvals,
+    tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
+    draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
+    later: (work) => this.ctx.waitUntil(work)
+  });
+  readonly browse = this.browsing.extension;
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const chat = (session: string) => this.isChat(session);
@@ -435,6 +471,7 @@ export class PiAgent extends DurableObject<Env> {
 
       await this.#installExecutor();
       this.registry.install(this.browse);
+      this.registry.install(this.browsing.handoffExtension);
 
       for (const extension of this.boundary.extensions) this.registry.install(extension);
 
@@ -452,7 +489,7 @@ export class PiAgent extends DurableObject<Env> {
       // Cards and sites are for a chat with the user: the tools refuse elsewhere, and subagents and seats go without them.
       const ui = uiExtension(chat);
       this.registry.install(ui);
-      const site = siteExtension(chat, this.env.FILES, this.workspace, () => this.setup.origin());
+      const site = siteExtension(chat, this.sites, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
       // A chat opens side chats and steers them; one it opened runs none, so control goes one way.
@@ -501,6 +538,7 @@ export class PiAgent extends DurableObject<Env> {
       this.registry.install(peer);
       this.registry.install(mail);
       this.registry.install(inboundTools(this.inbound));
+      this.registry.install(spendExtension(this.spend, { chat, review: (session) => this.reviews.kind(session), task: (session) => this.feed.working(session) }));
 
       return Harness.open(
         storage,
@@ -555,9 +593,11 @@ export class PiAgent extends DurableObject<Env> {
     this.automations,
     this.presence,
     this.proactivity,
+    this.verdicts,
     this.pushes,
     this.recall,
     this.setup,
+    this.spend,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
     this.env.CF_VERSION_METADATA.id
@@ -584,6 +624,7 @@ export class PiAgent extends DurableObject<Env> {
     if (this.machines.cloud) this.sandboxes.migrate();
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
+    meter(this.spend, { answers: (listener) => this.models.onAnswer(listener), spent: (listener) => this.feed.onSpend(listener) });
     this.models.settings.onChange((purpose) => {
       if (purpose === "main") this.ctx.waitUntil(this.applyMain());
     });
@@ -594,6 +635,7 @@ export class PiAgent extends DurableObject<Env> {
     this.approvals.handle("executor", this.executorApprovals);
     this.approvals.handle("webhook-action", this.inbound.handlers["webhook-action"]);
     this.approvals.handle("secret-request", this.inbound.handlers["secret-request"]);
+    this.approvals.handle("browser-handoff", this.browsing.handler);
     this.executor.onChange(async () => {
       await this.#installExecutor();
       await this.sockets.broadcastExecutor().catch((error) => console.warn("executor not sent", error));
@@ -649,6 +691,22 @@ export class PiAgent extends DurableObject<Env> {
       startedByUser(this.ctx.storage.sql, session) &&
       !this.inbound.guarded(session)
     );
+  }
+
+  /**
+   * Whether nobody can answer a card for the turn in `session`: an automation's run, or a background one (a look, a
+   * dream, a review, a mail's triage), or a subagent one of those started. A chat always has the user; a peer's
+   * question leaves its card in main for the user's tap (src/peers).
+   */
+  unattended(session: string, depth = 0): boolean {
+    const asked = this.isChat(session) || this.peerAsks.peerConversation(session) || depth > 4;
+    const task = asked ? undefined : this.feed.working(session);
+
+    if (!task) return false;
+
+    if (task.source === BACKGROUND_SOURCE || task.source.startsWith(AUTOMATION_SOURCE)) return true;
+
+    return task.chat !== null && task.chat !== session && this.unattended(task.chat, depth + 1);
   }
 
   /** Whether the user is looking at ky now, on any device: a page of it shown and in focus (src/sockets.ts watching). */
@@ -1053,6 +1111,31 @@ export class PiAgent extends DurableObject<Env> {
     return this.inbound.received(id, delivery);
   }
 
+  /** A living site's data, read or written by the owner or through a link, as the Worker took it (src/sites/routes.ts). */
+  siteData(site: string, caller: DataCaller, op: DataOp): Promise<DataAnswer> {
+    return this.sites.data(site, caller, op);
+  }
+
+  siteVersion(site: string): SiteVersion {
+    return this.sites.version(site);
+  }
+
+  siteOwnerKey(site: string): Promise<string | null> {
+    return this.sites.ownerKey(site);
+  }
+
+  siteLinks(site: string): Promise<{ links: ReadonlyArray<SiteLink> } | { refused: string }> {
+    return this.sites.links(site);
+  }
+
+  siteShare(site: string, label: string, mode: LinkMode): Promise<SiteLink | { refused: string }> {
+    return this.sites.share(site, label, mode);
+  }
+
+  siteRevoke(site: string, token: string): Promise<{ revoked: true } | { refused: string }> {
+    return this.sites.revoke(site, token);
+  }
+
   /** The credential ky asked a chat for, which the Worker saves what the user typed as; null when it isn't asking. */
   secretAsk(session: string, name: string): SecretAsk | null {
     return this.inbound.askFor(session, name) ?? null;
@@ -1066,6 +1149,11 @@ export class PiAgent extends DurableObject<Env> {
   /** The credentials ky is asking a chat for, for its masked fields. */
   secretAsks(session: string): SecretAsk[] {
     return this.inbound.asks(session);
+  }
+
+  /** A saved browser login was removed: end the browser session that still holds it (src/browse/routes.ts). */
+  browserForgot(): Promise<void> {
+    return this.browsing.forget();
   }
 
   /** Expire the questions unanswered for a day, and send the answers that didn't arrive; the Scheduler runs it. */
@@ -1178,7 +1266,8 @@ export function worker(access: Access) {
         sandboxRoute(request, env, url) ??
         backupRoute(request, env, url) ??
         siteRoute(request, env, url) ??
-        inboundRoute(request, env, url);
+        inboundRoute(request, env, url) ??
+        browseRoute(request, env, url);
 
       if (owner) return owner;
 

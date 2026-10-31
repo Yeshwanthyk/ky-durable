@@ -6,7 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type Approval, type ApprovalHandler, type ApprovalRequest, type Asker, type Settle } from "../approvals/approvals";
-import type { ApprovalAction } from "../approvals/contract";
+import { type ApprovalAction, NOBODY_ANSWERED } from "../approvals/contract";
 import { canonical } from "../core/canonical";
 import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import type { Result } from "../core/refusal";
@@ -275,11 +275,13 @@ export class Inbound {
   readonly handlers = {
     "secret-request": {
       decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#secretCall(approval, action, settle),
-      lost: (approval: Approval, action: ApprovalAction) => this.#secretLost(approval, action)
+      lost: (approval: Approval, action: ApprovalAction) => this.#secretLost(approval, action),
+      lapsed: (approval: Approval) => this.#lapsed(approval, Option.match(secretCallOf(approval.payload), { onSome: (call) => call.guarded, onNone: () => true }))
     },
     "webhook-action": {
       decide: (approval: Approval, action: ApprovalAction, settle: Settle) => this.#hookAction(approval, action, settle),
-      lost: (approval: Approval, action: ApprovalAction) => this.#hookLost(approval, action)
+      lost: (approval: Approval, action: ApprovalAction) => this.#hookLost(approval, action),
+      lapsed: (approval: Approval) => this.#lapsed(approval, true)
     }
   } satisfies Readonly<Record<"secret-request" | "webhook-action", ApprovalHandler>>;
 
@@ -338,6 +340,11 @@ export class Inbound {
     );
 
     return true;
+  }
+
+  /** Tell `session` other outside data, as a webhook's post: the run on it is guarded as one is. */
+  tellOutside(session: string, content: string, key: string): Promise<void> {
+    return this.desk.tell(session, content, `${HOOK_REQUEST}${key}`);
   }
 
   guarded(conversation: string): boolean {
@@ -449,6 +456,14 @@ export class Inbound {
     this.#edge.run(Store.use((store) => store.drop(approval.id)));
 
     return this.#told(approval, true, `${outcome(true, CHOSE[action], approval.summary)} ${RESTARTED} Don't make that call unless they approve it again.`);
+  }
+
+  #lapsed(approval: Approval, guarded: boolean): Promise<void> {
+    return this.#told(
+      approval,
+      guarded,
+      `${guarded ? ON_HOOK_DATA : "["}${NOBODY_ANSWERED}: ${approval.summary}] Its card shows expired. Don't make that call; ask again if it still matters.`
+    );
   }
 
   #declined(approval: Approval, action: ApprovalAction, guarded: boolean): Promise<void> {

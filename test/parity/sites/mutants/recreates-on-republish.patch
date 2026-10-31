@@ -1,13 +1,13 @@
 diff --git a/src/sites/sites.ts b/src/sites/sites.ts
-index 0a51935..60d0c36 100644
+index 09e36e8..c76b631 100644
 --- a/src/sites/sites.ts
 +++ b/src/sites/sites.ts
-@@ -162,7 +162,7 @@ const publish = ({ bucket, files, origin }: SiteHost, args: SiteArgs) =>
+@@ -252,7 +252,7 @@ const publish = ({ bucket, files, origin }: SiteHost, args: SiteArgs, session: s
      const to = yield* target(bucket, args.id);
      const gathered = yield* gather(files, args);
      const created = yield* Clock.currentTimeMillis;
--    yield* Effect.promise(() => putMeta(bucket, to.id, { created, ...to.was, title: args.title ?? to.was?.title ?? "Untitled" }));
-+    yield* Effect.promise(() => putMeta(bucket, to.id, { ...to.was, created, title: args.title ?? to.was?.title ?? "Untitled" }));
-     yield* Effect.promise(() => store(bucket, to.id, gathered));
+-    const next: SiteMeta & { app?: boolean } = { created, ...to.was, title: args.title ?? to.was?.title ?? "Untitled" };
++    const next: SiteMeta & { app?: boolean } = { ...to.was, created, title: args.title ?? to.was?.title ?? "Untitled" };
  
-     return `Published at ${addresses(origin).private(to.id)} (id ${to.id}, ${gathered.size} files), for the signed-in user only.`;
+     if (args.app !== undefined) next.app = args.app;
+     yield* Effect.promise(() => putMeta(bucket, to.id, next));

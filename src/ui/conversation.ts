@@ -45,4 +45,6 @@ export type Turn = {
   items: Item[];
   startedAt: string | null;
   endedAt: string | null;
+  /** Set on ky's unasked post: its delivery id, which the user's 👍 or 👎 names. */
+  post?: string;
 };

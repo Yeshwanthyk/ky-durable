@@ -9,6 +9,7 @@ import type { Refusable } from "../core/edge";
 import { must } from "../core/must";
 import { agentModel } from "../providers/contract";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
+import type { BackgroundWork } from "../spend/contract";
 
 export type { Reviews, Skills } from "./wiring";
 
@@ -234,6 +235,16 @@ export const SkillVersion = Schema.Struct({
 });
 
 export type SkillVersion = typeof SkillVersion.Type;
+
+/** A demo's recording made into a skill, or why not. */
+export class NoDraft extends Schema.TaggedError<NoDraft>()("NoDraft", { said: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return this.said;
+  }
+}
+
+/** What a demo's draft made: the skill it created, kept archived until the user says yes, and any other change. */
+export type Drafted = { readonly draft: string | undefined; readonly changed: ReadonlyArray<SkillVersion> };
 
 export class NoSuchAction extends Schema.TaggedError<NoSuchAction>()("NoSuchAction", { action: Schema.String }) implements Refusable {
   get refusal(): string {
@@ -493,6 +504,8 @@ export type ReviewHost = {
   readonly later: (work: Promise<void>) => void;
   readonly context: Context;
   readonly model: () => AgentChange;
+  /** Whether unasked work may start now (src/spend). */
+  readonly allows: (work: BackgroundWork) => boolean;
 };
 
 export async function reviewFork(host: ReviewHost, conversation: Conversation, at: EntryId): Promise<Conversation> {

@@ -173,7 +173,8 @@ export function dreamOf(world: Here): DreamWorld {
     feed: feed as TaskFeed,
     later: () => undefined,
     context: BACKGROUND_CONTEXT,
-    model: () => ({})
+    model: () => ({}),
+    allows: () => true
   };
 
   return {

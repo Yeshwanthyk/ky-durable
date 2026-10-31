@@ -43,6 +43,8 @@ const forgot = ({ before, reason }: DreamLedgerRow): Described => ({
 function describe(row: DreamLedgerRow): Described {
   const { kind, action, target, absorbed_into, reason } = row;
 
+  if (kind === "memory" && action === "note") return { title: "Noted a memory", icon: "thought", sub: row.before === null ? reason : `“${row.before}”` };
+
   if (kind === "memory") return forgot(row);
 
   if (absorbed_into !== null) return { title: `Merged ${target} into ${absorbed_into}`, icon: "compress", sub: reason };

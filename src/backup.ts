@@ -61,6 +61,7 @@ const SKIPPED: ReadonlyArray<readonly [string, string]> = [
   ["ky_history*", "chat search: rebuilt from the chats on restore"],
   ["cf_agents_jobs", "scheduled runs: automations and dreams are booked again on start"],
   ["computer_execution_runtime", "the workspace's sandboxes: started fresh"],
+  ["ky_browser_session", "the cloud browser's session: a new one is opened, with the Vault's saved logins"],
   ["ky_restore*", "a restore in progress"],
   ["ky_settings", "the model slots the purposes replaced: nothing reads it"],
   ["ky_brief", "the morning brief an older ky kept: nothing reads it"],

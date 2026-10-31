@@ -1,12 +1,13 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { decide, LOOK_POSTS, type LookContext, type LookRow, lookRows, NEW_WATCHES, newWatches, SAID_QUIET_MS, type SaidRef, WATCHES } from "../../src/dreaming/decide";
+import { decide, LOOK_POSTS, type LookContext, type LookRow, lookRows, NEW_WATCHES, newWatches, SAID_QUIET_MS, type SaidRef, UNWANTED_MS, WATCHES } from "../../src/dreaming/decide";
 
 /**
  * What a look posts (src/dreaming/decide.ts), over generated rows and pasts. Whatever the rows say:
  *
  * - at most LOOK_POSTS are posted, one per ref, each one of the rows, a known ref with a message, and never a skip;
  * - every prepare comes before every tell, and a prepare's time is ahead and no later than the next look, if any;
+ * - a ref the user 👎'd within UNWANTED_MS is posted on only by a row that says what changed;
  * - a ref said before is said again only when the user replied since, or when its anticipation is not open and
  *   SAID_QUIET_MS passed (a memory has no anticipation, so only the time counts);
  * - nothing that may be posted is left out while there is room: the posts are exactly what an independent model of
@@ -126,6 +127,27 @@ describe("what a look posts", () => {
 
           if (said !== undefined) expect(mayRepeat(said, context.now)).toBe(true);
         }
+      }),
+      { numRuns: 500 }
+    );
+  });
+
+  it("posts on a ref the user 👎'd within UNWANTED_MS only on a row that says what changed, and otherwise as if it were never 👎'd", () => {
+    const aMarked = fc.array(fc.tuple(fc.constantFrom(...REFS), fc.oneof(fc.integer({ min: NOW - 2 * UNWANTED_MS, max: NOW }), fc.constantFrom(NOW - UNWANTED_MS, NOW - UNWANTED_MS + 1))), { maxLength: 6 });
+    const aChanged = fc.array(fc.option(fc.constantFrom("", " ", "the slot moved"), { nil: undefined }), { minLength: 10, maxLength: 10 });
+
+    fc.assert(
+      fc.property(fc.array(aRow, { maxLength: 10 }), aContext, aMarked, aChanged, (plain, context, marked, changed) => {
+        const rows = plain.map((row, index) => (changed[index] === undefined ? row : { ...row, changed: changed[index] }));
+        const unwanted = new Map<string, number>(marked);
+
+        const held = (row: LookRow) => {
+          const at = unwanted.get(row.ref);
+
+          return at !== undefined && NOW - at < UNWANTED_MS && (row.changed ?? "").trim() === "";
+        };
+
+        expect(decide(rows, { ...context, unwanted }).map((row) => row.ref)).toEqual(model(rows.filter((row) => !held(row)), context).map((row) => row.ref));
       }),
       { numRuns: 500 }
     );

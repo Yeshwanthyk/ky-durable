@@ -16,6 +16,7 @@ export type SettingsPage =
   | { readonly kind: "mail" }
   | { readonly kind: "inbound" }
   | { readonly kind: "proactivity" }
+  | { readonly kind: "spend" }
   | { readonly kind: "tools" }
   | { readonly kind: "appearance" }
   | { readonly kind: "self-edits" };
@@ -31,7 +32,8 @@ const SECTION_PAGES = new Map<string, SettingsPage>([
   ["settings-peers", { kind: "peers" }],
   ["settings-mail", { kind: "mail" }],
   ["settings-inbound", { kind: "inbound" }],
-  ["settings-proactivity", { kind: "proactivity" }]
+  ["settings-proactivity", { kind: "proactivity" }],
+  ["settings-spend", { kind: "spend" }]
 ]);
 
 /** Settings' page, moving between its pages, and opening the page a section is on. */

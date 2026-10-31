@@ -150,12 +150,20 @@ export const ClientMessageSchema = Type.Union([
   message("automation", { automation: Text, action: AutomationActionSchema }),
   /** Answers with Settings › Proactivity: the level and the look times. */
   message("proactivity", {}),
+  /** The user's 👍 or 👎 on an unasked post, decoded by its Schema (VerdictInput, src/dreaming/contract.ts); answers with the last 30 days' verdicts, or `{ refused }`. */
+  message("post-verdict", { verdict: Type.Unknown() }),
+  /** Answers with the last 30 days' verdicts on ky's unasked posts, and how many were 👍. */
+  message("post-verdicts", {}),
   /** Set how proactive ky is; answers with Settings › Proactivity. */
   message("set-proactivity", { level: ProactivityLevelSchema }),
   /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */
   message("set-looks", { looks: Texts }),
   /** Set how many posts a day push to the user's devices; answers with Settings › Proactivity. */
   message("set-right-away", { most: Type.Integer({ minimum: 0, maximum: RIGHT_AWAY_MOST }) }),
+  /** Answers with Settings › Spend: today, this month, today by purpose and source, and the daily cap. */
+  message("spend", {}),
+  /** Set the daily cap in US dollars, or null for none; answers as spend does, or with `{ refused }`. */
+  message("set-spend-cap", { usd: Type.Union([Type.Number(), Type.Null()]) }),
   /** Answers with ky's VAPID public key, base64url, which this device subscribes to pushes with. */
   message("push-key", {}),
   /** Push to this device: its PushSubscription's endpoint and keys. */

@@ -129,7 +129,7 @@ describe("executor approvals in model mode", () => {
     );
     // Executor forgets the session, as a new one after the Durable Object wakes.
     await inside(name, (instance) => instance.boundary.executorFake.open.clear());
-    const [card] = await inside(name, (instance) => instance.approvals.pending());
+    const [card] = await inside(name, (instance) => instance.approvals.cards());
 
     // The user's tap resumes it on a session of its own, which closes after.
     expect(await inside(name, (instance) => instance.approvals.onDecision(card!.id, "accept"))).toEqual({});

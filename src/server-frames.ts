@@ -11,7 +11,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import type { AgentEvent } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
 import { ApprovalKindSchema, type ApprovalView, ToolPolicySchema, type ToolPolicyView } from "./approvals/contract.ts";
-import { BloubSpecSchema } from "./avatars/contract";
+import { BloubSpecSchema } from "./avatars/contract.ts";
 import type {
   AutomationInfo,
   ChatGptCode,
@@ -26,7 +26,9 @@ import type {
   MailView,
   PeerInvite,
   PeerView,
+  PostVerdicts,
   ProactivityView,
+  SpendView,
   SettingsView,
   SetupView,
   SkillRow,
@@ -92,7 +94,9 @@ const MemoryItemSchema = Type.Unsafe<MemoryItem>(
 
 const Tools = Type.Array(Type.Object({ name: Text, description: Text }));
 
-const Approval = Type.Unsafe<ApprovalView>(Type.Object({ id: Text, kind: ApprovalKindSchema, subject: Text, summary: Text, chat: Text, createdAt: Type.Number() }));
+const Approval = Type.Unsafe<ApprovalView>(
+  Type.Object({ id: Text, kind: ApprovalKindSchema, subject: Text, summary: Text, chat: Text, createdAt: Type.Number(), lapsedAt: Type.Optional(Type.Number()), link: Type.Optional(Text) })
+);
 
 const ToolPolicy = Type.Unsafe<ToolPolicyView>(Type.Object({ tool: Text, policy: ToolPolicySchema }));
 
@@ -148,6 +152,21 @@ const Proactivity = Type.Unsafe<ProactivityView>(
   Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer() })
 );
 
+const Totals = { costUsd: Type.Number(), tokensIn: Type.Number(), tokensOut: Type.Number(), calls: Type.Number() };
+
+/** Settings › Spend: today and this month, today by purpose and source, the cap, and what it held today. */
+const Spend = Type.Unsafe<SpendView>(
+  Type.Object({
+    day: Text,
+    today: Type.Object(Totals),
+    month: Type.Object(Totals),
+    lines: Type.Array(Type.Object({ ...Totals, purpose: Text, source: Text })),
+    capUsd: Type.Union([Type.Number(), Type.Null()]),
+    capped: Type.Boolean(),
+    held: Type.Array(Type.Object({ work: Text, why: Text, at: Type.Number() }))
+  })
+);
+
 /** Settings › Proactivity's time zone: the zone kept, whether the user pinned it, and the asking connection's. */
 const Zone = Type.Unsafe<ZoneView>(
   Type.Object({ on: Type.Boolean(), zone: Type.Union([Text, Type.Null()]), pinned: Type.Boolean(), detected: Type.Union([Text, Type.Null()]) })
@@ -167,6 +186,14 @@ const Ledger = Type.Unsafe<readonly DreamLedgerRow[]>(
       undone_at: Type.Union([Type.Number(), Type.Null()])
     })
   )
+);
+
+const PostVerdictsSchema = Type.Unsafe<PostVerdicts>(
+  Type.Object({
+    verdicts: Type.Array(Type.Object({ item: Text, verdict: Type.Union([Type.Literal("useful"), Type.Literal("not-useful")]), reason: Type.Union([Text, Type.Null()]) })),
+    useful: Type.Number(),
+    judged: Type.Number()
+  })
 );
 
 /** What the server answers each ask with, by the ask's message type. */
@@ -212,6 +239,8 @@ export const ANSWERS = {
   "set-proactivity": Proactivity,
   "set-looks": Proactivity,
   "set-right-away": Proactivity,
+  spend: Spend,
+  "set-spend-cap": Type.Union([Spend, Refused]),
   zone: Zone,
   "set-zone": Zone,
   "push-key": Text,
@@ -219,6 +248,8 @@ export const ANSWERS = {
   "push-unsubscribe": Type.Null(),
   watching: Type.Null(),
   "dream-ledger": Ledger,
+  "post-verdict": Type.Union([PostVerdictsSchema, Refused]),
+  "post-verdicts": PostVerdictsSchema,
   "dream-undo": Text
 } satisfies { readonly [Type in ClientMessage["type"]]?: TSchema };
 

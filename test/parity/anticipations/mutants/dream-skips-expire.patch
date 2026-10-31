@@ -1,12 +1,12 @@
 diff --git a/src/dreaming/dreaming.ts b/src/dreaming/dreaming.ts
-index aab69af..bff2427 100644
+index 71b4e70..d281058 100644
 --- a/src/dreaming/dreaming.ts
 +++ b/src/dreaming/dreaming.ts
-@@ -288,7 +288,6 @@ export class DreamRuns extends Context.Service<
+@@ -296,7 +296,6 @@ export class DreamRuns extends Context.Service<
            const run = `dream-${crypto.randomUUID()}`;
            yield* Effect.sync(() => {
              skills.stale(run);
 -            anticipations.expire(now);
              surfaced.prune(now);
+             verdicts.prune(now);
            });
-           const since = yield* mark;

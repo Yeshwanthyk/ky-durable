@@ -1,8 +1,8 @@
 diff --git a/src/automations/automations.ts b/src/automations/automations.ts
-index 055b204..96c235c 100644
+index ec116da..90d095c 100644
 --- a/src/automations/automations.ts
 +++ b/src/automations/automations.ts
-@@ -665,7 +665,6 @@ const make = Effect.gen(function* () {
+@@ -672,7 +672,6 @@ const make = Effect.gen(function* () {
            runtime.commit(async (tx) => {
              const { runs } = await tx.doc(Runs, ROOT_CONVERSATION_ID);
  
@@ -10,12 +10,12 @@ index 055b204..96c235c 100644
              runs[row.id] = { slot, task };
              const checkIn = isCheckIn(row);
              await runtime.spawn(tx, conversationOf(chat), {
-@@ -751,7 +750,7 @@ const make = Effect.gen(function* () {
+@@ -750,7 +749,7 @@ const make = Effect.gen(function* () {
  
-       if (overlaps(row.id, task)) return;
+   const runDue = (row: AutomationRow, fired: Fire, slot: number, task: string) =>
+     Effect.gen(function* () {
+-      if (!(yield* Effect.sync(() => allowed(row, fired))) || ran(task)) return;
++      if (!(yield* Effect.sync(() => allowed(row, fired)))) return;
+       const admitted = yield* admit(row, task, fired.slot !== undefined);
  
--      if (!ran(task)) {
-+      {
-         const admitted = yield* admit(row, task, fired.slot !== undefined);
- 
-         if (admitted === null) {
+       if (admitted === null) return;

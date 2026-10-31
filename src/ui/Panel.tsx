@@ -42,9 +42,11 @@ import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { BrowserLogins } from "./BrowserLogins";
 import { Inbound } from "./Inbound";
 import { Mail } from "./Mail";
 import { Proactivity, ProactivityValue } from "./Proactivity";
+import { Spend, SpendValue } from "./Spend";
 import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
@@ -2458,6 +2460,7 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
       value: ({ settings }) => connectedValue(settings?.providers.filter((provider) => provider.connected).length ?? 0),
     },
     { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => <RowValue>{catalog.length}</RowValue> },
+    { to: { kind: "spend" }, icon: "layers", label: "Spend", value: () => <SpendValue /> },
   ],
   [
     { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
@@ -2613,8 +2616,9 @@ function MailPage() {
 function InboundPage() {
   return (
     <>
-      <PageHead title="Webhooks">URLs a service posts to, into a chat, and the API credentials ky calls with.</PageHead>
+      <PageHead title="Webhooks">URLs a service posts to, into a chat, the API credentials ky calls with, and the sites its browser stays signed in to.</PageHead>
       <Inbound />
+      <BrowserLogins />
     </>
   );
 }
@@ -2624,6 +2628,15 @@ function ProactivityPage() {
     <>
       <PageHead title="Proactivity" />
       <Proactivity />
+    </>
+  );
+}
+
+function SpendPage() {
+  return (
+    <>
+      <PageHead title="Spend">What the models cost, by day in your time zone.</PageHead>
+      <Spend />
     </>
   );
 }
@@ -2724,6 +2737,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   mail: MailPage,
   inbound: InboundPage,
   proactivity: ProactivityPage,
+  spend: SpendPage,
   tools: ToolsPage,
   appearance: AppearancePage,
   "self-edits": SelfEditsPage,

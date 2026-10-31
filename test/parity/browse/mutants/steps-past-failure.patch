@@ -1,13 +1,13 @@
 diff --git a/src/browse/wiring.ts b/src/browse/wiring.ts
-index b1b509a..1eeaaa1 100644
+index c8f3b1f..16802a5 100644
 --- a/src/browse/wiring.ts
 +++ b/src/browse/wiring.ts
-@@ -195,7 +195,7 @@ function readPage(browser: Browser, args: Args) {
+@@ -554,7 +554,7 @@ function readPage(browser: Browser, args: Args, outline: boolean) {
      for (const [index, step] of (args.steps ?? []).entries()) {
        const stepFailed = yield* runStep(page, step).pipe(Effect.match({ onFailure: (error) => error.said, onSuccess: () => undefined }));
  
--      if (stepFailed !== undefined) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true);
-+      if (stepFailed !== undefined && index < 0) return reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true);
+-      if (stepFailed !== undefined) return { reply: reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true), usable: true } satisfies Read;
++      if (stepFailed !== undefined && index < 0) return { reply: reply(`Step ${index + 1} (${step.do} ${step.selector ?? ""}) failed: ${stepFailed}`, true), usable: true } satisfies Read;
      }
  
      const read = yield* within(OPERATION_TIMEOUT_MS, "reading the page", () => page.evaluate(readDocument, MAX_LINKS)).pipe(

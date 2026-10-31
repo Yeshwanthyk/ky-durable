@@ -22,10 +22,13 @@ function fit(text: string): string {
   return `${cut}…`;
 }
 
+type DeliveryKind = NonNullable<Delivery["kind"]>;
+
 type DeliveryParts = {
   readonly surfaced: Pick<Surfaced, "shown">;
   readonly submit: (session: string, content: string, requestId: string) => Promise<boolean>;
-  readonly post: (session: string, text: string, requestId: string, cards?: string) => Promise<boolean>;
+  /** `item` is the delivery a post is, which the user's 👍 or 👎 on it names. */
+  readonly post: (session: string, text: string, requestId: string, cards: string | undefined, item: string | undefined) => Promise<boolean>;
   readonly notify: (session: string, text: string) => Promise<void>;
   readonly idle: (session: string) => Promise<void>;
   readonly later: (work: Promise<void>) => void;
@@ -128,25 +131,39 @@ export class Deliveries {
       .flatMap((row) => decodeOr(DeliverySchema, row, undefined) ?? []);
   }
 
+  /** An item's cards, then its words: false when either didn't go, so the session tries again. */
+  async #sent(session: string, item: Delivery, kind: DeliveryKind): Promise<boolean> {
+    // Cards with words after them are one post: its words carry the verdict.
+    const carded = !item.cards || (await this.#parts.post(session, "", `${item.id}:cards`, item.cards, item.content === "" ? item.id : undefined));
+
+    if (!carded) return false;
+
+    if (item.cards && item.content === "") return true;
+
+    return kind === "look" || kind === "post" ? this.#parts.post(session, item.content, item.id, undefined, item.id) : this.#parts.submit(session, item.content, item.id);
+  }
+
+  #delivered(session: string, item: Delivery, kind: DeliveryKind): void {
+    const now = Date.now();
+    const marked = this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued' RETURNING id", now, item.id).toArray().length > 0;
+
+    if (kind === "chat") return;
+    this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
+
+    if (marked) this.#parts.later(this.#parts.notify(session, item.line));
+  }
+
   async #flush(session: string): Promise<void> {
     for (const item of this.#queued(session)) {
       const kind = item.kind ?? "event";
-      const put = kind === "look" || kind === "post" ? this.#parts.post : this.#parts.submit;
-      const carded = !item.cards || (await this.#parts.post(session, "", `${item.id}:cards`, item.cards));
 
-      if (!carded || ((!item.cards || item.content !== "") && !(await put(session, item.content, item.id)))) {
+      if (!(await this.#sent(session, item, kind))) {
         this.#retry(session);
 
         return;
       }
 
-      const now = Date.now();
-      const marked = this.#sql.exec("UPDATE ky_deliveries SET state = 'chat', delivered_at = ? WHERE id = ? AND state = 'queued' RETURNING id", now, item.id).toArray().length > 0;
-
-      if (kind === "chat") continue;
-      this.#parts.surfaced.shown({ kind, ref: item.ref, item: item.id, text: fit(item.line), expiresAt: now + EVENT_EXPIRY_MS }, now);
-
-      if (marked) this.#parts.later(this.#parts.notify(session, item.line));
+      this.#delivered(session, item, kind);
     }
   }
 }

@@ -10,6 +10,7 @@ import { Anticipating, Anticipations, type Call } from "../../src/dreaming/antic
 import { DreamNotes, DreamRuns } from "../../src/dreaming/dreaming";
 import { Presence, PresenceStore } from "../../src/dreaming/presence";
 import { Proactivity } from "../../src/dreaming/proactivity";
+import { Verdicts } from "../../src/dreaming/verdicts";
 import { Surfaced, SurfacedStore } from "../../src/dreaming/surfaced";
 import { budget } from "../parity/kit";
 import {
@@ -1160,7 +1161,7 @@ describe("a dream's run", () => {
         const anticipations = new Anticipations(storageFor(world.db), world.memory, (session) => CHATS.has(session));
         const presence = new Presence(storageFor(world.db));
         const surfaced = new Surfaced(storageFor(world.db));
-        const parts = { ...dreamOf(world), anticipations, presence, surfaced };
+        const parts = { ...dreamOf(world), anticipations, presence, surfaced, verdicts: new Verdicts(storageFor(world.db)) };
         const model: DreamModel = { now: START, last: 0, mark: { memories: 0, at: 0, said: 0 }, marked: false, memories: MEMORIES.length, sessions: 0, shown: 0, later: [], planted: [], missed: [] };
         const sides: DreamSides = { world, anticipations, presence, surfaced };
 

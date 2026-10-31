@@ -39,7 +39,8 @@ import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
 import type { Avatars, Setup } from "./avatars/wiring";
-import type { DreamLedger, Memory, Presence, Proactivity, Recall, Soul } from "./dreaming/contract";
+import { decodeVerdict, type DreamLedger, type Memory, type Presence, type Proactivity, type Recall, type Soul } from "./dreaming/contract";
+import type { Verdicts } from "./dreaming/wiring";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
@@ -53,6 +54,7 @@ import { type GroupChats, type GroupDesk, type PeerDesk, peerInvite, peerList, p
 import type { ExecutorLink } from "./executor/wiring";
 import type { Missing as NotSetUp } from "./avatars/contract";
 import type { Pushes } from "./push/wiring";
+import { noticeIn, type Spend } from "./spend/wiring";
 import type { TaskFeed } from "./automations/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
@@ -222,11 +224,13 @@ export class PiSessionSockets {
   readonly #automations: Automations;
   readonly #presence: Presence;
   readonly #proactivity: Proactivity;
+  readonly #verdicts: Verdicts;
   /** This device's notifications, from Settings › Proactivity. */
   readonly #pushes: Pushes;
   /** Turn-start recall, for the chips under the user's messages. */
   readonly #recall: Recall;
   readonly #setup: Setup;
+  readonly #spend: Spend;
   readonly #notSetUp: () => readonly NotSetUp[];
   readonly #version: string;
   /** Makes a side chat: a new top-level session set up like the main one. */
@@ -260,9 +264,11 @@ export class PiSessionSockets {
     automations: Automations,
     presence: Presence,
     proactivity: Proactivity,
+    verdicts: Verdicts,
     pushes: Pushes,
     recall: Recall,
     setup: Setup,
+    spend: Spend,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
@@ -295,9 +301,11 @@ export class PiSessionSockets {
     this.#automations = automations;
     this.#presence = presence;
     this.#proactivity = proactivity;
+    this.#verdicts = verdicts;
     this.#pushes = pushes;
     this.#recall = recall;
     this.#setup = setup;
+    this.#spend = spend;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
     this.#version = version;
@@ -386,7 +394,7 @@ export class PiSessionSockets {
   }
 
   #approvalsMessage(): PiServerMessage {
-    return { type: "approvals", approvals: this.#approvals.pending() };
+    return { type: "approvals", approvals: this.#approvals.cards() };
   }
 
   #broadcastApprovals(): void {
@@ -830,6 +838,7 @@ export class PiSessionSockets {
     if (chat || session === ROOT_SESSION) {
       // Only a message the user sends counts as being here: a tab that reconnects in the night does not.
       this.#presence.seen();
+      await noticeIn(this.#spend, await this.#harness.conversation(session));
       const all = this.#specialists.list();
       const text = textOf(message.input);
       const unknown = all.length === 0 ? undefined : mentions(text).find((id) => !this.#specialists.has(id));
@@ -1072,10 +1081,14 @@ export class PiSessionSockets {
     "dream-undo": (message) => this.#ledger.undo(message.entry),
     "automation-save": (message) => this.#saveAutomation(message),
     automation: (message) => this.#automationActions[message.action](message.automation),
+    "post-verdict": (message) => this.#verdicts.judge(decodeVerdict(message.verdict)),
+    "post-verdicts": () => this.#verdicts.view(),
     proactivity: () => this.#proactivity.view(),
     "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-looks": (message) => this.#proactivity.setLooks(message.looks),
     "set-right-away": (message) => this.#proactivity.setRightAway(message.most),
+    spend: () => this.#spend.view(),
+    "set-spend-cap": (message) => this.#spend.setCap(message.usd),
     "push-key": () => this.#pushes.key(),
     "push-subscribe": (message) => {
       this.#pushes.subscribe(message);

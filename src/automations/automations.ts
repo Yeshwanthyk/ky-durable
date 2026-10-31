@@ -13,6 +13,7 @@ import { programOutcome } from "../executor/contract";
 import type { MachineHub } from "../machines/contract";
 import type { Models } from "../providers/wiring";
 import type { Spawn } from "../skills/contract";
+import type { BackgroundWork } from "../spend/contract";
 import {
   AlreadyRan,
   AUTOMATION_SOURCE as SOURCE,
@@ -62,7 +63,11 @@ export type AutomationDeps = {
   readonly dream: { readonly cron: (zone: string | null) => string; readonly run: () => void };
   readonly looks: { readonly booked: (zone: string | null) => ReadonlyArray<{ readonly time: string; readonly cron: string }>; readonly run: (time: string) => void };
   readonly peers: () => Promise<void>;
+  readonly approvals: () => void;
+  readonly sites: () => Promise<void>;
   readonly unwatched: (anticipation: number) => void;
+  /** Whether a scheduled run may start now (src/spend); a run the user asks for always may. */
+  readonly allows: (work: BackgroundWork) => boolean;
 };
 
 const LookFire = Schema.Struct({ time: Schema.String });
@@ -77,6 +82,8 @@ export type Callbacks = {
   look: (payload: LookFire) => Promise<void>;
   peers: () => Promise<void>;
   machines: () => Promise<void>;
+  approvals: () => Promise<void>;
+  sites: () => Promise<void>;
 };
 
 export type GateCheck =
@@ -736,34 +743,34 @@ const make = Effect.gen(function* () {
     return last !== undefined && last.id !== task && isLive(last.status);
   };
 
+  const rebooks = (row: AutomationRow, fired: Fire, schedule: Schedule<Fire>) => row.cron !== null && fired.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id;
+
+  // A run the user asked for always starts; a scheduled one only when spend allows it.
+  const allowed = (row: AutomationRow, fired: Fire) => fired.slot !== undefined || host.allows(isCheckIn(row) ? "check-in" : "automation");
+
+  const runDue = (row: AutomationRow, fired: Fire, slot: number, task: string) =>
+    Effect.gen(function* () {
+      if (!(yield* Effect.sync(() => allowed(row, fired))) || ran(task)) return;
+      const admitted = yield* admit(row, task, fired.slot !== undefined);
+
+      if (admitted === null) return;
+      yield* start({ ...row, prompt: `${admitted.prefix}${row.prompt}` }, slot, task);
+
+      if (admitted.found !== undefined) yield* keepFound(row.id, { hash: admitted.found, task });
+    });
+
   const fire = (fired: Fire, schedule: Schedule<Fire>) =>
     Effect.gen(function* () {
       const row = yield* get(fired.id);
 
       if (row?.status !== "active") return;
 
-      if (row.cron !== null && fired.slot === undefined && schedule.type !== "cron" && row.schedule_id === schedule.id) {
-        yield* keepBooking(row.id, yield* bookNext(row, schedule.time * 1000));
-      }
-
+      if (rebooks(row, fired, schedule)) yield* keepBooking(row.id, yield* bookNext(row, schedule.time * 1000));
       const slot = slotOf(fired, schedule, row);
       const task = `a-${row.id}-${slot}`;
 
       if (overlaps(row.id, task)) return;
-
-      if (!ran(task)) {
-        const admitted = yield* admit(row, task, fired.slot !== undefined);
-
-        if (admitted === null) {
-          if (row.at !== null) yield* done(row.id, schedule.id);
-
-          return;
-        }
-
-        yield* start({ ...row, prompt: `${admitted.prefix}${row.prompt}` }, slot, task);
-
-        if (admitted.found !== undefined) yield* keepFound(row.id, { hash: admitted.found, task });
-      }
+      yield* runDue(row, fired, slot, task);
 
       if (row.at !== null) yield* done(row.id, schedule.id);
     });
@@ -1035,7 +1042,22 @@ const make = Effect.gen(function* () {
         return status === "active" || status === "done";
       }),
 
-    bookAt: (callback: "machines" | "peers", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+    bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),
+
+    // One alarm, at the earliest card due a reminder or its lapse.
+    approvalsAt: (at: number) =>
+      Effect.gen(function* () {
+        const booked = (yield* scheduled((scheduler) => scheduler.list())).filter((each) => each.callback === "approvals" && each.type !== "cron");
+
+        // The scheduler keeps whole seconds; rounded down, the alarm would fire before the card is due.
+        const second = Math.ceil(at / 1000) * 1000;
+
+        if (booked.some((each) => each.time * 1000 <= second)) return;
+
+        for (const old of booked) yield* cancel(old.id);
+
+        yield* scheduled((scheduler) => scheduler.set(new Date(second), "approvals"));
+      }),
 
     dreamAt: (at: number) =>
       Effect.gen(function* () {

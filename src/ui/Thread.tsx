@@ -19,6 +19,7 @@ import { Icon } from "./Icon";
 import { type Placement, placements, wrote } from "./living-cards";
 import { Markdown } from "./Markdown";
 import { SentClip } from "./Media";
+import { JudgePost } from "./PostVerdict";
 import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
 
@@ -442,6 +443,7 @@ const TurnView = memo(function TurnView({
                     <CopyButton text={answer} label="Copy answer" />
                   </span>
                 ) : null}
+                {turn.post === undefined ? null : <JudgePost item={turn.post} />}
               </div>
             )}
           </>
