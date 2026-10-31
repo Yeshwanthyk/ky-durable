@@ -8,7 +8,7 @@ import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
 import { type CallResult, type ExecutorCall, type ExecutorConfig, type ExecutorGate, type ResumeAction, resultText } from "../executor/contract";
 import { callOnce } from "../executor/wiring";
-import { outsideRead } from "../outside/contract";
+import { outsideWhy } from "../outside/contract";
 import { OutsideContent } from "../outside/outside";
 import type { Approval, ApprovalHandler, Asker, Settle } from "./approvals";
 import { type ApprovalAction, APPROVAL_TABLES, NOBODY_ANSWERED, type ToolPolicy, type ToolPolicyView } from "./contract";
@@ -169,8 +169,8 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
 
     if (tool !== "" && this.#edge.run(Store.use((store) => store.asked(tool)))) this.#changed();
     const policy = tool === "" ? "ask" : this.policyFor(tool);
-    const read = outsideRead(this.#edge.run(OutsideContent.use((outside) => outside.marked(conversation))).map((mark) => mark.source));
-    const decided = verdict(policy, present, read !== "");
+    const why = this.#why(conversation);
+    const decided = verdict(policy, present, why !== undefined);
     const decline = async () => resultText(await call("resume", { requestId: paused.requestId, response: { action: "decline" } }));
 
     if (decided === "block") {
@@ -192,19 +192,26 @@ export class ExecutorApprovals implements ExecutorGate, ApprovalHandler {
       return note(accepted, `ky approved ${tool} itself: the user set it to Allow in Settings › Executor.`);
     }
 
-    const carded = this.#carded(paused, tool, conversation, present);
+    const carded = this.#carded(paused, tool, conversation, present, why);
 
-    return note(result, policy === "allow" && present ? `${carded}\nky asked though ${tool} is set to Allow: this chat read ${read}, outside content that may have led to it.` : carded);
+    return note(result, policy === "allow" && present ? `${carded}\nky asked though ${tool} is set to Allow: ${why}, outside content that may have led to it.` : carded);
   }
 
-  #carded(paused: Paused, tool: string, conversation: string, present: boolean): string {
+  /** What outside content `conversation` read, as a card says it (src/outside); undefined for none. */
+  #why(conversation: string): string | undefined {
+    const marks = this.#edge.run(OutsideContent.use((outside) => outside.marked(conversation)));
+
+    return marks.length === 0 ? undefined : outsideWhy(marks.map((mark) => mark.source));
+  }
+
+  #carded(paused: Paused, tool: string, conversation: string, present: boolean, why: string | undefined): string {
     const message = paused.message?.trim() || "an action in your apps";
 
     const id = this.#approvals.requestApproval({
       kind: "executor",
       ref: paused.requestId,
       subject: tool,
-      summary: message,
+      summary: why === undefined ? message : `${message} (asked because ${why})`,
       payload: { tool, message },
       conversation
     });

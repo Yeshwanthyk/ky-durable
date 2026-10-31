@@ -327,7 +327,9 @@ export function specialistExtension(
   /** The main chat and side chats: they see the roster and may manage specialists. */
   chat: (session: string) => boolean,
   /** Whether a task's work is still wanted; checked before each round and before the report. */
-  wanted: (feedId: string) => boolean
+  wanted: (feedId: string) => boolean,
+  /** A discussion's report brings what each specialist in it read to the conversation that asked (src/outside). */
+  carry: (from: string, to: string) => void
 ): Specialist {
   /** Asks in each home conversation's current turn. In memory: an eviction only resets the count. */
   const asks = new Map<string, number>();
@@ -405,6 +407,7 @@ export function specialistExtension(
         const { report } = task.state.checkpoint;
 
         if (report !== undefined && wanted(task.input.feedId)) {
+          for (const session of task.input.sessions) carry(String(session), String(runtime.conversationId));
           const owner = must(await runtime.conversation(runtime.conversationId, context), "A discussion's owner is gone.");
           await owner.submit(
             { type: "input", content: report, whenBusy: "steer", requestId: `discuss-report:${task.id}` },

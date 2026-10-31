@@ -35,36 +35,64 @@ const BANK = "https://bank.test/account";
 
 const STEPS = [{ do: "click" as const, selector: "#go" }];
 
+/** A click on FREE's "#to-bank" link, then on what the page it leads to shows. */
+const WANDER = [
+  { do: "click" as const, selector: "#to-bank" },
+  { do: "click" as const, selector: "#pay" }
+];
+
+const UNKNOWN = "ky couldn't check which sites its browser is signed in to, so no step ran. Try again in a moment.";
+
+type Kitesurf = "reads" | "short" | "fails";
+
 type Op =
-  | { readonly t: "read"; readonly c: Conversation }
+  | { readonly t: "read"; readonly c: Conversation; readonly kitesurf: Kitesurf }
+  | { readonly t: "wander"; readonly c: Conversation; readonly kitesurf: Kitesurf }
   | { readonly t: "carry"; readonly from: Conversation; readonly to: Conversation }
   | { readonly t: "pause"; readonly c: Conversation; readonly policy: ToolPolicy }
-  | { readonly t: "steps"; readonly c: Conversation }
+  | { readonly t: "steps"; readonly c: Conversation; readonly vault: boolean }
   | { readonly t: "decide"; readonly accept: boolean };
 
 const aConversation = fc.constantFrom(...CONVERSATIONS);
+
+const aKitesurf = fc.constantFrom<Kitesurf>("reads", "short", "fails");
 
 // SAFETY: a conversation id is a number pi brands; browse reads it only as its session, String(id).
 const idOf = (c: Conversation) => c as ConversationId;
 
 const anOp: fc.Arbitrary<Op> = fc.oneof(
-  fc.record({ t: fc.constant("read" as const), c: aConversation }),
+  fc.record({ t: fc.constant("read" as const), c: aConversation, kitesurf: aKitesurf }),
+  fc.record({ t: fc.constant("wander" as const), c: aConversation, kitesurf: aKitesurf }),
   fc.record({ t: fc.constant("carry" as const), from: aConversation, to: aConversation }),
   fc.record({ t: fc.constant("pause" as const), c: aConversation, policy: fc.constantFrom<ToolPolicy>("allow", "ask", "block") }),
-  fc.record({ t: fc.constant("steps" as const), c: aConversation }),
+  fc.record({ t: fc.constant("steps" as const), c: aConversation, vault: fc.boolean() }),
   fc.record({ t: fc.constant("decide" as const), accept: fc.boolean() })
 );
 
-const vault: LoginVault = {
-  status: async () => [{ kind: LOGIN_KIND, id: "bank.test", meta: { cookies: 1 }, updatedAt: 0 }],
-  put: async () => {},
-  remove: async () => {},
-  browserLogins: async () => []
-};
+/** What the next browse call meets: how Kitesurf reads, and whether the Vault answers. */
+type Weather = { kitesurf: Kitesurf; vault: boolean };
 
-/** Browser Run with two pages, Kitesurf and Chromium alike: each click a step makes, as "click #go on <url>". */
-function browsersOf(acted: string[]): Browsers {
-  const tab = (): BrowserTab => {
+const BANK_LOGIN = JSON.stringify({ cookies: [{ name: "s", value: "v", domain: "bank.test", path: "/", expires: -1, httpOnly: true, secure: true, sameSite: "Lax" }], origins: [] });
+
+function vaultOf(weather: Weather): LoginVault {
+  return {
+    status: async () => {
+      if (!weather.vault) throw new Error("the Vault is down");
+
+      return [{ kind: LOGIN_KIND, id: "bank.test", meta: { cookies: 1 }, updatedAt: 0 }];
+    },
+    put: async () => {},
+    remove: async () => {},
+    browserLogins: async () => [{ site: "bank.test", state: BANK_LOGIN }]
+  };
+}
+
+/**
+ * Browser Run: Kitesurf as the weather says, and Chromium sessions that hold a login once one is restored into them.
+ * Each click a step makes is "click #go on <url>", and " signed in" when its session holds a login.
+ */
+function browsersOf(acted: string[], weather: Weather): Browsers {
+  const tab = (signed: () => boolean, thin: boolean): BrowserTab => {
     let at = "about:blank";
 
     return {
@@ -74,10 +102,15 @@ function browsersOf(acted: string[]): Browsers {
         return null;
       },
       waitForLoadState: async () => {},
-      evaluate: async () => ({ title: at, text: WORDS, links: [] }),
+      evaluate: async () => ({ title: at, text: thin ? "Hi" : WORDS, links: [] }),
       url: () => at,
       locator: (selector) => {
-        const act = async () => void acted.push(`click ${selector} on ${at}`);
+        const act = async () => {
+          acted.push(`click ${selector} on ${at}${signed() ? " signed in" : ""}`);
+
+          if (at === FREE && selector === "#to-bank") at = BANK;
+          else if (at === BANK && selector === "#away") at = FREE;
+        };
 
         return { first: () => ({ click: act, fill: act, press: act }) };
       },
@@ -88,26 +121,43 @@ function browsersOf(acted: string[]): Browsers {
   };
 
   const unused = () => Promise.reject(new Error("not in this world"));
+  const seats = new Map<string, Seat>();
+  let sessions = 0;
 
-  const seat: Seat = {
-    newTab: async () => tab(),
-    lastTab: async () => undefined,
-    tab: async () => undefined,
-    handoff: unused,
-    liveView: unused,
-    complete: unused,
-    record: unused,
-    recorded: unused,
-    storageState: async () => ({ cookies: [], origins: [] }),
-    restore: async () => {},
-    end: async () => {},
-    close: async () => {}
+  const seatOf = (): Seat => {
+    let signed = false;
+
+    return {
+      newTab: async () => tab(() => signed, false),
+      lastTab: async () => undefined,
+      tab: async () => undefined,
+      handoff: unused,
+      liveView: unused,
+      complete: unused,
+      record: unused,
+      recorded: unused,
+      storageState: async () => ({ cookies: [], origins: [] }),
+      restore: async (state) => {
+        signed ||= state.cookies.length > 0;
+      },
+      end: async () => {},
+      close: async () => {}
+    };
   };
 
   return {
-    kitesurf: async () => ({ newPage: async () => tab(), close: async () => {} }),
-    acquire: async () => "session-1",
-    connect: async () => seat
+    kitesurf: async () => {
+      if (weather.kitesurf === "fails") throw new Error("Kitesurf couldn't start");
+
+      return { newPage: async () => tab(() => false, weather.kitesurf === "short"), close: async () => {} };
+    },
+    acquire: async () => {
+      const id = `session-${++sessions}`;
+      seats.set(id, seatOf());
+
+      return id;
+    },
+    connect: async (id) => seats.get(id) ?? unused()
   };
 }
 
@@ -116,7 +166,8 @@ function world() {
   const deferred: Promise<unknown>[] = [];
   const resumes: string[] = [];
   const acted: string[] = [];
-  const browsers = browsersOf(acted);
+  const weather: Weather = { kitesurf: "reads", vault: true };
+  const browsers = browsersOf(acted, weather);
   const present = (session: string) => session === String(HERE);
   const unattended = (session: string) => session === String(ROUTINE);
 
@@ -125,7 +176,7 @@ function world() {
 
   const browsing = new Browsing(storageOf(db), {
     browsers,
-    vault: () => vault,
+    vault: () => vaultOf(weather),
     save: async () => "file-1",
     // SAFETY: a page under 20,000 characters is never spilled to the workspace.
     workspace: {} as ConstructorParameters<typeof Browsing>[1]["workspace"],
@@ -159,7 +210,7 @@ function world() {
     while (deferred.length > 0) await Promise.all(deferred.splice(0));
   };
 
-  return { approvals, executor, browsing, acted, outside, resumes, pause, settle };
+  return { approvals, executor, browsing, acted, weather, outside, resumes, pause, settle };
 }
 
 beforeEach(() => {
@@ -172,7 +223,7 @@ afterEach(() => {
 
 const accepts = (resumes: readonly string[]) => resumes.filter((each) => each.includes('"action":"accept"')).length;
 
-const onBank = (acted: readonly string[]) => acted.filter((each) => each.endsWith(BANK)).length;
+const signedIn = (acted: readonly string[]) => acted.filter((each) => each.endsWith(" signed in")).length;
 
 type Ky = ReturnType<typeof world>;
 
@@ -182,7 +233,15 @@ type Model = { readonly marked: Set<Conversation>; tapped: number; calls: number
 type Step<T extends Op["t"]> = (ky: Ky, model: Model, op: Extract<Op, { t: T }>) => Promise<void>;
 
 const read: Step<"read"> = async (ky, model, op) => {
+  ky.weather.kitesurf = op.kitesurf;
   await ky.browsing.browse({ url: FREE }, idOf(op.c), `call-${model.calls++}`);
+  model.marked.add(op.c);
+};
+
+// A page of another site whose link leads to the signed-in one: its steps may follow it, but never in a session that holds the login.
+const wander: Step<"wander"> = async (ky, model, op) => {
+  ky.weather.kitesurf = op.kitesurf;
+  await ky.browsing.browse({ url: FREE, steps: WANDER }, idOf(op.c), `call-${model.calls++}`);
   model.marked.add(op.c);
 };
 
@@ -202,13 +261,16 @@ const pause: Step<"pause"> = async (ky, model, op) => {
   expect(accepts(ky.resumes) - before, `${op.policy} in ${op.c}, marked ${model.marked.has(op.c)}`).toBe(auto ? 1 : 0);
 };
 
-// Steps on the signed-in site ask on a card, or are refused at once in a routine; neither runs them.
+// Steps on the signed-in site ask on a card, or are refused at once in a routine or while the Vault can't say; none runs them.
 const steps: Step<"steps"> = async (ky, model, op) => {
+  ky.weather.vault = op.vault;
   const cards = ky.approvals.cards().length;
   const said = await ky.browsing.browse({ url: BANK, steps: STEPS }, idOf(op.c), `call-${model.calls++}`);
+  const refused = op.c === ROUTINE || !op.vault;
+  ky.weather.vault = true;
 
-  expect(said).toMatchObject({ isError: op.c === ROUTINE });
-  expect(ky.approvals.cards().length).toBe(op.c === ROUTINE ? cards : cards + 1);
+  expect(said).toMatchObject(op.vault ? { isError: refused } : { refused: UNKNOWN });
+  expect(ky.approvals.cards().length).toBe(refused ? cards : cards + 1);
 };
 
 const decide: Step<"decide"> = async (ky, model, op) => {
@@ -224,6 +286,8 @@ const decide: Step<"decide"> = async (ky, model, op) => {
 function run(ky: Ky, model: Model, op: Op): Promise<void> {
   if (op.t === "read") return read(ky, model, op);
 
+  if (op.t === "wander") return wander(ky, model, op);
+
   if (op.t === "carry") return carry(ky, model, op);
 
   if (op.t === "pause") return pause(ky, model, op);
@@ -232,7 +296,7 @@ function run(ky: Ky, model: Model, op: Op): Promise<void> {
 }
 
 describe("R7: a write after outside content never runs unapproved", () => {
-  it("I-O1: a conversation that read a page with no saved login, or took another's marks, never auto-runs an Executor write; steps on a signed-in site run only on the user's tap", async () => {
+  it("I-O1: a conversation that read a page with no saved login, or took another's marks, never auto-runs an Executor write; a step acts in a session holding a login only on the user's tap", async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(anOp, { maxLength: budget().maxCommands }), async (ops) => {
         const ky = world();
@@ -240,12 +304,36 @@ describe("R7: a write after outside content never runs unapproved", () => {
 
         for (const op of ops) {
           await run(ky, model, op);
-          expect(onBank(ky.acted)).toBe(model.tapped);
+          expect(signedIn(ky.acted)).toBe(model.tapped);
         }
 
         for (const c of CONVERSATIONS) expect(ky.outside.run(OutsideContent.use((outside) => outside.marked(String(c)))).length > 0, `conversation ${c}`).toBe(model.marked.has(c));
       }),
       { numRuns: budget().numRuns * 2, seed: budget().seed }
     );
+  });
+
+  it("I-O2: while the Vault can't say which sites are signed in, steps that act run nowhere, and a plain read is outside content", async () => {
+    const ky = world();
+    ky.weather.vault = false;
+
+    expect(await ky.browsing.browse({ url: BANK, steps: STEPS }, idOf(HERE), "call-1")).toEqual({ refused: UNKNOWN });
+    expect(ky.acted).toEqual([]);
+    expect(ky.approvals.cards()).toEqual([]);
+
+    expect(JSON.stringify(await ky.browsing.browse({ url: BANK }, idOf(HERE), "call-2"))).toContain("read without a saved login: outside data");
+    expect(ky.outside.run(OutsideContent.use((outside) => outside.marked(String(HERE))))).toEqual([expect.objectContaining({ source: "web" })]);
+  });
+
+  it("I-O3: steps the user approved for a signed-in site stop at the first that would act on another site", async () => {
+    const ky = world();
+    const away = [{ do: "click" as const, selector: "#away" }, ...STEPS];
+
+    await ky.browsing.browse({ url: BANK, steps: away }, idOf(HERE), "call-1");
+    const [card] = ky.approvals.cards();
+    ky.approvals.onDecision(card!.id, "accept");
+    await ky.settle();
+
+    expect(ky.acted).toEqual([`click #away on ${BANK} signed in`]);
   });
 });

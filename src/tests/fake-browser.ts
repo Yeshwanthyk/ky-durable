@@ -6,7 +6,14 @@ import type { Browser, Browsers, BrowserTab, Cookie, Launch, PageRead, Response,
  * names the URL (or fails, for "fails"). A session holds its tabs, cookies and hand-offs until `killSessions` ends it.
  */
 
-type FakePage = { readonly title: string; readonly text: string; readonly status?: number; readonly headings?: PageRead["headings"] };
+/** `goesTo`: a click on that selector takes the tab to that URL, as a link does. */
+type FakePage = {
+  readonly title: string;
+  readonly text: string;
+  readonly status?: number;
+  readonly headings?: PageRead["headings"];
+  readonly goesTo?: Readonly<Record<string, string>>;
+};
 
 type Handoff = { readonly target: string; readonly instructions: string; done?: boolean };
 
@@ -54,9 +61,16 @@ class FakeTab implements BrowserTab {
   }
 
   locator(selector: string) {
-    const act = (what: string) => async () => void this.acted.push(`${what} ${selector} on ${this.#url}`);
+    const act = (what: string) => async () => void this.acted.push(`${what} ${selector} on ${this.#url} in ${this.target}`);
 
-    return { first: () => ({ click: act("click"), fill: act("fill"), press: act("press") }) };
+    const click = async () => {
+      await act("click")();
+      const next = this.read(this.#url).goesTo?.[selector];
+
+      if (next !== undefined) await this.goto(next);
+    };
+
+    return { first: () => ({ click, fill: act("fill"), press: act("press") }) };
   }
 
   context() {
@@ -154,7 +168,7 @@ export class FakeBrowsers implements Browsers {
   readonly pages = new Map<string, FakePage>();
   readonly kitesurfPages = new Map<string, FakePage | "fails">();
   readonly sessions = new Map<string, FakeSession>();
-  /** Each click, fill and press a step made, as "click #pay on https://…", in any browser. */
+  /** Each click, fill and press a step made, as "click #pay on https://… in session-1-target-1", in any browser. */
   readonly acted: string[] = [];
   acquired = 0;
   kitesurfs = 0;
@@ -200,4 +214,13 @@ export function liveSession(browsers: FakeBrowsers) {
 /** Browser Run ends every session, as keep_alive running out does. */
 export function killSessions(browsers: FakeBrowsers): void {
   for (const session of browsers.sessions.values()) session.alive = false;
+}
+
+/** The steps that acted in a session holding a login: one restored into it, or signed in there. */
+export function actedSignedIn(browsers: FakeBrowsers): string[] {
+  return browsers.acted.filter((act) => {
+    const session = browsers.sessions.get(/ in (session-\d+)-target-\d+$/.exec(act)?.[1] ?? "");
+
+    return session !== undefined && (session.cookies.length > 0 || session.restored.some((state) => state.cookies.length > 0));
+  });
 }

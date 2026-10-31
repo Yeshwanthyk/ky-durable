@@ -195,6 +195,12 @@ export class NoBrowser extends Schema.TaggedError<NoBrowser>()("NoBrowser", { sa
   }
 }
 
+export class LoginsUnknown extends Schema.TaggedError<LoginsUnknown>()("LoginsUnknown", {}) implements Refusable {
+  get refusal(): string {
+    return "ky couldn't check which sites its browser is signed in to, so no step ran. Try again in a moment.";
+  }
+}
+
 export class NoPage extends Schema.TaggedError<NoPage>()("NoPage", {}) implements Refusable {
   get refusal(): string {
     return "Nothing is open in ky's browser: give the url of the page to hand over.";

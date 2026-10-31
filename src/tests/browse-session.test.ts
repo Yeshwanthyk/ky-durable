@@ -5,7 +5,7 @@ import type { Args, Cookie } from "../browse/contract";
 import { BROWSE_TABLES, LOGIN_KIND, Logins, StorageState } from "../browse/contract";
 import * as Schema from "effect/Schema";
 import { agent, call, inside, promptTool, said, snapshotView, until } from "./drive";
-import { type FakeBrowsers, killSessions, liveSession } from "./fake-browser";
+import { actedSignedIn, type FakeBrowsers, killSessions, liveSession } from "./fake-browser";
 
 /**
  * ky's browser (src/browse): Kitesurf reads first and Chromium when it can't; one Chromium session, found again by
@@ -81,7 +81,9 @@ describe("browse reads with Kitesurf first", () => {
     });
 
     for (const path of ["short", "missing", "fails"]) expect(await read(name, { url: `https://app.test/${path}` }), path).toBe(`${OUTSIDE("app.test")}App\nhttps://app.test/${path}\n\n${WORDS}`);
-    expect(await counts(name)).toEqual({ kitesurfs: 3, acquired: 1 });
+    // Each read again on a Chromium session of its own, with no login in it.
+    expect(await counts(name)).toEqual({ kitesurfs: 3, acquired: 3 });
+    expect(await stored(name)).toEqual([]);
   });
 
   it("answers with Kitesurf's read when Chromium can't start", async () => {
@@ -121,20 +123,20 @@ describe("browse reads with Kitesurf first", () => {
 describe("ky's Chromium session", () => {
   it("is one session, found again by the id ky keeps, and a new one once Browser Run ended it", async () => {
     const name = crypto.randomUUID();
+    // A site with a saved login: only those read on ky's own session (a site without one gets a session of its own).
+    const site = `${crypto.randomUUID().slice(0, 8)}x.test`;
+    const url = `https://${site}/a`;
+    await env.Vault.getByName("owner").put(LOGIN_KIND, site, { cookies: [cookie(site)], origins: [] }, { cookies: 1 });
+    await using(name, (browsers) => browsers.pages.set(url, { title: "A", text: WORDS }));
 
-    await using(name, (browsers) => {
-      browsers.pages.set("https://app.test/a", { title: "A", text: WORDS });
-      browsers.kitesurfPages.set("https://app.test/a", "fails");
-    });
-
-    await read(name, { url: "https://app.test/a" });
-    await read(name, { url: "https://app.test/a" });
+    await read(name, { url });
+    await read(name, { url });
     expect(await counts(name)).toMatchObject({ acquired: 1 });
     expect(await stored(name)).toEqual(["session-1"]);
     expect(liveSession(await fake(name))?.tabs).toEqual([]);
 
     await using(name, (browsers) => killSessions(browsers));
-    expect(await read(name, { url: "https://app.test/a" })).toContain(WORDS);
+    expect(await read(name, { url })).toContain(WORDS);
     expect(await counts(name)).toMatchObject({ acquired: 2 });
     expect(await stored(name)).toEqual(["session-2"]);
   });
@@ -225,7 +227,12 @@ describe("Settings' browser logins", () => {
 describe("outside content and ky's signed-in browser", () => {
   const signedIn = (site: string) => env.Vault.getByName("owner").put(LOGIN_KIND, site, { cookies: [cookie(site)], origins: [] }, { cookies: 1 });
 
-  const acted = (name: string) => inside(name, (instance) => [...instance.boundary.browsers.acted]);
+  const where = / in \S+$/;
+
+  const acted = (name: string) => inside(name, (instance) => instance.boundary.browsers.acted.map((act) => act.replace(where, "")));
+
+  /** The steps that acted in a session holding a login. */
+  const actedSignedInto = (name: string) => inside(name, (instance) => actedSignedIn(instance.boundary.browsers).map((act) => act.replace(where, "")));
 
   const marks = (name: string) =>
     inside(name, (_instance, state) => state.storage.sql.exec("SELECT conversation, source FROM ky_outside_content ORDER BY conversation, source").toArray());
@@ -274,8 +281,45 @@ describe("outside content and ky's signed-in browser", () => {
     expect(await decide(name, card!.id, "accept")).toEqual({});
     await said(name, `[the user approved running steps on ${site}: ${summary}] ky ran them signed in.`);
     expect(await acted(name)).toEqual([`fill #amount on ${url}`, `click #pay on ${url}`]);
+    expect(await actedSignedInto(name)).toEqual([`fill #amount on ${url}`, `click #pay on ${url}`]);
     expect(await decide(name, card!.id, "accept")).toEqual({ refused: "That approval isn't waiting any more." });
     expect(await acted(name)).toHaveLength(2);
+  });
+
+  it("never acts for a site with no saved login in a session that holds one, even when Kitesurf can't read the page", async () => {
+    const name = crypto.randomUUID();
+    const site = fresh();
+    await signedIn(site);
+
+    await using(name, (browsers) => {
+      browsers.pages.set(`https://${site}/`, { title: "Account", text: WORDS });
+      browsers.pages.set("https://trap.test/", { title: "Trap", text: WORDS });
+      browsers.kitesurfPages.set("https://trap.test/", "fails");
+    });
+
+    expect(await read(name, { url: `https://${site}/` })).toContain("Account");
+    expect(await read(name, { url: "https://trap.test/", steps: [{ do: "click", selector: "#more" }] })).toContain(`${OUTSIDE("trap.test")}Trap`);
+    expect(await acted(name)).toEqual(["click #more on https://trap.test/"]);
+    expect(await actedSignedInto(name)).toEqual([]);
+    expect(await stored(name)).toEqual(["session-1"]);
+  });
+
+  it("never acts on a signed-in site through another site's link", async () => {
+    const name = crypto.randomUUID();
+    const site = fresh();
+    await signedIn(site);
+
+    await using(name, (browsers) => {
+      browsers.pages.set(`https://${site}/pay`, { title: "Pay", text: WORDS });
+      browsers.pages.set("https://lure.test/", { title: "Lure", text: "Click through.", goesTo: { "#bank": `https://${site}/pay` } });
+      browsers.kitesurfPages.set("https://lure.test/", "fails");
+    });
+
+    await read(name, { url: `https://${site}/pay` });
+    await read(name, { url: "https://lure.test/", steps: [{ do: "click", selector: "#bank" }, { do: "click", selector: "#pay" }] });
+    expect(await acted(name)).toContain(`click #pay on https://${site}/pay`);
+    expect(await actedSignedInto(name)).toEqual([]);
+    expect(await pending(name)).toEqual([]);
   });
 
   it("runs nothing when the user declines, and the chat reads why", async () => {

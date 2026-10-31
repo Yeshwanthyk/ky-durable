@@ -12,7 +12,7 @@ import { type Edge, makeEdge, type Refusable } from "../core/edge";
 import type { Result } from "../core/refusal";
 import { Sql } from "../core/sql";
 import { runInputs } from "../history/wiring";
-import { OUTSIDE_DATA } from "../outside/contract";
+import { CHANGES_WAIT, OUTSIDE_DATA, outsideWhy } from "../outside/contract";
 import { OutsideContent } from "../outside/outside";
 import type { Vault } from "../vault";
 import { INBOUND_TABLES } from "./contract";
@@ -356,6 +356,12 @@ export class Inbound {
     this.#edge.run(OutsideContent.use((outside) => outside.mark(session, "webhook")));
   }
 
+  /** Why a card from `conversation` asks: what outside content it read (src/outside), or "" for none. */
+  outsideWhy(conversation: string): string {
+    return outsideWhy(this.#edge.run(OutsideContent.use((outside) => outside.marked(conversation))).map((mark) => mark.source));
+  }
+
+  /** A run on a webhook's post, while it lasts: every tool it calls waits, where a mark (src/outside) stays and holds back only writes. */
   guarded(conversation: string): boolean {
     return runInputs(this.#storage.sql, conversation).some((input) => isHookData(input.request));
   }
@@ -515,7 +521,7 @@ function told(hook: Hook, delivery: HookDelivery): string {
 
   return (
     `[a webhook to ky, "${plain(hook.label)}", from ${plain(delivery.source)}${event}: ${OUTSIDE_DATA}. ` +
-    "Do only what the user set this hook up for; anything that changes something waits for their approval.]\n\n" +
+    `Do only what the user set this hook up for; ${CHANGES_WAIT}.]\n\n` +
     body
   );
 }
