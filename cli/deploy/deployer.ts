@@ -46,6 +46,7 @@ import {
   ZeroTrustOff,
   zeroTrustPage
 } from "./contract.ts";
+import { LEGACY_MARKER, legacyRelease, legacyTagged } from "./legacy.ts";
 
 const DEPLOYS = new Set([
   "$schema",
@@ -143,7 +144,7 @@ const names = (config: Unstable_RawConfig) =>
   });
 
 function releaseOf(script: Script): string | undefined {
-  return script.tags?.find((tag) => tag.startsWith(RELEASE_TAG))?.slice(RELEASE_TAG.length);
+  return script.tags?.find((tag) => tag.startsWith(RELEASE_TAG))?.slice(RELEASE_TAG.length) ?? legacyRelease(script.tags);
 }
 
 const ranRelease = (script: Script | undefined) => script && (releaseOf(script) ?? "an unknown release");
@@ -154,9 +155,13 @@ function scripts(accountId: string) {
 
 const existing = (accountId: string, name: string) => Effect.map(scripts(accountId), (all) => all.find((candidate) => candidate.id === name));
 
+const ownTags = (tags: readonly string[] | null | undefined) => (tags?.includes(TAG) ?? false) || legacyTagged(tags);
+
 function ours(script: Script): boolean {
-  return script.tags?.includes(TAG) ?? false;
+  return ownTags(script.tags);
 }
+
+const earlier = (what: string) => `, still on an earlier ky's ${what}: \`ky deploy\` moves it over`;
 
 const findScript = (settings: string, name: Names) =>
   Effect.gen(function* () {
@@ -185,12 +190,17 @@ const bindersOf = (accountId: string, bucketName: string, except: string) =>
     return binders;
   });
 
+const marked = (accountId: string, bucketName: string, marker: string) =>
+  Effect.map(Stream.runCollect(R2.listObjects.items({ accountId, bucketName, prefix: marker })), (objects) => objects.some((object) => object.key === marker));
+
 const bucketState = (accountId: string, bucketName: string, script: string) =>
   Effect.gen(function* () {
     if (!(yield* find(R2.getBucket({ accountId, bucketName }), "NoSuchBucket"))) return "missing" as const;
-    const marked = yield* Stream.runCollect(R2.listObjects.items({ accountId, bucketName, prefix: MARKER }));
 
-    if (marked.some((object) => object.key === MARKER)) return "ours" as const;
+    // The earlier marker first: a deploy that died between writing today's and removing it reads as unfinished.
+    if (yield* marked(accountId, bucketName, LEGACY_MARKER)) return "legacy" as const;
+
+    if (yield* marked(accountId, bucketName, MARKER)) return "ours" as const;
     const [first] = yield* Stream.runCollect(Stream.take(R2.listObjects.items({ accountId, bucketName }), 1));
 
     if (first || (yield* bindersOf(accountId, bucketName, script)).length > 0) return "theirs" as const;
@@ -230,8 +240,10 @@ function guards(app: FoundApp): Set<string> {
   return new Set([...uris, ...domain].map(normal));
 }
 
+const appTags = (app: FoundApp) => ("tags" in app ? app.tags : undefined);
+
 function tagged(app: FoundApp): boolean {
-  return ("tags" in app && app.tags?.includes(TAG)) ?? false;
+  return ownTags(appTags(app));
 }
 
 function theirApp(app: FoundApp, address: string): string {
@@ -453,6 +465,9 @@ const ensureBuckets = (name: Names) =>
         body: `ky made this bucket for the ${name.script} Worker; \`ky teardown\` removes it.`,
         contentType: "text/plain"
       });
+
+      // Only once today's marker is written, so a deploy that dies between the two still finds a marker.
+      if (state === "legacy") yield* R2.deleteObjects({ accountId, bucketName: bucket.name, body: [LEGACY_MARKER] });
     }
   });
 
@@ -756,6 +771,8 @@ type Checker = (check: Check) => Effect.Effect<boolean>;
 function bucketCheck(state: Out<ReturnType<typeof bucketState>>, bucketName: string, settings: string): Check {
   if (state === "ours") return { name: "Bucket", ok: true, detail: bucketName };
 
+  if (state === "legacy") return { name: "Bucket", ok: true, detail: `${bucketName}${earlier("marker")}` };
+
   if (state === "missing") return { name: "Bucket", ok: false, detail: `no bucket ${bucketName}`, next: "ky deploy" };
 
   if (state === "orphan") return { name: "Bucket", ok: false, detail: `${bucketName} has no ${MARKER} marker yet: a deploy stopped before writing it`, next: "ky deploy" };
@@ -793,10 +810,16 @@ function releaseChecks(deployed: string | undefined, release: Release, applied: 
 
 function accessChecks(access: Access, address: string): Check[] {
   const missing = access.paths.filter((path) => !access.bypass || !guards(access.bypass).has(path));
+  const still = (app: FoundApp | undefined) => (app && legacyTagged(appTags(app)) ? earlier("tag") : "");
 
   return [
-    { name: "Access for the owner", ok: Boolean(access.owner), detail: access.owner ? address : `no Access app guards ${address}`, next: "ky deploy" },
-    { name: "Access bypass", ok: missing.length === 0, detail: missing.length === 0 ? `${BYPASS.length} paths` : `doesn't cover ${missing.join(", ")}`, next: "ky deploy" }
+    { name: "Access for the owner", ok: Boolean(access.owner), detail: access.owner ? `${address}${still(access.owner)}` : `no Access app guards ${address}`, next: "ky deploy" },
+    {
+      name: "Access bypass",
+      ok: missing.length === 0,
+      detail: missing.length === 0 ? `${BYPASS.length} paths${still(access.bypass)}` : `doesn't cover ${missing.join(", ")}`,
+      next: "ky deploy"
+    }
   ];
 }
 
@@ -829,6 +852,10 @@ const inspectWorker = (name: Names, release: Release, script: Script, access: Ac
     yield* check(yield* cloudCheck(name, release));
   });
 
+function workerCheck(name: string, script: Script): Check {
+  return { name: "Worker", ok: true, detail: script.tags?.includes(TAG) ? name : `${name}${earlier("tags")}` };
+}
+
 const inspectAccount = ({ config, settings }: Site, release: Release, check: Checker) =>
   Effect.gen(function* () {
     const name = yield* names(config);
@@ -858,7 +885,7 @@ const inspectAccount = ({ config, settings }: Site, release: Release, check: Che
       return;
     }
 
-    yield* check({ name: "Worker", ok: true, detail: name.script });
+    yield* check(workerCheck(name.script, script));
     yield* inspectWorker(name, release, script, access, address, check);
   });
 
@@ -890,7 +917,7 @@ const bucketFate = (accountId: string, bucketName: string, script: string) =>
 
     if (state === "missing") return "gone" as const;
 
-    if (state !== "ours") return { leave: "ky didn't create it" };
+    if (state !== "ours" && state !== "legacy") return { leave: "ky didn't create it" };
     const binders = yield* bindersOf(accountId, bucketName, script);
 
     return binders.length > 0 ? { leave: `${binders.join(", ")} binds it` } : ("remove" as const);
