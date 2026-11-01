@@ -12,6 +12,7 @@ import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/e
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import type { MachineHub } from "../machines/contract";
 import type { RunnerPipe } from "../machines/wiring";
@@ -33,6 +34,8 @@ import {
   NoVendor,
   type ProviderKind,
   type ProviderRecord,
+  type Slot,
+  SLOT_PROVIDER,
   SubscriptionToken,
   TestUnfinished
 } from "./contract";
@@ -217,6 +220,57 @@ const make = Effect.gen(function* () {
 
     return { ...provider, streamSimple };
   };
+
+  const SLOTS: readonly Slot[] = ["main", "worker", "background"];
+
+  /** What the slot `id` names resolves to now; undefined for no slot, or with no provider to run it. */
+  const current = (id: string): Resolved | undefined => {
+    const slot = SLOTS.find((each) => each === id);
+    const exit = slot && Effect.runSyncExit(resolve(slot));
+
+    return exit && Exit.isSuccess(exit) ? exit.value : undefined;
+  };
+
+  /** A slot's call, sent on the model its purpose resolves to now, at that model's level: the stored one is the slot's. */
+  const onSlot = (model: Model<Api>, context: TranscriptContext, options: CallOptions | undefined): AssistantMessageEventStream => {
+    const resolved = current(model.id);
+
+    if (!resolved) {
+      const out = createAssistantMessageEventStream();
+      const message = failed(model, `No provider can run ky's ${model.id} model.`, now());
+      out.push({ type: "error", reason: "error", error: message });
+      out.end(message);
+
+      return out;
+    }
+
+    const { reasoning: _reasoning, apiKey: _apiKey, headers: _headers, ...rest } = options ?? {};
+    const level = resolved.choice.thinkingLevel;
+    const sent: CallOptions = { ...rest, ...(model.id === "background" && { [BACKGROUND]: true }), ...(level !== "off" && { reasoning: level }) };
+
+    return registry.streamSimple(resolved.model, context, sent);
+  };
+
+  /** ky's purposes as models: each is the model its purpose resolves to now, under the slot's name. */
+  const slots: Provider = {
+    id: SLOT_PROVIDER,
+    name: "ky",
+    auth: { apiKey: { name: "ky", resolve: async () => ({ auth: { apiKey: SLOT_PROVIDER }, source: "ky's own purposes" }) } },
+    getModels: () => SLOTS.flatMap((slot) => {
+      const resolved = current(slot);
+
+      return resolved ? [{ ...resolved.model, provider: SLOT_PROVIDER, id: slot }] : [];
+    }),
+    // A raw call's options are its API's, and a slot's model has its purpose's API: they pass as they are.
+    stream: (model, context, options) => {
+      const resolved = current(model.id);
+
+      return resolved ? registry.stream(resolved.model, context, options) : onSlot(model, context, undefined);
+    },
+    streamSimple: onSlot
+  };
+
+  registry.setProvider(compacting(slots));
 
   const load = Effect.gen(function* () {
     const before = endpoints;

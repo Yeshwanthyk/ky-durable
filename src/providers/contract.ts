@@ -72,6 +72,20 @@ export function agentModel({ provider, modelId, thinkingLevel }: Choice): AgentC
   return { model: { provider, modelId }, thinkingLevel };
 }
 
+/** The provider whose models stand for ky's purposes: `ky/main` runs, at each call, on what main resolves to then. */
+export const SLOT_PROVIDER = "ky";
+
+/** The purposes a conversation can follow instead of holding a model of its own. */
+export type Slot = "main" | "worker" | "background";
+
+/**
+ * A conversation that follows `slot`: it stores only the slot, so a new model or a provider that blinks out writes
+ * nothing to it. Its agent document keeps every revision, and storing each move gave a chat 79,000 of them.
+ */
+export function slotModel(slot: Slot): AgentChange {
+  return { model: { provider: SLOT_PROVIDER, modelId: slot }, thinkingLevel: null };
+}
+
 export function parseModel(text: string, thinkingLevel: ModelThinkingLevel): Choice {
   const [provider = "", ...rest] = text.trim().split("/");
 
