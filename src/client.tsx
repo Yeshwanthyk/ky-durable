@@ -393,8 +393,8 @@ function Stage(parts: Parts) {
   );
 
   const thread = useMemo(
-    () => ({ messages, live: ky.live, running: ky.running, tools: ky.tools, answers: ky.answers }),
-    [messages, ky.live, ky.running, ky.tools, ky.answers]
+    () => ({ messages, live: ky.live, running: ky.running, tools: ky.tools, answers: ky.answers, earlier: ky.earlier, before: ky.before }),
+    [messages, ky.live, ky.running, ky.tools, ky.answers, ky.earlier, ky.before]
   );
 
   const kept = useSame(view.setUp, shallow);
@@ -453,7 +453,7 @@ function Stage(parts: Parts) {
         <RoutinesContext.Provider value={routines}>
           <ApprovalsContext.Provider value={approvals}>
           <VerdictContext.Provider value={ky.verdictActions}>
-          <ChatThreadMemo chat={view.session} session={thread} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
+          <ChatThreadMemo chat={view.session} session={thread} onEarlier={ky.loadEarlier} welcome={welcome} recalled={ky.recalled} speaker={open.speaker} variantId={variantId} onReply={onSend} visit={visit} />
           </VerdictContext.Provider>
           </ApprovalsContext.Provider>
         </RoutinesContext.Provider>

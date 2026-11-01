@@ -110,6 +110,12 @@ export type PiMessage = {
   readonly posted?: true;
   /** A post's delivery id, which the user's 👍 or 👎 names. */
   readonly post?: string;
+  /**
+   * Where the model's context starts again: "summary" where pi compacted what came before into the summary this
+   * message holds, "reset" where the context was reset. The chat shows it as a divider; what came before is still
+   * the user's to page back to.
+   */
+  readonly boundary?: "summary" | "reset";
 };
 
 /** The user's own parts: a late message's note is the model's (late.ts), not part of what they wrote. */
@@ -217,10 +223,27 @@ function toSpecialists(entry: EntryRecord, message: Message): PiMessage {
   return Option.isSome(to) ? { ...projected, parts, to: to.value.to } : { ...projected, parts };
 }
 
+/** pi's compaction marker: the summary the model reads in place of what came before it. */
+export const COMPACTION = "pi.compaction";
+
+/** The summary inside a compaction marker's text, without pi's framing around it. */
+function summaryOf(text: string): string {
+  const open = text.indexOf("<summary>");
+  const close = text.lastIndexOf("</summary>");
+
+  return (open < 0 ? text : text.slice(open + "<summary>".length, close > open ? close : undefined)).trim();
+}
+
 export function projectEntry(entry: EntryRecord): PiMessage | undefined {
   const message = entry.model?.[0];
 
-  if (entry.kind === "pi.reset") return { id: String(entry.id), role: "notice", parts: [{ type: "text", text: "Context reset" }], timestamp: 0 };
+  if (entry.kind === "pi.reset") return { id: String(entry.id), role: "notice", boundary: "reset", parts: [{ type: "text", text: "Context reset" }], timestamp: message?.timestamp ?? 0 };
+
+  if (entry.kind === COMPACTION) {
+    const text = (message?.role === "user" ? userParts(message.content) : []).map((part) => (part.type === "text" ? part.text : "")).join("");
+
+    return { id: String(entry.id), role: "notice", boundary: "summary", parts: [{ type: "text", text: summaryOf(text) }], timestamp: message?.timestamp ?? 0 };
+  }
 
   if (entry.kind === SPECIALIST_REPLY) return specialistReply(entry, message?.timestamp ?? 0);
 

@@ -3011,6 +3011,54 @@ button.live:hover .live-steps {
   }
 }
 
+/* Where the model's context starts again (a compaction or a reset): a hairline, quiet as the day stamp, that opens to
+   the summary ky reads in place of the chat above it. */
+.context-boundary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.context-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: -16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--quiet);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  &[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+  }
+}
+
+.context-boundary:has(.context-summary) .context-divider {
+  margin-bottom: 0;
+}
+
+.context-summary {
+  margin-bottom: -8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
 /* A report (an automation's run, a subagent's answer, a peer's message): one quiet line that opens to what it said. */
 .report {
   display: flex;

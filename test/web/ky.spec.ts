@@ -395,6 +395,59 @@ test("streams the answer to a message", async ({ page }) => {
   await expect(page.getByText("echo: hello from the browser")).toBeVisible();
 });
 
+test("pages back past a compaction to the chat's first message, under a divider that opens to the summary", async ({ page }) => {
+  await open(page);
+  await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  const session = new URL(page.url()).searchParams.get("session") ?? "";
+
+  for (let n = 1; n <= 14; n++) {
+    await send(page, `note ${n}`);
+    await expect(chat(page).getByText(`echo: note ${n}`, { exact: true })).toBeVisible();
+  }
+
+  expect((await page.request.post(`/test/compact?keep=2&session=${session}`)).status()).toBe(204);
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+
+  // The model reads the summary and the last two turns; the chat shows a divider there, and the rest folded above it.
+  const divider = chat(page).getByRole("button", { name: "ky summarized the chat above" });
+  await expect(divider).toBeVisible();
+  await expect(chat(page).getByText("echo: note 13", { exact: true })).toBeVisible();
+  await expect(chat(page).getByText("echo: note 12", { exact: true })).toBeHidden();
+  await divider.click();
+  await expect(chat(page).getByText("The user sent numbered test messages.")).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/earlier-divider.png` });
+
+  // Each tap goes on back, fetching the chat before the compaction once nothing is folded here, until its start.
+  const earlier = chat(page).getByRole("button", { name: /earlier turns?/i });
+
+  while (await earlier.isVisible()) {
+    await earlier.click();
+    // It goes once the chat's start is here; until then it waits out each page.
+    await expect.poll(async () => !(await earlier.isVisible()) || (await earlier.getAttribute("aria-busy")) !== "true").toBe(true);
+  }
+
+  await expect(chat(page).getByText("echo: note 1", { exact: true })).toBeVisible();
+  await expect(chat(page).getByText("note 1", { exact: true })).toHaveCount(1);
+  await chat(page).getByText("echo: note 1", { exact: true }).scrollIntoViewIfNeeded();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/earlier-start.png` });
+
+  // Scrolling, not a tap, also goes back: a fresh load folds again, and wheeling up to the fold unfolds it.
+  await page.reload();
+  await expect(divider).toBeVisible();
+  await chat(page).hover();
+
+  for (let tries = 0; tries < 20 && !(await chat(page).getByText("echo: note 1", { exact: true }).isVisible()); tries++) {
+    await page.mouse.wheel(0, -4000);
+    await page.waitForTimeout(500);
+  }
+
+  await expect(chat(page).getByText("echo: note 1", { exact: true })).toBeVisible();
+});
+
 test("draws a mermaid fence in ky's answer as a diagram, and one pele can't read as its code", async ({ page }) => {
   await open(page);
   await send(page, "reply: The plan:\n\n```mermaid\nflowchart LR\n  Ask --> Draft --> Ship\n```");

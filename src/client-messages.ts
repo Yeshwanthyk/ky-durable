@@ -54,6 +54,8 @@ export const ClientMessageSchema = Type.Union([
   message("steer-now", {}),
   /** Take back a message still queued behind the run; answers false once pi has placed it. */
   message("withdraw", { operationId: Text }),
+  /** A page of the chat before entry `before`, which a compaction or reset left out of the snapshot (src/earlier.ts). */
+  message("earlier", { before: Type.Integer({ minimum: 0 }) }),
   message("reset", { handoff: Type.Optional(Text) }),
   /** Ask for a fresh snapshot. */
   message("resync", {}),

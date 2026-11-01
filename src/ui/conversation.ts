@@ -47,4 +47,11 @@ export type Turn = {
   endedAt: string | null;
   /** Set on ky's unasked post: its delivery id, which the user's 👍 or 👎 names. */
   post?: string;
+  /**
+   * Set on the first turn after the model's context started again: "summary" where pi compacted the chat above it
+   * into `summary`, "reset" where the context was reset. The chat shows a divider above the turn.
+   */
+  divider?: "summary" | "reset";
+  /** The compaction's summary, when `divider` is "summary". */
+  summary?: string;
 };
