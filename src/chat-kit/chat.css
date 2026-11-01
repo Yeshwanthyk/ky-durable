@@ -382,10 +382,37 @@ kbd {
 }
 
 .worklog {
+  --log-top: 0px;
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding-left: 2px;
+}
+
+/* The log's steps hang on one line, from the first row's dot to the last's, under the rows' hover fills. */
+.worklog::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 8.5px;
+  top: calc(var(--log-top) + 13px);
+  bottom: 13px;
+  width: 1px;
+  background: var(--line-strong);
+}
+
+.worklog > .log-text,
+.worklog > .log-thought {
+  padding-left: 22px;
+}
+
+/* A log of one closed item, or of notes with no steps, has nothing to string together; an opened step's output
+   still hangs on the line. */
+.worklog:not(:has(> :nth-child(2))):not(:has(> .tool .tool-body))::before,
+.worklog:not(:has(> .tool))::before {
+  display: none;
 }
 
 .worklog[data-live="true"] {
@@ -468,6 +495,31 @@ kbd {
   color: var(--quiet);
 }
 
+/* A step's dot, centred where an icon would be so verbs and bodies keep their 22px indent. */
+.tool-row .mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.tool-row .mark::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+
+.tool[data-status="running"] .tool-row .mark::before {
+  background: var(--ink);
+}
+
+.tool[data-status="failed"] .tool-row .mark::before {
+  background: var(--danger);
+}
+
 .tool-row .verb {
   flex: none;
   color: var(--quiet);
@@ -516,18 +568,15 @@ kbd {
   color: var(--ink);
 }
 
+/* What a step showed sits indented under it, on the log's line rather than in a box. */
 .tool-body {
-  margin: 4px 0 8px 22px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--sunken);
+  margin: 2px 0 6px 22px;
   overflow: hidden;
 }
 
-
 .tool-body pre {
   margin: 0;
-  padding: 10px 12px;
+  padding: 2px 0;
   max-height: 280px;
   overflow: auto;
   font-family: var(--font-mono);
@@ -540,7 +589,6 @@ kbd {
 
 .tool-body .command {
   color: var(--ink);
-  border-bottom: 1px solid var(--line);
 }
 
 .tool-body .command::before {
@@ -593,6 +641,7 @@ kbd {
 }
 
 .assistant > .reveal > .reveal-inner > .worklog {
+  --log-top: 8px;
   padding-top: 8px;
 }
 

@@ -2,19 +2,8 @@ import { useMemo } from "react";
 import { AVATAR_TOOL } from "../avatars/contract";
 import { BloubOptions, bloubsIn } from "./Bloub";
 import type { Tool } from "./conversation";
-import { duration } from "./duration";
-import type { IconName } from "../chat-kit/Icon";
 import { ToolBody, ToolGroup, ToolRow } from "../chat-kit/ToolRow";
 import { useLightbox } from "./Lightbox";
-
-const categoryIcon: Record<Tool["category"], IconName> = {
-  inspect: "eye",
-  change: "pencil",
-  research: "globe",
-  agent: "nodes",
-  run: "terminal",
-  other: "list",
-};
 
 // Summaries start with an imperative verb; rows read it in the tense of the tool's status.
 const tenses = new Map<string, readonly [string, string]>([
@@ -53,27 +42,18 @@ function phrase(tool: Tool): Phrase {
   return { verb: tense[tool.status === "running" ? 0 : 1], target: rest.join(" "), mono: !prose };
 }
 
-// A running tool says so in its verb; the turn's Working line is the one spinner.
-function Trail({ tool }: { tool: Tool }) {
-  return tool.status !== "running" && tool.durationMs !== null && tool.durationMs >= 1000 ? (
-    <span className="tabular">{duration(tool.durationMs)}</span>
-  ) : null;
-}
-
 const hasBody = (tool: Tool) => tool.output !== "" || tool.input !== "";
 
-/** A tool call as the kit's row: its phrase, how long it took, and what it showed under it. */
+/** A tool call as the kit's row: its phrase and what it showed under it. The turn's Worked line says how long it all took. */
 export function ToolCallRow({ tool }: { tool: Tool }) {
   const { verb, target, mono } = phrase(tool);
 
   return (
     <ToolRow
-      icon={categoryIcon[tool.category]}
       status={tool.status}
       verb={verb}
       target={target}
       mono={mono}
-      trail={<Trail tool={tool} />}
       title={tool.input || tool.summary}
       body={hasBody(tool) ? <ToolBody input={tool.input} output={tool.output} command={tool.category === "run"} /> : null}
     >
@@ -121,7 +101,7 @@ export function ExploreGroup({ tools }: { tools: Tool[] }) {
   ].filter(Boolean);
 
   return (
-    <ToolGroup icon="search" verb={running ? "Exploring" : "Explored"} target={parts.join(", ")} running={running}>
+    <ToolGroup verb={running ? "Exploring" : "Explored"} target={parts.join(", ")} running={running}>
       {tools.map((tool) => (
         <ToolCallRow key={tool.id} tool={tool} />
       ))}

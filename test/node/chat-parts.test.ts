@@ -110,8 +110,8 @@ describe("a tool call's row", () => {
     expect(row({ summary: "Ponder" })).toContain('<span class="verb">Ponder</span>');
   });
 
-  it("says how long a call over a second took, and opens only when it has a body", () => {
-    expect(row({ durationMs: 2500 })).toContain('<span class="tabular">');
+  it("leaves how long a call took to the Worked line, and opens only when it has a body", () => {
+    expect(row({ durationMs: 2500 })).not.toContain("2.5s");
     expect(row({})).toMatch(/class="tool-row" disabled=""/);
     expect(row({ output: "x" })).toContain('aria-expanded="false"');
   });
