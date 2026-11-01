@@ -4,6 +4,7 @@ import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Asks } from "../../src/asks";
 import { automationRows, CHECK_IN_TOOLS, AUTOMATION_TABLES, taskRows } from "../../src/automations/contract";
+import { FORMAT_VERSION } from "../../src/archive";
 import { ClientMessageSchema, refusedFrame } from "../../src/client-messages";
 import { DREAM_MEMORY_TOOLS, DREAMING_TABLES, markOf, MEMORY_WRITE_TOOLS } from "../../src/dreaming/contract";
 import { MACHINE_TABLES } from "../../src/machines/contract";
@@ -11,6 +12,8 @@ import { PEER_TOOLS, PEERS_TABLES } from "../../src/peers/contract";
 import type { ServerMessage } from "../../src/protocol";
 import { ServerFrameSchema, type ServerFrame } from "../../src/server-frames";
 import { REVIEW_ALLOWED, SKILL_TABLES, specialistOf, TOOLS } from "../../src/skills/contract";
+import { MIGRATION_TABLE } from "../../src/core/migrate";
+import { MIGRATIONS } from "../../src/migrations";
 import { restores } from "../../src/tables";
 
 /**
@@ -166,21 +169,28 @@ describe("storage", () => {
 
   it("restores only tables a contract names, round-tripping a corrupt cell", () => {
     for (const table of [...Object.values(DREAMING_TABLES), ...Object.values(PEERS_TABLES), ...Object.values(SKILL_TABLES), ...Object.values(AUTOMATION_TABLES)]) {
-      expect(restores(table), table).toBe(true);
+      expect(restores(table, MIGRATIONS), table).toBe(true);
     }
 
-    for (const table of ["pi_entries", "vfs_nodes", "_vfs_mounts", "ky_chats", "ky_purposes"]) expect(restores(table), table).toBe(true);
+    // The archive's data level travels with it, so a restore brings that data to this release's (src/core/migrate.ts).
+    for (const table of ["pi_entries", "vfs_nodes", "_vfs_mounts", "ky_chats", "ky_purposes", MIGRATION_TABLE]) expect(restores(table, MIGRATIONS), table).toBe(true);
 
-    // Pairings are the deploy's; a stray or retired table, or a restore's own, is left out.
+    // Pairings are the deploy's; a stray table, one no migration retires, or a restore's own, is left out.
     for (const table of [...Object.values(MACHINE_TABLES), "ky_stray", "ky_settings", "ky_restore__memo_log", "sqlite_sequence"]) {
-      expect(restores(table), table).toBe(false);
+      expect(restores(table, MIGRATIONS), table).toBe(false);
     }
 
     // begin stages only what `restores` takes, and stage drops the rows of the rest; the corrupt cell's round trip is
     // src/tests/backup.test.ts's "restores only the tables ky names".
     const backup = read("backup.ts");
-    expect(backup).toContain("manifest.tables.filter((table) => restores(table.name))");
-    expect(backup).toContain("if (!dump && !restores(table))");
+    expect(backup).toContain("manifest.tables.filter((table) => restores(table.name, this.#migrations))");
+    expect(backup).toContain("if (!dump && !restores(table, this.#migrations))");
+  });
+
+  it("bumps the archive format with the first migration, so a release before migrations refuses migrated data", () => {
+    // That release drops data_migrations from a restore: an upgrade would then run every migration again on data
+    // already migrated. Format 2 makes it refuse the archive instead (src/archive.ts).
+    if (MIGRATIONS.length > 0) expect(FORMAT_VERSION).toBeGreaterThanOrEqual(2);
   });
 
   it("migrates idempotently and never drops a table on start", () => {

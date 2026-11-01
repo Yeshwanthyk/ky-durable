@@ -1,10 +1,13 @@
 /**
- * The tables a restore puts back: each domain's, as its contract names them, ky's own, and pi's and the
- * workspace's, whose schema versions a restore checks. A table an archive has that isn't one of these, an
- * old one or a stray, is left out of the restore. Machine pairings are never restored (backup.ts).
+ * The tables a restore puts back: each domain's, as its contract names them, ky's own, pi's and the
+ * workspace's, whose schema versions a restore checks, and those a migration retires, which an archive from
+ * before it holds and the migration then renames or drops (src/core/migrate.ts). A table an archive has that
+ * isn't one of these, an old one or a stray, is left out of the restore. Machine pairings are never restored
+ * (backup.ts).
  */
 import { APPROVAL_TABLES } from "./approvals/contract";
 import { AUTOMATION_TABLES } from "./automations/contract";
+import { MIGRATION_TABLE, type Migration } from "./core/migrate";
 import { DREAMING_TABLES } from "./dreaming/contract";
 import { INBOUND_TABLES } from "./inbound/contract";
 import { OUTSIDE_TABLES } from "./outside/contract";
@@ -33,7 +36,9 @@ const CORE_TABLES = [
   "ky_sandboxes",
   "ky_sandboxes_seeded",
   // setup.ts
-  "ky_setup"
+  "ky_setup",
+  // core/migrate.ts: the archive's level
+  MIGRATION_TABLE
 ] as const;
 
 /** pi-durable's tables, and the workspace's (two prefixes: its sync tables lead with an underscore). */
@@ -52,5 +57,6 @@ const RESTORED: ReadonlySet<string> = new Set([
   ...Object.values(SPEND_TABLES)
 ]);
 
-/** Whether a restore puts back a table of this name. */
-export const restores = (table: string): boolean => RESTORED.has(table) || LIBRARY_PREFIXES.some((prefix) => table.startsWith(prefix));
+/** Whether a restore puts back a table of this name, given the release's `migrations`. */
+export const restores = (table: string, migrations: readonly Migration[]): boolean =>
+  RESTORED.has(table) || LIBRARY_PREFIXES.some((prefix) => table.startsWith(prefix)) || migrations.some((migration) => migration.retires?.includes(table));

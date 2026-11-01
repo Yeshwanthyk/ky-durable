@@ -5,8 +5,9 @@
  * ky's storage is synchronous by design (one DO thread, input gates, `transactionSync`, listeners that
  * fire inside a write), and its callers are too, so a port runs these with `edge.run`. It does not use
  * `@effect/sql-sqlite-do`: its transactions are async and throw `AsyncFiberError` under a sync read
- * (the owner's decision from the spike, docs/migration/effect/STATUS.md). Table names never change: a
- * backup restores each by name.
+ * (the owner's decision from the spike, docs/migration/effect/STATUS.md). A table's name changes only by a
+ * data migration (src/core/migrate.ts), which names the table it retires: a backup restores each table by
+ * name, the retired ones too, and the migrations the archive's data lacks run on them.
  */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -15,7 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 /** A statement SQLite refused, or a row it gave that isn't the shape asked for. */
-class SqlError extends Schema.TaggedError<SqlError>()("SqlError", { query: Schema.String, cause: Schema.Defect() }) {}
+export class SqlError extends Schema.TaggedError<SqlError>()("SqlError", { query: Schema.String, cause: Schema.Defect() }) {}
 
 type Row = Record<string, SqlStorageValue>;
 
