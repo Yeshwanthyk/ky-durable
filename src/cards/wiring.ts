@@ -13,7 +13,7 @@ const INTERACTIVE = new Set(["choice", "input", "buttons"]);
 type RunCardsDoc = { run: boolean; cards: Array<{ call: string; card: string }> };
 
 export const RunCards = defineDoc<RunCardsDoc>({
-  kind: "ky.run-cards",
+  kind: "run-cards",
   version: 1,
   scope: "conversation",
   history: "latest",

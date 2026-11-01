@@ -44,7 +44,7 @@ async function answered(name: string, agent: string, message: string, extra: Rec
 
 /** The main chat's subagent registry, by the kind src/skills/subagents.ts keeps it under. */
 const Registry = defineDoc<{ agents: Record<string, { reported: EntryId[]; model?: ModelChoice }> }>({
-  kind: "ky.subagents",
+  kind: "subagents",
   version: 1,
   scope: "conversation",
   history: "latest",

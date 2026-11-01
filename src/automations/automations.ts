@@ -175,7 +175,7 @@ const isText = Schema.is(Schema.String);
 const isList = Schema.is(Schema.Array(Schema.Unknown));
 
 const Runs = defineDoc<{ runs: Record<string, { slot: number; task: string }> }>({
-  kind: "ky.automation-runs",
+  kind: "automation-runs",
   version: 1,
   scope: "conversation",
   history: "latest",

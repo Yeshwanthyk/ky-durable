@@ -386,7 +386,7 @@ export function specialistExtension(
   const asks = new Map<string, number>();
 
   const Discuss = defineTask<DiscussInput, DiscussState, null>({
-    name: "ky.discuss",
+    name: "discuss",
     version: 1,
     initial: () => ({ phase: "round", round: 0, answers: [] }),
     phases: {

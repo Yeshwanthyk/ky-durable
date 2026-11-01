@@ -375,7 +375,7 @@ export class GroupDesk {
     };
 
     const task = defineTask<ReplyInput, ReplyState, null>({
-      name: "ky.specialist-reply",
+      name: "specialist-reply",
       version: 1,
       initial: () => ({ phase: "answer" }),
       phases: {

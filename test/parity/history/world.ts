@@ -203,7 +203,7 @@ function recordOf(action: Say, now: number): string {
   const at = stampOf(action, now);
   const content = action.parts ? [{ type: "thinking", thinking: "hmm" }, { type: "text", text: action.text }, { type: "image", data: "x" }, { type: "text", text: "and so" }] : action.text;
 
-  if (action.kind === "look") return JSON.stringify({ kind: "ky.look", data: { text: action.text }, model: [{ role: "user", content: action.text, timestamp: at }] });
+  if (action.kind === "look") return JSON.stringify({ kind: "look", data: { text: action.text }, model: [{ role: "user", content: action.text, timestamp: at }] });
 
   if (action.kind === "reset") return JSON.stringify({ kind: "pi.reset", model: [] });
 

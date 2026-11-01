@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";
 import type { Refusable } from "../core/edge";
 
-export const CARD_ANSWER = "ky.card-answer";
+export const CARD_ANSWER = "card-answer";
 
 const Many = <S extends Schema.Top>(item: S, min: number, max: number) => Schema.Array(item).check(Schema.isMinLength(min), Schema.isMaxLength(max));
 
@@ -158,7 +158,7 @@ const ImageInput = Type.Object({
 const Source = (what: string) =>
   Type.String({
     pattern: MEDIA,
-    description: `A file id ky saved, such as one a task shared or a clip the user sent (the file in its <ky-media> tag), or an https ${what} URL.`
+    description: `A file id ky saved, such as one a task shared or a clip the user sent (the file in its <media-clip> tag), or an https ${what} URL.`
   });
 
 const AudioInput = Type.Object({ type: Type.Literal("audio"), src: Source("audio"), caption: Type.Optional(Type.String({ description: "A line under the player." })) });

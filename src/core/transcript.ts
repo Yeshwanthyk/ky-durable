@@ -23,11 +23,11 @@ export type PiMessagePart =
       readonly error: boolean;
     };
 
-export const TO_SPECIALISTS = "ky.to-specialists";
+export const TO_SPECIALISTS = "to-specialists";
 
-export const SPECIALIST_REPLY = "ky.specialist-reply";
+export const SPECIALIST_REPLY = "specialist-reply";
 
-export const LOOK_POST = "ky.look";
+export const LOOK_POST = "look";
 
 const LookPostData = Schema.Struct({
   text: Schema.String,

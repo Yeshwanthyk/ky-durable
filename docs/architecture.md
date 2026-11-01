@@ -117,7 +117,7 @@ optional `check()` runs before a refresh places records, and `src/sockets.ts` re
   wrote since, or once nothing holds it open (its anticipation closed, or a memory) and 48 hours passed, and a
   prepare only at the last look that leaves time before it: when the next look, today's or else tomorrow's first,
   would be too late.
-  Each goes to the main chat through Delivery as ky's own message, as written (a `ky.look` entry written between
+  Each goes to the main chat through Delivery as ky's own message, as written (a `look` entry written between
   turns, starting none), once by `look:<date>:<time>:<ref>`, and is a `ky_surfaced` row of kind look.
   A row on an open watch anticipation may also carry a gate and a prompt: a watch, for what must be checked more
   often than the looks. After the look, code (not the model) books each as ky's own gated automation, `*/15 * * * *`,

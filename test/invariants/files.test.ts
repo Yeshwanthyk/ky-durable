@@ -134,7 +134,7 @@ const aClip: fc.Arbitrary<MediaClip> = fc.record({
 
 const aText = fc.oneof(
   fc.constantFrom("", "plain", "x".repeat(10)),
-  fc.array(fc.oneof(aClip.map(mediaTag), fc.constantFrom("say ", '<ky-media kind="audio" file="zz">x</ky-media>', "\n")), { maxLength: 6 }).map((parts) => parts.join(""))
+  fc.array(fc.oneof(aClip.map(mediaTag), fc.constantFrom("say ", '<media-clip kind="audio" file="zz">x</media-clip>', "\n")), { maxLength: 6 }).map((parts) => parts.join(""))
 );
 
 const B64 = ["QUJD", "QUJDRA==", "not base64!", "x".repeat(400_000), "y".repeat(1_500_000)];
@@ -795,7 +795,7 @@ describe("a clip's tag", () => {
           transcript: fc.string().filter((text) => !text.startsWith("(no transcript") && text.trim() === text),
           frames: fc.integer({ min: 0, max: 3 })
         }),
-        fc.string().filter((text) => !text.includes("<ky-media") && text.trim() === text),
+        fc.string().filter((text) => !text.includes("<media-clip") && text.trim() === text),
         async (clip, rest) => {
           const whole = { ...clip, type: clip.kind === "audio" ? "audio/webm" : "video/mp4" };
           const read = readMedia(`${mediaTag(whole)}${rest}`);
