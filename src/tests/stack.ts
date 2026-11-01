@@ -21,6 +21,7 @@ import { type CloudBox, CloudMachine as ProductionCloudMachine } from "../cloud"
 import { saveKey } from "../runners/contract";
 import { allowedRepos, proxyGit } from "../github";
 import { githubTool } from "../github-tools";
+import { seededReply, seededTitle } from "./seed-script";
 import { fakeGithubApi, fakeGithubRest } from "../../test/fakes/github";
 
 export { GithubProxy } from "../github";
@@ -563,6 +564,9 @@ const call = (tool: string, args: Record<string, JsonValue>): Reply => ({ tool, 
 /** What the background model is asked: a name, or a summary of notes or of a task. */
 function title(text: string): Reply {
   if (text.includes("no-title")) return { status: 400, error: "The fake titles model refuses this text." };
+  const seeded = seededTitle(text);
+
+  if (seeded) return { text: `Title: "${seeded}"` };
 
   return { text: `Title: "Named: ${text.split("\n")[0]}"\nA second line the cleaning drops.` };
 }
@@ -704,6 +708,16 @@ function turnResults(messages: readonly WireMessage[]) {
     prompt: at < 0 ? "" : wireText(messages[at]!.content),
     results: messages.slice(at + 1).flatMap((message) => (message.role === "tool" ? [wireText(message.content)] : []))
   };
+}
+
+/** A turn test/stack/seed.ts scripted (src/tests/seed-script.ts), one step a round; undefined for any other turn. */
+function seeded(messages: readonly WireMessage[]): Reply | undefined {
+  const system = wireText(messages.find((message) => message.role === "system")?.content);
+
+  if (BACKGROUND.some(([start]) => system.startsWith(start))) return undefined;
+  const { prompt, results } = turnResults(messages);
+
+  return seededReply(prompt.replace(RECALLED, ""), results.length);
 }
 
 /** `calls [[NAME, JSON], ...]`: those calls one a round, then their results; undefined for any other turn. */
@@ -908,7 +922,7 @@ export class PiAgent extends ProductionAgent {
     const answering = (messages: readonly WireMessage[]) => {
       asked.push(messages.flatMap((message) => (message.role === "user" ? [wireText(message.content)] : [])));
 
-      return dreamt(messages) ?? looked(messages) ?? rounds(messages) ?? readback(messages) ?? script(unrecalled(messages));
+      return dreamt(messages) ?? looked(messages) ?? rounds(messages) ?? seeded(messages) ?? readback(messages) ?? script(unrecalled(messages));
     };
 
     const gate = (name: string, replay: "safe" | "unsafe") =>
