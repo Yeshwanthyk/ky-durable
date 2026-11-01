@@ -3,6 +3,7 @@ import { CLOUD, CLOUD_FACTS } from "./machines/contract";
 import { pairAs } from "./runners/wiring";
 import { saveKey } from "./runners/contract";
 import { putInParts } from "./uploads";
+import { toEnv } from "./machines/contract";
 
 /**
  * A sandbox: a container that runs `ky runner cloud`, so tasks run with every personal computer
@@ -493,7 +494,7 @@ export class CloudMachine extends DurableObject<Env> {
     if (!origin) throw new Error("ky's address isn't known yet: open ky in a browser once");
     const token = await pairAs(this.env, name, CLOUD_FACTS, id);
 
-    await box.start({ KY_URL: origin, KY_MACHINE: name, KY_RUNNER_TOKEN: token }, id);
+    await box.start(toEnv({ URL: origin, MACHINE: name, RUNNER_TOKEN: token }), id);
   }
 
   /** Give a waiting container the sandbox `id`'s saved files, none if there is no save; how many bytes they were. */

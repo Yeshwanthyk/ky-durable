@@ -145,7 +145,13 @@ export class FakeBox implements CloudBox {
 
   async start(env?: Record<string, string>): Promise<void> {
     this.starts++;
-    this.tokens.push(env?.KY_RUNNER_TOKEN ?? "");
+
+    // The Worker names each under its new name and its old one (PR5b drops the old), so an old cloud image runs too.
+    for (const name of ["URL", "MACHINE", "RUNNER_TOKEN"]) {
+      if (env && env[`AGENT_${name}`] !== env[`KY_${name}`]) throw new Error(`the container was started with AGENT_${name} and KY_${name} apart`);
+    }
+
+    this.tokens.push(env?.AGENT_RUNNER_TOKEN ?? "");
     this.startedAt.push(this.clock());
     await this.onStart?.();
     this.#unplaced = this.refusing;

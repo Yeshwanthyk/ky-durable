@@ -5,6 +5,8 @@ import Type from "typebox";
 import type { Refusable } from "../core/edge.ts";
 import { AgentSchema, type Agent, FactsSchema, Integer, type MachineFacts, type RunCreds, type TaskReport } from "./runner-protocol.ts";
 
+export { envNames, fromEnv, HEADERS, isRunnerEnv, readHeader, setHeader, toEnv, toHeaders } from "./wire-names.ts";
+
 export {
   AGENT_NAMES,
   decodeObjectFrame,
@@ -15,7 +17,6 @@ export {
   isPipeReport,
   ISSUED_TTL_MS,
   OUTDATED,
-  PAIRING_HEADER,
   PROTOCOL,
   REPLACED,
   REVOKED,

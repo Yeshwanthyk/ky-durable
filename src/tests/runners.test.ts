@@ -192,6 +192,55 @@ describe("removing a machine", () => {
   });
 });
 
+// PR5b drops the X-Ky- names: a Worker and its agent read either until then.
+describe("the names a runner's requests carry, old and new", () => {
+  it.each(["X-Agent-Pairing", "X-Ky-Pairing"])("the agent takes a socket whose pairing comes as %s alone", async (header) => {
+    const machine = named("names");
+    await machineToken(machine);
+    const heard = hear(await connectRunner("me", machine, undefined, header));
+
+    heard.socket.send(HELLO);
+    await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online`);
+    heard.socket.close();
+  });
+
+  it("names the pairing under both, over whatever the runner sent as either", async () => {
+    const machine = named("forged");
+    const token = await machineToken(machine);
+    const forged = { "X-Agent-Pairing": "forged", "X-Ky-Pairing": "forged" };
+    const response = await call(`/runner/${machine}`, { headers: { Upgrade: "websocket", Authorization: `Bearer ${token}`, ...forged } });
+
+    expect(response.status).toBe(101);
+    const socket = response.webSocket!;
+    socket.accept();
+    socket.send(HELLO);
+    await until(() => inside("me", (instance) => instance.machines.online(machine)), `${machine} online`);
+    socket.close();
+  });
+
+  it.each([
+    ["an old runner's", { "X-Ky-Name": "old.png", "X-Ky-Caption": "old%20one" }, "old.png", "old one"],
+    ["a new runner's", { "X-Agent-Name": "new.png", "X-Agent-Caption": "new%20one" }, "new.png", "new one"],
+    ["both kinds of", { "X-Agent-Name": "new.png", "X-Ky-Name": "old.png" }, "new.png", null]
+  ])("names an upload by %s headers", async (_who, labels, name, caption) => {
+    const mac = await runner("me");
+    await prompt("me", `machine screenshot ${name}`);
+    const run = await mac.run();
+
+    const response = await SELF.fetch(`https://ky.test/api/files?task=${run.task}`, {
+      method: "PUT",
+      body: new Uint8Array([137, 80, 78, 71]),
+      headers: { Authorization: `Bearer ${run.taskToken}`, "Content-Type": "image/png", "Content-Length": "4", ...labels }
+    });
+
+    expect(response.status, await response.clone().text()).toBe(200);
+    const { id } = await response.json<{ id: string }>();
+    const file = await inside("me", (_instance, state) => state.storage.sql.exec<{ name: string; caption: string | null }>("SELECT name, caption FROM ky_files WHERE id = ?", id).one());
+    expect(file).toEqual({ name, caption });
+    mac.socket.close();
+  });
+});
+
 describe("pairing one name twice at the same moment", () => {
   it("leaves only the winning pairing's token working", async () => {
     const machine = named("race");

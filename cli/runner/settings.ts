@@ -3,17 +3,18 @@
  * is ~/.config/ky/<as>/runner.json). Which ky it
  * joins and as what name, where its token is kept, and what it shares: which agents, the user's
  * Chrome, which folders of repositories, and which local ports (a model server such as VibeProxy
- * or Ollama). `ky runner run` reads it; each KY_ variable below overrides its setting, and with no
- * file the variables alone describe the runner, as the harness runs it.
+ * or Ollama). `ky runner run` reads it; each AGENT_ variable below overrides its setting, and with no
+ * file the variables alone describe the runner, as the harness runs it. Each is still read under its
+ * old KY_ name too, until PR5b (src/machines/wire-names.ts).
  *
- *   KY_URL               the ky it joins
- *   KY_MACHINE           its name in ky (default: this host's name)
- *   KY_RUNNER_TOKEN_FILE keep the machine token in this file (mode 600), not ~/.config/ky/runner-token
- *   KY_WORKDIR           where tasks run (default: ~/ky-work)
- *   KY_PERMISSION_MODE   Claude Code's permission mode (default: bypassPermissions)
- *   KY_CHROME            1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
- *   KY_REPOS             folders, split by ":", whose git repositories ky is told about (default: the workdir)
- *   KY_RUNNER_PORTS      ports, split by ",", that ky may send HTTP requests to, e.g. 8317 for VibeProxy
+ *   AGENT_URL            the ky it joins
+ *   AGENT_MACHINE        its name in ky (default: this host's name)
+ *   AGENT_RUNNER_TOKEN_FILE keep the machine token in this file (mode 600), not ~/.config/ky/runner-token
+ *   AGENT_WORKDIR        where tasks run (default: ~/ky-work)
+ *   AGENT_PERMISSION_MODE Claude Code's permission mode (default: bypassPermissions)
+ *   AGENT_CHROME         1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
+ *   AGENT_REPOS          folders, split by ":", whose git repositories ky is told about (default: the workdir)
+ *   AGENT_RUNNER_PORTS   ports, split by ",", that ky may send HTTP requests to, e.g. 8317 for VibeProxy
  */
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -21,6 +22,7 @@ import path from "node:path";
 import { type Static, Type } from "typebox";
 import { parseOr } from "../../src/core/decode.ts";
 import { defaultWorkdir, kyConfig, type System } from "./system.ts";
+import { fromEnv } from "../../src/machines/contract.ts";
 
 /** Where the machine token is kept: a file only the user can read, or a Keychain item (macOS, paired before ky kept it in the file). */
 const TokenStoreSchema = Type.Union([
@@ -132,22 +134,22 @@ function defaults(url: string, system: System): Settings {
  * no file, KY_URL is required and the rest default; the token is then in its file.
  */
 export function withEnv(saved: Settings | undefined, env: NodeJS.ProcessEnv, system: System): Settings {
-  const url = env.KY_URL ?? saved?.url;
+  const url = fromEnv(env, "URL") ?? saved?.url;
 
   if (!url) throw new Error("This computer has no runner yet. In ky, open Settings, Machines, Add a machine, and run the command it shows.");
   const base = saved ?? defaults(url, system);
-  const workdir = env.KY_WORKDIR ?? base.workdir;
+  const workdir = fromEnv(env, "WORKDIR") ?? base.workdir;
 
   return {
     ...base,
     url: kyUrl(url),
-    name: override(env.KY_MACHINE || undefined, machineName, base.name),
-    token: override(env.KY_RUNNER_TOKEN_FILE, (file) => ({ file }), base.token),
+    name: override(fromEnv(env, "MACHINE") || undefined, machineName, base.name),
+    token: override(fromEnv(env, "RUNNER_TOKEN_FILE"), (file) => ({ file }), base.token),
     workdir,
     // A runner with no runner.json tells ky about the repos in its workdir.
-    repos: override(env.KY_REPOS, split, saved ? base.repos : [workdir]),
-    permissionMode: env.KY_PERMISSION_MODE ?? base.permissionMode,
-    chrome: override(env.KY_CHROME, (value) => value === "1", base.chrome),
-    ports: override(env.KY_RUNNER_PORTS, portsOf, base.ports)
+    repos: override(fromEnv(env, "REPOS"), split, saved ? base.repos : [workdir]),
+    permissionMode: fromEnv(env, "PERMISSION_MODE") ?? base.permissionMode,
+    chrome: override(fromEnv(env, "CHROME"), (value) => value === "1", base.chrome),
+    ports: override(fromEnv(env, "RUNNER_PORTS"), portsOf, base.ports)
   };
 }

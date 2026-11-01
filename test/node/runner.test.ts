@@ -1,8 +1,9 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,10 +26,17 @@ const REPO = path.resolve(import.meta.dirname, "../..");
 const TOKEN = "machine-token-0123456789";
 
 /** A ky that pairs: `/api/runners/pair` takes `code` once and answers a machine token. */
-type FakeKy = { url: string; pairings: { code: string; name: string; facts: MachineFacts }[]; close: () => Promise<void> };
+/** And records each runner dial, which it refuses: where it went, and with what token. */
+type FakeKy = {
+  url: string;
+  pairings: { code: string; name: string; facts: MachineFacts }[];
+  dials: { url: string; authorization: string }[];
+  close: () => Promise<void>;
+};
 
 async function fakeKy(code = "ABCD-1234"): Promise<FakeKy> {
   const pairings: FakeKy["pairings"] = [];
+  const dials: FakeKy["dials"] = [];
 
   const server: Server = createServer(async (request, response) => {
     let body = "";
@@ -43,12 +51,18 @@ async function fakeKy(code = "ABCD-1234"): Promise<FakeKy> {
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ machine: asked.name, token: TOKEN }));
   });
 
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
+    dials.push({ url: request.url ?? "", authorization: request.headers.authorization ?? "" });
+    socket.destroy();
+  });
+
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
   // SAFETY: a server listening on a TCP port has an AddressInfo address.
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     pairings,
+    dials,
     close: () => new Promise((resolve) => server.close(() => resolve()))
   };
 }
@@ -219,12 +233,13 @@ describe("ky runner add", () => {
     await mkdir(computer.launchAgents, { recursive: true });
     await writeFile(agent, plist(trial));
     expect(plist(trial)).toContain("KY_STATE_DIR");
+    expect(plist(trial)).toContain("AGENT_STATE_DIR");
 
     expect(await run(["runner", "add", ours.url, "ABCD-1234", "--yes"])).toBe(0);
     const written = await readFile(agent, "utf8");
 
     expect(written).toBe(plist(computer));
-    expect(written).not.toContain("KY_STATE_DIR");
+    expect(written).not.toContain("STATE_DIR");
     expect(written).not.toContain("XDG_CONFIG_HOME");
     expect(printed.join("\n")).not.toContain("The service keeps");
   });
@@ -234,7 +249,7 @@ describe("ky runner add", () => {
 
     expect(await run(["runner", "add", ours.url, "ABCD-1234", "--yes", "--name", "mac"])).toBe(0);
     expect(await readFile(path.join(computer.launchAgents, "test.ky.runner.plist"), "utf8")).toContain(`<string>${computer.state}</string>`);
-    expect(printed.join("\n")).toContain(`The service keeps KY_STATE_DIR=${computer.state}`);
+    expect(printed.join("\n")).toContain(`The service keeps AGENT_STATE_DIR=${computer.state},`);
   });
 
   it("won't take the runner from another ky: it names --as and --replace, and leaves the code unused", async () => {
@@ -384,9 +399,11 @@ describe("a second runner, for another ky (--as)", () => {
 
     expect(agent).toContain("<string>test.ky.runner.work</string>");
     expect(agent).toContain("<key>KY_RUNNER_AS</key>\n    <string>work</string>");
+    expect(agent).toContain("<key>AGENT_RUNNER_AS</key>\n    <string>work</string>");
+    expect(agent).toContain("<key>AGENT_RUNNER_SERVICE</key>");
     expect(agent).toContain(path.join(computer.state, "work", "runner.log"));
     // The state dir is the default one: KY_RUNNER_AS alone puts it in ~/.ky/work.
-    expect(agent).not.toContain("KY_STATE_DIR");
+    expect(agent).not.toContain("STATE_DIR");
     expect(computer.loaded).toEqual(new Set(["test.ky.runner", "test.ky.runner.work"]));
 
     expect(await readFile(settingsFile(), "utf8")).toBe(first);
@@ -458,6 +475,39 @@ describe("ky runner run's settings", () => {
       ports: [11_434],
       chrome: false,
       token: { file: "/t" }
+    });
+  });
+
+  it("are read under each variable's AGENT_ name or its old KY_ one, the new name first (PR5b drops KY_)", () => {
+    const named = (prefix: string) => ({
+      [`${prefix}URL`]: "https://ky.example.com/",
+      [`${prefix}MACHINE`]: "Box",
+      [`${prefix}WORKDIR`]: "/w",
+      [`${prefix}REPOS`]: "/a:/b",
+      [`${prefix}PERMISSION_MODE`]: "acceptEdits",
+      [`${prefix}CHROME`]: "1",
+      [`${prefix}RUNNER_PORTS`]: "8317",
+      [`${prefix}RUNNER_TOKEN_FILE`]: "/t"
+    });
+
+    const expected: Settings = {
+      url: "https://ky.example.com",
+      name: "box",
+      token: { file: "/t" },
+      workdir: "/w",
+      repos: ["/a", "/b"],
+      permissionMode: "acceptEdits",
+      chrome: true,
+      agents: { claude: true, codex: true },
+      ports: [8317]
+    };
+
+    // An old runner's service, or the harness, with only KY_; a new one with only AGENT_.
+    expect(withEnv(undefined, named("KY_"), computer)).toEqual(expected);
+    expect(withEnv(undefined, named("AGENT_"), computer)).toEqual(expected);
+    expect(withEnv(undefined, { ...named("KY_"), AGENT_MACHINE: "new", AGENT_URL: "https://new.example.com" }, computer)).toMatchObject({
+      name: "new",
+      url: "https://new.example.com"
     });
   });
 
@@ -544,7 +594,7 @@ describe("ky runner cloud", () => {
   const KY = [process.execPath, "--experimental-strip-types", "--no-warnings", path.join(REPO, "cli/main.ts"), "runner", "cloud"];
 
   /** `ky runner cloud` in a fresh home, as the container's entrypoint runs it, and its port. */
-  async function cloud(env: NodeJS.ProcessEnv): Promise<{ home: string; port: number; child: ChildProcess; output: () => string }> {
+  async function cloud(env: NodeJS.ProcessEnv, prefix = "KY_"): Promise<{ home: string; port: number; child: ChildProcess; output: () => string }> {
     const home = await mkdtemp(path.join(tmpdir(), "ky-cloud-test-"));
 
     const port = await new Promise<number>((resolve) => {
@@ -557,7 +607,7 @@ describe("ky runner cloud", () => {
 
     const child = spawn(KY[0]!, KY.slice(1), {
       cwd: home,
-      env: { PATH: process.env.PATH, HOME: home, KY_URL: ours.url, KY_CLOUD_PORT: String(port), KY_RUNNER_PORTS: "", ...env },
+      env: { PATH: process.env.PATH, HOME: home, [`${prefix}URL`]: ours.url, [`${prefix}CLOUD_PORT`]: String(port), [`${prefix}RUNNER_PORTS`]: "", ...env },
       stdio: ["ignore", "pipe", "pipe"]
     });
 
@@ -579,12 +629,31 @@ describe("ky runner cloud", () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
+  // An old CloudMachine starts the container with KY_ names only; a new one with both; PR5b's with AGENT_ only.
+  it.each(["KY_", "AGENT_"])("dials ky as the machine, with the token, from %s variables alone", async (prefix) => {
+    const { home, port, output } = await cloud(
+      { [`${prefix}MACHINE`]: "cloud", [`${prefix}RUNNER_TOKEN`]: TOKEN, [`${prefix}GITHUB_PROXY`]: "http://proxy.test/api/git/" },
+      prefix
+    );
+
+    const at = (route: string, init?: RequestInit) => fetch(`http://127.0.0.1:${port}${route}`, init);
+
+    await vi.waitFor(async () => expect(await at("/ping").then((answer) => answer.text())).toBe("waiting"), { timeout: 10_000, interval: 100 });
+    expect((await at("/restore", { method: "PUT", body: "" })).status, output()).toBe(204);
+    await vi.waitFor(() => expect(ours.dials.length, output()).toBeGreaterThan(0), { timeout: 10_000, interval: 100 });
+    expect(ours.dials[0]?.url).toMatch(/^\/runner\/cloud(\?|$)/u);
+    expect(ours.dials[0]?.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(execFileSync("git", ["config", "--file", path.join(home, ".gitconfig"), "--get", "url.http://proxy.test/api/git/.insteadof"], { encoding: "utf8" }).trim()).toBe(
+      "https://github.com/"
+    );
+  });
+
   it("refuses to run without the token the cloud machine passes", async () => {
     const { child, output } = await cloud({});
     const code = await new Promise((resolve) => child.on("exit", resolve));
 
     expect(code).not.toBe(0);
-    expect(output()).toContain("KY_RUNNER_TOKEN");
+    expect(output()).toContain("AGENT_RUNNER_TOKEN");
   });
 
   it("restores the last save before it runs, snapshots and saves sessions and work trees but not node_modules or Codex logins", async () => {

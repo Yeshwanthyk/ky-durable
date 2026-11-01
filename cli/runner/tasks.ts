@@ -15,6 +15,7 @@ import type { Agent, CodexCreds, RunCreds } from "../../src/machines/contract.ts
 import { claudeArgs } from "./claude.ts";
 import { codexArgs } from "./codex.ts";
 import type { AgentProcess, Launch, ProcessEvents, SpawnAgent } from "./runner.ts";
+import { isRunnerEnv, toEnv } from "../../src/machines/contract.ts";
 
 export type TaskConfig = {
   url: string;
@@ -76,7 +77,7 @@ function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 
 /** This process's env without ky's own variables, which are the runner's and never a task's. */
 function outsideEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("KY_")));
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !isRunnerEnv(name)));
 }
 
 /**
@@ -226,9 +227,7 @@ export function tasks(config: TaskConfig) {
       env: {
         ...outsideEnv(),
         ...env,
-        KY_URL: config.url,
-        KY_TASK: task,
-        KY_TASK_TOKEN: taskToken,
+        ...toEnv({ URL: config.url, TASK: task, TASK_TOKEN: taskToken }),
         PATH: `${bin}:${process.env.PATH ?? ""}`
       }
     });

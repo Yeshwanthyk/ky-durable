@@ -24,7 +24,6 @@ import {
   type MachineHub,
   type ObjectFrame,
   OUTDATED,
-  PAIRING_HEADER,
   PROTOCOL,
   REPLACED,
   REVOKED,
@@ -58,6 +57,7 @@ import type { Missing as NotSetUp } from "./avatars/contract";
 import type { Pushes } from "./push/wiring";
 import { noticeIn, type Spend } from "./spend/wiring";
 import type { TaskFeed } from "./automations/contract";
+import { readHeader } from "./machines/contract";
 
 const SESSION_TAG_PREFIX = "pi-session:";
 
@@ -586,7 +586,7 @@ export class PiSessionSockets {
 
         if (!machine) return [sessionTag(sessionFromRequest(ctx.request, ROOT_SESSION)), UI_TAG];
         // The Worker names the pairing the token was minted for; a removed or re-paired machine has another, or none.
-        const pairing = ctx.request.headers.get(PAIRING_HEADER) ?? undefined;
+        const pairing = readHeader(ctx.request.headers, "pairing") ?? undefined;
 
         return this.#hub.pairedAs(machine, pairing) ? [runnerTag(machine), `${PAIRING_TAG_PREFIX}${pairing}`] : [REFUSED_TAG];
       },

@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { uploadedType } from "../files/files";
 import { upload } from "../files/wiring";
-import { isMachineFacts, isMachineName, type MachineFacts, PAIRING_HEADER, RUNNER_PATH, runnerPathMachine, WIRE } from "../machines/contract";
+import { isMachineFacts, isMachineName, type MachineFacts, RUNNER_PATH, runnerPathMachine, WIRE } from "../machines/contract";
+import { setHeader } from "../machines/contract";
 import {
   BadFacts,
   BadPairRequest,
@@ -44,7 +45,7 @@ const runnerSocket = (request: Request, env: Env, url: URL): Route =>
     if (request.headers.get("Upgrade") !== "websocket") return yield* new UpgradeRequired();
     const headers = new Headers(request.headers);
     headers.delete("Authorization");
-    headers.set(PAIRING_HEADER, pairing);
+    setHeader(headers, "pairing", pairing);
 
     return yield* Effect.promise(() => agent(env).fetch(new Request(request, { headers })));
   });

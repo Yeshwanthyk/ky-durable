@@ -153,7 +153,7 @@ record("start", {
   auth: authLink(),
   token: token(),
   instructions: args.some((arg) => arg.startsWith("developer_instructions=")) ? 1 : 0,
-  ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
+  ky: Object.keys(process.env).filter((name) => /^(KY|AGENT)_/u.test(name)).sort().join(",")
 });
 
 let prompt = "";

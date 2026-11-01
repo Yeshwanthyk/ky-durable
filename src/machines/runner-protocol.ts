@@ -170,8 +170,6 @@ export function fromBase64(text: string): Uint8Array<ArrayBuffer> {
 
 export const ISSUED_TTL_MS = 24 * 60 * 60_000;
 
-export const PAIRING_HEADER = "X-Ky-Pairing";
-
 const MachineNameSchema = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,31}$/u));
 
 export const isMachineName: (name: string) => boolean = Schema.is(MachineNameSchema);
