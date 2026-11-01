@@ -40,7 +40,7 @@ import { meter, Spend, spendExtension } from "./spend/wiring";
 import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
-import { agentModel, type ModelsBoundary } from "./providers/contract";
+import { type ModelsBoundary, type Slot, SLOT_PROVIDER, slotModel } from "./providers/contract";
 import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
@@ -60,7 +60,6 @@ import { Subscriptions } from "./subscriptions";
 import { BACKGROUND_SOURCE, KY, REVIEW_ALLOWED, type ReviewHost, runInFeed, type Spawn } from "./skills/contract";
 import { delegationTools, draftFromDemo, Reviews, Skills, skillTools, type SkillsWiring, Specialists } from "./skills/wiring";
 import { Titler } from "./chats/titles";
-import type { Purpose } from "./settings/contract";
 import { createWorkspaceTools, JAVASCRIPT_BACKEND, pagedTools } from "./workspace";
 import { guardrailsExtension, READ_MAX_BYTES } from "./guardrails";
 
@@ -258,7 +257,7 @@ export class PiAgent extends DurableObject<Env> {
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
     context: BACKGROUND_CONTEXT,
-    model: () => agentModel(this.models.resolve("background").choice),
+    model: () => slotModel("background"),
     allows: (work) => this.spend.allows(work)
   };
   /** When the user was last here; the dream waits until they are away. */
@@ -577,13 +576,10 @@ export class PiAgent extends DurableObject<Env> {
         context
       );
     },
-    // Read on each new session, so they follow the main purpose.
+    // Read on each new session: it follows the main slot, and runs at the level main's model has at each call.
     defaults: ((models: Models) => ({
       get model() {
-        return models.resolve("main").model;
-      },
-      get thinkingLevel() {
-        return models.resolve("main").choice.thinkingLevel;
+        return models.registry.getModel(SLOT_PROVIDER, "main") ?? models.resolve("main").model;
       }
     }))(this.models)
   });
@@ -654,11 +650,6 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(retype(this.files, this.env.FILES).catch((error) => console.warn("files not retyped", error)));
     this.#nameThings();
     meter(this.spend, { answers: (listener) => this.models.onAnswer(listener), spent: (listener) => this.feed.onSpend(listener) });
-    this.models.settings.onChange((purpose) => {
-      if (purpose === "main") this.ctx.waitUntil(this.applyMain());
-    });
-    // When the providers change, the chats move to what main resolves to now.
-    this.models.onChange(() => this.ctx.waitUntil(this.applyMain()));
     this.memory.onChange(() => this.ctx.waitUntil(this.memory.compress()));
     // Each kind of approval and who decides it.
     this.approvals.handle("executor", this.executorApprovals);
@@ -1216,20 +1207,23 @@ export class PiAgent extends DurableObject<Env> {
     return { pairing: await this.machines.remove(machine) };
   }
 
-  /** A conversation keeps the model it was created with; move the main one and the side chats to the main slot. */
+  /**
+   * Put the main conversation and the side chats on the main slot. Each follows main from then on, so this changes
+   * only a chat from before slots, which held main's model as it was, and on each later start writes nothing.
+   */
   async applyMain(): Promise<void> {
     for (const session of [ROOT_SESSION, ...this.chats.list().map((chat) => chat.session)]) {
       await this.#configure(session);
     }
   }
 
-  /** Set a top-level conversation up like the main one, on `purpose`'s model; without browse unless `browse`. */
-  async #configure(session: string, purpose: Purpose = "main", { browse = false } = {}): Promise<void> {
+  /** Set a top-level conversation up like the main one, following `slot`; without browse unless `browse`. */
+  async #configure(session: string, slot: Slot = "main", { browse = false } = {}): Promise<void> {
     const conversation = await this.harness.conversation(session);
     await conversation.configure(
       {
         ...this.harness.agentDefaults(),
-        ...agentModel(this.models.resolve(purpose).choice),
+        ...slotModel(slot),
         extensions: { remove: browse ? [] : [this.browse] }
       },
       BACKGROUND_CONTEXT
