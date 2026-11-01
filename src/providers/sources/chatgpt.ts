@@ -44,7 +44,9 @@ function viaCloudWhenTurnedAway(direct: FetchFunction, cloud: FetchFunction | un
       const again = await cloud(input, init);
 
       await first.body?.cancel();
-      console.log(`ChatGPT turned the Worker away; through the cloud machine it answered ${again.status}`);
+      const said = again.ok ? "" : `: ${(await again.clone().text()).slice(0, 300)}`;
+
+      console.log(`ChatGPT turned the Worker away; through the cloud machine it answered ${again.status}${said}`);
 
       return again;
     } catch (error) {

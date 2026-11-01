@@ -84,11 +84,17 @@ function kept(home: string, folders: string[]): string[] {
 
 const answer = (response: ServerResponse, status: number, body = "") => response.writeHead(status, { "content-type": "text/plain" }).end(body);
 
-/** What isn't passed on either way: what belongs to one connection, and what fetch undoes (the body arrives decoded). */
-const NOT_PASSED = new Set(["host", "connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "upgrade"]);
+/** What isn't passed on either way: what belongs to one connection. */
+const NOT_PASSED = new Set(["host", "connection", "keep-alive", "transfer-encoding", "content-length", "upgrade"]);
 
-/** Pass `request` on to ChatGPT, and its answer back, streamed; a closed answer cancels the request. */
-async function chatgpt(request: IncomingMessage, response: ServerResponse): Promise<void> {
+/**
+ * And what isn't passed back: fetch undoes the answer's encoding, so its body arrives decoded. The request's
+ * stays: pi sends its body zstd-compressed, which ChatGPT decodes only when told.
+ */
+const NOT_PASSED_BACK = new Set([...NOT_PASSED, "content-encoding"]);
+
+/** Pass `request` on to ChatGPT through `send`, and its answer back, streamed; a closed answer cancels the request. */
+export async function chatgpt(request: IncomingMessage, response: ServerResponse, send: typeof fetch = fetch): Promise<void> {
   const body = await buffer(request);
   const headers = new Headers();
 
@@ -100,9 +106,9 @@ async function chatgpt(request: IncomingMessage, response: ServerResponse): Prom
   const cancel = new AbortController();
 
   response.on("close", () => cancel.abort());
-  const upstream = await fetch(CHATGPT_RESPONSES, { method: "POST", headers, body, signal: cancel.signal });
+  const upstream = await send(CHATGPT_RESPONSES, { method: "POST", headers, body, signal: cancel.signal });
 
-  response.writeHead(upstream.status, Object.fromEntries([...upstream.headers].filter(([name]) => !NOT_PASSED.has(name))));
+  response.writeHead(upstream.status, Object.fromEntries([...upstream.headers].filter(([name]) => !NOT_PASSED_BACK.has(name))));
 
   if (!upstream.body) return void response.end();
   // SAFETY: fetch's body is node:stream/web's ReadableStream; the global type only names it differently.
