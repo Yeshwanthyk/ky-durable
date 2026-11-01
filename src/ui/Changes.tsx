@@ -2,7 +2,7 @@ import { Component, lazy, type ReactNode, Suspense, useContext, useEffect, useSt
 import { FilesContext } from "./Attachments";
 import { Counts, plural, useReview } from "./change-review";
 import { latestDiff, patchSummary } from "./review";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 // A machine task's code changes, from the newest patch its `ky diff` shared:
 // a collapsed row with the totals, then a file list, then each file's diff.

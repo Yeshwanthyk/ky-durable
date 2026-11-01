@@ -2,7 +2,7 @@ import { createContext, type FormEvent, useContext, useState } from "react";
 import { VERDICT_REASON_CHARS } from "../dreaming/contract";
 import type { PostVerdict as Verdict, VerdictView } from "../protocol";
 import { RowValue } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 type VerdictActions = {
   /** The last 30 days' verdicts, by post. */

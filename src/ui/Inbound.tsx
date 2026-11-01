@@ -5,7 +5,7 @@ import { type Hook, type HooksView, HooksViewSchema, MadeHookSchema, RotatedSche
 import { KY, ownerName, SHARED } from "../skills/contract";
 import { CopyLine } from "./CopyButton";
 import { EmptyState, Switch, VaultBadge } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";

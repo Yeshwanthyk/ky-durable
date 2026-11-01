@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { SkillChange, SkillRow, SkillVersion } from "../protocol";
 import { kitsOf } from "../skills/contract";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { EMPTY, grouped, KitMembers, openNeeds, origin, SkillReader, since, times, toAnswerCount } from "./Skills";
 import type { SkillFilter } from "./use-session-route";
 

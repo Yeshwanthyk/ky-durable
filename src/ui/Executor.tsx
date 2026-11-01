@@ -2,7 +2,7 @@ import { createContext, type FormEvent, useContext, useState } from "react";
 import type { ToolPolicy } from "../approvals/contract";
 import type { ExecutorView } from "../protocol";
 import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 
 type ExecutorActions = {

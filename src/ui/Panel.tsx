@@ -36,7 +36,7 @@ import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
-import { Icon, Spinner, type IconName } from "./Icon";
+import { Icon, Spinner, type IconName } from "../chat-kit/Icon";
 import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
@@ -216,7 +216,7 @@ export function Panel({
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** scotty.css's --ease-out, for the motion that runs in script. */
+/** chat.css's --ease-out, for the motion that runs in script. */
 const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 /** How long a row or section takes to open its space, and the faster close. */

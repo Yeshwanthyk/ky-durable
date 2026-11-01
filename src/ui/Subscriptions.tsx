@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "../protocol";
 import { EmptyState } from "./Controls";
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 import { clock } from "./time";
 import { SettingsNavContext } from "./use-panel";
 

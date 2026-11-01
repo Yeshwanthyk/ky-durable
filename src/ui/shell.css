@@ -1,5 +1,5 @@
 /* The frame around the chat: chats on the left, the chat, ky's activity and settings on the right.
-   Plain CSS on scotty's tokens, like scotty.css. */
+   Plain CSS on the chat kit's tokens (src/chat-kit/chat.css). */
 
 .shell {
   --sidebar-width: 248px;

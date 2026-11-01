@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
 import type { PiMessage } from "../core/transcript";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { ApprovalCards } from "./Approvals";
 import { InboundCards } from "./InboundCards";
 import { ReplyContext } from "./Blocks";

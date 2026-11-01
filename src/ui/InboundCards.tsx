@@ -4,7 +4,7 @@ import { AsksSchema, type SecretAsk } from "../inbound/shapes";
 import { KY } from "../skills/contract";
 import { InputBlock } from "./Blocks";
 import { VaultBadge } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 
 /**

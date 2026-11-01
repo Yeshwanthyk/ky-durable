@@ -7,7 +7,7 @@ import { CONNECTION_LINE, CONNECTION_TONE, type ConnectionKind } from "../connec
 import { CrewCount, CrewRow, crewSays, kyGaze } from "./Crew";
 import type { Crew } from "./crew-of";
 import { type Group, GroupMembers } from "./GroupMembers";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import type { OpenChat } from "./open-chat";
 import type { PanelState } from "./use-panel";
 import { useChanges } from "./use-changes";

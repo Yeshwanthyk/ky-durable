@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import type { Activity } from "./activity";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 /** How long an outgoing subtitle takes to leave; matches shell.css. */
 const FADE_MS = 150;

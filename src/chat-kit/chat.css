@@ -1,0 +1,1044 @@
+/* The chat kit's one stylesheet: tokens, then the thread, the tool rows and the composer. Its first half came from
+   ../scotty/ui/src/global.css (see src/ui/UPSTREAM). Dark follows the host's theme toggle (data-mode on <html>). */
+:root {
+  /* Settings → Text size; every font size and fixed line height is multiplied by it. */
+  --text-scale: 1;
+  color-scheme: light dark;
+  --radius: 10px;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Motion: things arrive with a strong ease-out, move on screen with ease-in-out, and leave faster than they came. */
+  --ease-enter: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --fast: 120ms;
+  --standard: 180ms;
+  --enter: 200ms;
+  --exit: 140ms;
+
+  --sidebar-width: 264px;
+  --thread-width: 44rem;
+
+  --bg: #ffffff;
+  --sidebar: #f7f7f7;
+  --surface: #ffffff;
+  --raised: #f3f3f3;
+  --sunken: #f7f7f7;
+  --hover: rgb(0 0 0 / 0.045);
+  --selected: rgb(0 0 0 / 0.07);
+  --ink: #141414;
+  --muted: #666666;
+  --quiet: #8a8a8a;
+  --line: rgb(0 0 0 / 0.075);
+  --line-strong: rgb(0 0 0 / 0.12);
+  --line-hover: rgb(0 0 0 / 0.18);
+  --accent: #141414;
+  --working: #2f8fdc;
+  --danger: #cf3b2e;
+  --success: #2f9b62;
+  --warning: #b07a12;
+  --chart-1: #2f8fdc;
+  --chart-2: #c98a14;
+  --chart-3: #2f9b62;
+  --chart-4: #8a5cd6;
+  --chart-5: #d4553f;
+  --chart-6: #6b7785;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.1);
+  --overlay: rgb(0 0 0 / 0.18);
+  /* The user's words in solid ink: the one bold thing in the chat that is not ky's. */
+  --user-bubble: #141414;
+  --user-ink: #ffffff;
+}
+
+/* The dark theme, and anything that is dark in both themes (the Sheet), so tokens inside it read on its surface. */
+[data-mode="dark"] {
+  --bg: #111111;
+  --sidebar: #161616;
+  --surface: #1b1b1b;
+  --raised: #222222;
+  --sunken: #0d0d0d;
+  --hover: rgb(255 255 255 / 0.045);
+  --selected: rgb(255 255 255 / 0.075);
+  --ink: #ededed;
+  --muted: #a3a3a3;
+  --quiet: #7d7d7d;
+  --line: rgb(255 255 255 / 0.07);
+  --line-strong: rgb(255 255 255 / 0.11);
+  --line-hover: rgb(255 255 255 / 0.17);
+  --accent: #ededed;
+  --working: #6cb6f0;
+  --danger: #f07266;
+  --success: #62c58e;
+  --warning: #e0b057;
+  --chart-1: #6cb6f0;
+  --chart-2: #e0b057;
+  --chart-3: #62c58e;
+  --chart-4: #b39af0;
+  --chart-5: #f07a66;
+  --chart-6: #9aa5b1;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px rgb(0 0 0 / 0.45);
+  --overlay: rgb(0 0 0 / 0.45);
+  --user-bubble: #ededed;
+  --user-ink: #141414;
+}
+
+/* The dark theme reads as easily as the light one (docs/ui-polish/contrast.md): body text 7:1,
+   secondary text 4.5:1, field borders 3:1, and surfaces a step apart so cards lift off the page.
+   Only the dark theme: in the light theme the Sheet keeps the palette above. */
+:root[data-mode="dark"],
+:root[data-mode="dark"] [data-mode="dark"] {
+  --sidebar: #191919;
+  --surface: #1e1e1e;
+  --raised: #292929;
+  --sunken: #171717;
+  --hover: rgb(255 255 255 / 0.06);
+  --selected: rgb(255 255 255 / 0.1);
+  --ink: #e6e6e6;
+  --muted: #b3b3b3;
+  --quiet: #999999;
+  --line: rgb(255 255 255 / 0.1);
+  --line-strong: rgb(255 255 255 / 0.36);
+  --line-hover: rgb(255 255 255 / 0.5);
+  --accent: #e6e6e6;
+  --user-bubble: #e6e6e6;
+  --user-ink: #141414;
+}
+
+/* Settings → Appearance → Accent (use-accent.ts): the user's bubble, the unread dot and focus rings
+   take the color; cards, buttons and text stay ink. Deep enough for white text in both themes. */
+:root {
+  --accent-violet: #5b2fc9;
+  --accent-blue: #1f62d1;
+  --accent-green: #12784f;
+  --accent-ember: #c2410c;
+  --accent-pink: #be2f6b;
+  /* Text on the accent: the page's own color while the accent is ink. */
+  --accent-ink: var(--bg);
+}
+
+:root[data-mode="dark"] {
+  --accent-violet: #7650e0;
+  --accent-blue: #3a7ce0;
+  --accent-green: #1f8d60;
+  --accent-ember: #d4561c;
+  --accent-pink: #cf467f;
+}
+
+:root[data-accent="violet"] { --accent: var(--accent-violet); }
+:root[data-accent="blue"] { --accent: var(--accent-blue); }
+:root[data-accent="green"] { --accent: var(--accent-green); }
+:root[data-accent="ember"] { --accent: var(--accent-ember); }
+:root[data-accent="pink"] { --accent: var(--accent-pink); }
+
+:root[data-accent] {
+  --accent-ink: #ffffff;
+  --user-bubble: var(--accent);
+  --user-ink: var(--accent-ink);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.quiet {
+  color: var(--quiet);
+}
+
+/* Press feedback everywhere; hover only where there is a real pointer. */
+.pressable {
+  transition:
+    transform var(--fast) var(--ease-out),
+    background-color var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out),
+    opacity var(--fast) var(--ease-out);
+}
+
+.pressable:active:not(:disabled) {
+  transform: scale(var(--press-scale, 0.96));
+}
+
+/* Does not inherit, so a small button inside a row keeps the full press. */
+@property --press-scale {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0.96;
+}
+
+/* A full-width row shrinking 4% looks squashed; it gives a little instead. Set --press-scale to tune one. */
+.pressable-row {
+  --press-scale: 0.985;
+}
+
+/* ---------- Touch: taps and long presses ---------- */
+
+/* iOS flashes a grey box over whatever is tapped. Controls give their own press feedback
+   (.pressable, :active) instead. The property inherits, so the root covers every control. */
+:root {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A long press on a control should not select its label or pop the copy menu. */
+:where(
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="radio"],
+  [role="switch"],
+  .pressable
+) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Text you may want to copy keeps both: a reasoning summary is a toggle but reads as prose,
+   and the fields are for typing. A screenshot keeps its save-image menu. */
+:where(.log-thought, input, textarea, [contenteditable]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+:where(.attachment-open) {
+  -webkit-touch-callout: default;
+}
+
+/* Without the flash, a control with no press feedback of its own would give no sign of a tap, so
+   on touch it dims while held. Zero specificity: any opacity a control sets for itself wins. */
+@media (hover: none) {
+  :where(button, [role="button"], [role="tab"], [role="option"]):where(:not(.pressable):active:not(:disabled)) {
+    opacity: 0.6;
+  }
+}
+
+/* ---------- Icons, spinner, status ---------- */
+
+.icon {
+  flex: none;
+  display: block;
+}
+
+.spinner {
+  flex: none;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* ---------- Buttons ---------- */
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+
+.icon-button[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+}
+
+kbd {
+  font-family: var(--font-sans);
+  font-size: calc(11px * var(--text-scale));
+  color: var(--quiet);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .icon-button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* ChatThread holds the view still itself, in every Safari; native anchoring would move it twice. */
+  overflow-anchor: none;
+}
+
+/* Room under the last turn, so it never sits flush against the composer. */
+.thread-inner {
+  width: 100%;
+  max-width: var(--thread-width);
+  margin: 0 auto;
+  padding: 20px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* A new chat's first turn rises in where the welcome screen was. */
+.turn[data-arrived="true"] {
+  animation: turn-in 240ms var(--ease-out) backwards;
+}
+
+@keyframes turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Yours sit right in a soft fill; the composer is white and outlined, so the two never read alike. */
+.user-message {
+  position: relative;
+  align-self: flex-end;
+  max-width: min(85%, 36rem);
+  padding: 9px 15px;
+  border-radius: 20px;
+  background: var(--user-bubble);
+  color: var(--user-ink);
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.user-message[data-clamped="true"] {
+  max-height: calc(1.55em * 8 + 20px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+
+.more-lines {
+  align-self: flex-end;
+  margin-top: -6px;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--muted);
+}
+
+
+.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Work log: a turn's tools, thinking and commentary. */
+
+.worked {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--quiet);
+  font-size: calc(12.5px * var(--text-scale));
+}
+
+.worked b {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.chevron {
+  transition: transform var(--standard) var(--ease-out);
+}
+
+[aria-expanded="true"] > .chevron {
+  transform: rotate(90deg);
+}
+
+.worklog {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 2px;
+}
+
+.worklog[data-live="true"] {
+  gap: 4px;
+}
+
+.log-text {
+  color: var(--muted);
+  font-size: calc(13.5px * var(--text-scale));
+  line-height: 1.6;
+  padding: 4px 0;
+}
+
+.log-text > div {
+  color: var(--muted);
+  font-size: calc(13.5px * var(--text-scale));
+}
+
+.log-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* A live reply that a tool call follows turns out to be commentary: it moves from the answer into
+   the log, and fades into the log's smaller grey type instead of snapping to it. */
+.worklog[data-live="true"] > .log-text {
+  animation: log-settle 180ms var(--ease-out) backwards;
+}
+
+@keyframes log-settle {
+  from {
+    opacity: 0.35;
+  }
+}
+
+.log-thought {
+  color: var(--quiet);
+  font-style: italic;
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.5;
+  padding: 2px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.log-thought[data-open="true"] {
+  -webkit-line-clamp: unset;
+  display: block;
+  white-space: pre-wrap;
+}
+
+.log-thought b,
+.log-thought strong {
+  font-weight: 500;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.tool {
+  min-width: 0;
+}
+
+.tool-row {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  text-align: left;
+}
+
+.tool-row .icon {
+  color: var(--quiet);
+}
+
+.tool-row .verb {
+  flex: none;
+  color: var(--quiet);
+}
+
+.tool-row .target {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.tool-row .target.mono {
+  font-size: calc(11.5px * var(--text-scale));
+}
+
+.tool-row .trail {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--quiet);
+  font-size: calc(11.5px * var(--text-scale));
+}
+
+.tool-row .chevron {
+  opacity: 0;
+  transition:
+    opacity var(--fast) var(--ease-out),
+    transform var(--standard) var(--ease-out);
+}
+
+.tool-row[aria-expanded="true"] .chevron {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.tool[data-status="failed"] .tool-row .verb,
+.tool[data-status="failed"] .tool-row .icon {
+  color: var(--danger);
+}
+
+.tool[data-status="running"] .tool-row .verb {
+  color: var(--ink);
+}
+
+.tool-body {
+  margin: 4px 0 8px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+
+.tool-body pre {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: calc(11.5px * var(--text-scale));
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-body .command {
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+
+.tool-body .command::before {
+  content: "$ ";
+  color: var(--quiet);
+}
+
+.group-children {
+  padding-left: 22px;
+}
+
+/* Details open in place: the grid row grows from 0fr to 1fr, so what is below glides down instead
+   of jumping. Closing is quicker than opening. */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 140ms var(--ease-out);
+}
+
+.reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+  transition-duration: 220ms;
+}
+
+/* It clips while it grows; the side padding keeps rows' hover fills, which hang 6px out, unclipped.
+   Once closed it is hidden, so nothing clipped to no height still counts as shown. */
+.reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+  margin-inline: -6px;
+  padding-inline: 6px;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 100ms var(--ease-out),
+    visibility 0s 140ms;
+}
+
+.reveal[data-open="true"] > .reveal-inner {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 220ms var(--ease-out),
+    visibility 0s;
+}
+
+/* The turn's gap would leave a closed log as 8px of air; the log carries that gap itself instead. */
+.assistant > .reveal {
+  margin-top: -8px;
+}
+
+.assistant > .reveal > .reveal-inner > .worklog {
+  padding-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-inner,
+  .reveal[data-open="true"] > .reveal-inner,
+  .tool-row .chevron,
+  .worked .chevron {
+    transition: none;
+  }
+
+  .turn[data-arrived="true"],
+  .worklog[data-live="true"] > .log-text {
+    animation: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tool-row:hover,
+  .worked:hover {
+    background: var(--hover);
+  }
+
+  .tool-row:hover .chevron {
+    opacity: 1;
+  }
+
+  .tool-row:hover .target,
+  .worked:hover b {
+    color: var(--ink);
+  }
+}
+
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--quiet);
+  padding: 2px 0;
+}
+
+.notice[data-tone="error"] {
+  color: var(--danger);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.notice .icon {
+  margin-top: 2px;
+}
+
+.answer {
+  position: relative;
+  font-size: calc(14px * var(--text-scale));
+}
+
+.answer-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+  margin-left: -6px;
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease-out);
+}
+
+.turn:hover .answer-actions,
+.answer-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .answer-actions {
+    opacity: 1;
+  }
+}
+
+.turn-end {
+  font-size: calc(12px * var(--text-scale));
+  color: var(--quiet);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.turn-end[data-state="failed"] {
+  color: var(--danger);
+}
+
+.interrupted {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-weight: 500;
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  height: 22px;
+}
+
+.live-avatar {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+}
+
+/* The Working line opens the turn's steps. */
+button.live {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.live:disabled {
+  cursor: default;
+}
+
+.live-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+button.live:hover .live-steps {
+  color: var(--ink);
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--quiet) 0%, var(--ink) 50%, var(--quiet) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.chat-surface {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: calc(13px * var(--text-scale));
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(.chat-surface button) {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .shimmer {
+    animation: none;
+  }
+}
+
+/* ---------- Composer ---------- */
+
+/* A pill while it is one line: attach, the text, then one round action. Once the text wraps, or something waits to
+   go with it, it opens into a card: the text across the top, the buttons in a row below. The buttons sit
+   (height − button) / 2 in from the edge. */
+.composer {
+  --composer-h: 54px;
+  --composer-r: 23px;
+  --composer-b: 37px;
+  --composer-pad: calc((var(--composer-h) - var(--composer-b)) / 2);
+  --composer-text: calc(14px * var(--text-scale));
+  --composer-line: calc(22px * var(--text-scale));
+  /* How far a bare button's hit area reaches past its circle: none with a pointer, more on touch. */
+  --composer-hit: 0px;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: var(--thread-width);
+  min-height: var(--composer-h);
+  margin: 0 auto;
+  border-radius: var(--composer-r);
+  background: var(--surface);
+  /* The edge is a 1px line and a soft shadow; a ring rather than a border, so the pill is its height exactly. */
+  box-shadow: 0 0 0 1px var(--line), var(--shadow);
+  transition:
+    border-radius 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+/* Focus darkens the line and lifts the shadow, and nothing moves. The deeper shadow sits on its own layer and fades
+   in, so no frame repaints a shadow. */
+.composer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--shadow-lift);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--ease-out);
+}
+
+.composer:focus-within {
+  box-shadow: 0 0 0 1px var(--line-hover), var(--shadow);
+}
+
+.composer:focus-within::after {
+  opacity: 1;
+}
+
+.composer[data-open="true"] {
+  border-radius: min(var(--composer-r), 22px);
+}
+
+.composer[data-dragging="true"] {
+  outline: 1.5px dashed var(--ink);
+  outline-offset: -1px;
+}
+
+.composer textarea {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  min-height: var(--composer-h);
+  max-height: 40dvh;
+  /* Grows with its text without script measuring it; Composer.tsx sizes it where this is unsupported. */
+  field-sizing: content;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: max(4px, calc((var(--composer-h) - var(--composer-line)) / 2)) 8px;
+  font-size: var(--composer-text);
+  line-height: var(--composer-line);
+  color: var(--ink);
+}
+
+.composer > textarea:first-child,
+.composer-attachments + textarea {
+  padding-left: 16px;
+}
+
+.composer textarea::placeholder {
+  color: var(--quiet);
+}
+
+.composer[data-open="true"] textarea {
+  order: -1;
+  flex-basis: calc(100% - 32px);
+  min-height: 0;
+  margin: 0 16px;
+  padding: 13px 0 4px;
+}
+
+.composer-attachments {
+  order: -2;
+  flex-basis: 100%;
+  min-width: 0;
+}
+
+/* Attach and the microphone: a muted icon on nothing, a fill under the pointer. */
+.composer-icon {
+  flex: none;
+  width: calc(var(--composer-b) + 2 * var(--composer-hit));
+  height: calc(var(--composer-b) + 2 * var(--composer-hit));
+  margin: calc(-1 * var(--composer-hit));
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  transition:
+    background var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out);
+}
+
+.composer-icon:disabled {
+  color: var(--quiet);
+}
+
+.composer > .composer-icon {
+  margin-left: calc(var(--composer-pad) - var(--composer-hit));
+}
+
+.composer[data-open="true"] > .composer-icon {
+  margin-bottom: calc(var(--composer-pad) - var(--composer-hit));
+  margin-top: calc(2px - var(--composer-hit));
+}
+
+.composer-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--composer-pad);
+}
+
+.composer[data-open="true"] .composer-bar {
+  margin-left: auto;
+  padding-top: 2px;
+}
+
+.composer[data-recording="true"] .composer-bar {
+  padding-left: 0;
+}
+
+/* The one filled button: Send, or Stop while a turn runs and nothing is typed. */
+.send-button {
+  position: relative;
+  flex: none;
+  width: var(--composer-b);
+  height: var(--composer-b);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg);
+  transition:
+    background var(--fast) var(--ease-out),
+    color var(--fast) var(--ease-out),
+    opacity var(--fast) var(--ease-out);
+}
+
+.send-button:disabled {
+  background: var(--raised);
+  color: var(--quiet);
+}
+
+/* Stop: the ink square on a raised circle, a thin arc turning round it while the turn runs. */
+.send-button[data-mode="stop"] {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.send-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  animation: spin 1.1s linear infinite;
+  pointer-events: none;
+}
+
+.send-ring circle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 26 80;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-icon:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--ink);
+  }
+
+  .send-button:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .send-ring {
+    animation: none;
+  }
+}
+
+/* A phone keeps the larger hit targets, and 16px text so iOS doesn't zoom into the field. */
+@media (max-width: 767px) {
+  .composer {
+    --composer-hit: 3.5px;
+    --composer-text: max(16px, calc(16px * var(--text-scale)));
+    --composer-line: calc(24px * var(--text-scale));
+  }
+}
+
+/* The @ menu: who to mention, over the composer. */
+.mention-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-lift);
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.mention-option[aria-selected="true"] {
+  background: var(--selected);
+}
+
+.mention-id {
+  flex: none;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mention-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+

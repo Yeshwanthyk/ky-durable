@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 /** A copy icon that copies `text`, then shows a check for a moment. */
 export function CopyButton({ text, label }: { text: string; label: string }) {

@@ -69,7 +69,7 @@ export type PanelState = {
   readonly panelRef: RefObject<HTMLDivElement | null>;
 };
 
-/** scotty.css's --ease-out; element.animate cannot read a CSS variable. */
+/** chat.css's --ease-out; element.animate cannot read a CSS variable. */
 const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 /** iOS's drawer curve: quick off the mark and a long, soft landing. */

@@ -1,7 +1,8 @@
 import type { Outgoing } from "../outbox";
 import type { PiSessionView } from "../view";
 import { useEffect, useState } from "react";
-import { Composer, type Mentionable, type Voice } from "./Composer";
+import { Composer, type ComposerVoice, type Mentionable } from "../chat-kit/Composer";
+import { attachable, attachmentsOf, composerVoice, mentionAvatar } from "./composer-parts";
 import { NAME } from "./open-chat";
 import { QueueTray } from "./QueueTray";
 import type { Draft } from "./use-draft";
@@ -9,7 +10,7 @@ import { useKeyboardInset } from "./use-keyboard-inset";
 import { useRecorder } from "./use-recorder";
 
 /** The microphone, recording into the draft. Send while recording sends the note once it has gone up. */
-function useVoice(draft: Draft, onSubmit: () => void): Voice {
+function useVoice(draft: Draft, onSubmit: () => void): ComposerVoice {
   const { recorder, start, stop, cancel } = useRecorder({ onError: draft.setError });
   const [sendWhenReady, setSendWhenReady] = useState(false);
   // A clip waiting offline goes up with the message, so it doesn't hold the send.
@@ -21,8 +22,7 @@ function useVoice(draft: Draft, onSubmit: () => void): Voice {
     onSubmit();
   }, [sendWhenReady, ready, onSubmit]);
 
-  return {
-    recorder,
+  return composerVoice(recorder, {
     onRecord: () => {
       draft.setError(null);
       void start();
@@ -36,7 +36,7 @@ function useVoice(draft: Draft, onSubmit: () => void): Voice {
       });
     },
     onCancel: cancel
-  };
+  });
 }
 
 /** The run's state under the thread: retrying. What is queued behind it shows in the queue. */
@@ -111,6 +111,7 @@ export function ComposerDock({
 }) {
   const dock = useKeyboardInset<HTMLDivElement>();
   const voice = useVoice(draft, onSubmit);
+  const attachments = attachmentsOf(draft);
 
   return (
     <div ref={dock} className="composer-wrap">
@@ -137,14 +138,14 @@ export function ComposerDock({
         onStop={connected ? onStop : undefined}
         working={session.running}
         busy={draft.reading > 0 || cantSee !== null}
-        images={draft.images}
-        clips={draft.clips}
+        attachments={attachments}
+        hasAttachments={attachments !== null}
+        accepts={attachable}
         onAddFiles={draft.addFiles}
-        onRemoveImage={draft.removeImage}
-        onRemoveClip={draft.removeClip}
         voice={voice}
         label="Message"
         mentions={mentions}
+        renderMention={mentionAvatar}
         history={history}
         placeholder={placeholder(session.running, connected, offline, talksToMain, group)}
       />

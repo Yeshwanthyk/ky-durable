@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import type { MailItem, MailView } from "../protocol";
 import { CopyLine } from "./CopyButton";
 import { EmptyState } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";

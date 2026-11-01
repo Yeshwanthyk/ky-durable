@@ -4,7 +4,7 @@ import { decodeOr } from "../core/decode";
 import type { CardAnswer, ShownBlock, TabsBlock, UiBlock, UiCard } from "../cards/contract";
 import { type Answered, answered, cardName, compose, type Choice, type Input, isQuestion, lettered, LETTERS, needsSend, optionState, takesTaps, type Question, sendsOnTap, toggled, type Value } from "./card-answers";
 import { RoutineBlock } from "./Automations";
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 import { ChartBlock, seriesColor } from "./Charts";
 import { useLightbox } from "./Lightbox";
 import { Markdown } from "./Markdown";

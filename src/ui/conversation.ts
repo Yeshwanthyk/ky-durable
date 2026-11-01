@@ -1,5 +1,5 @@
 import type { MediaClip } from "../files/media";
-import type { IconName } from "./Icon";
+import type { IconName } from "../chat-kit/Icon";
 
 /** Scotty's conversation shape: turns of a prompt, a work log and an answer. */
 

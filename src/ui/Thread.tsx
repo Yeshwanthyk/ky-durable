@@ -1,6 +1,5 @@
 import { createContext, Fragment, memo, type ReactNode, type RefObject, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SENDING } from "../outbox";
-import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
 import { KY_AVATAR } from "../avatars/contract";
 import type { BlobVariantId } from "./blob-catalog";
@@ -15,13 +14,15 @@ import { useLightbox } from "./Lightbox";
 import type { Item, ReportFrom, Tool, Turn } from "./conversation";
 import { duration } from "./duration";
 import { eventsOf, type ThreadEvent } from "./events";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { type Placement, placements, wrote } from "./living-cards";
 import { Markdown } from "./Markdown";
 import { SentClip } from "./Media";
 import { JudgePost } from "./PostVerdict";
 import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
-import { ExploreGroup, Reveal, ToolRow } from "./ToolRow";
+import { ExploreGroup, ToolCallRow } from "./ToolRow";
+import { Reveal } from "../chat-kit/Reveal";
+import { Answer, AnswerActions, Assistant, ChatTurn, LogText, Notice, Thought, TurnEnd, type TurnState, UserBubble, WorkingLine, WorkLog } from "../chat-kit/Thread";
 
 /** Opens the running turn's steps as a timeline; a thread with nowhere to show them has none. */
 export const OpenStepsContext = createContext<(() => void) | null>(null);
@@ -370,42 +371,6 @@ function Report({ text, from, task }: { text: string; from: ReportFrom; task: st
   );
 }
 
-function UserBubble({ text }: { text: string }) {
-  const long = text.split("\n").length > 8 || text.length > 700;
-  const [open, setOpen] = useState(false);
-  const bubble = useRef<HTMLDivElement>(null);
-
-  // The clamp is a max-height, which cannot ease to "none"; so the bubble's height eases from what
-  // it was to what it is now, clipped while it moves.
-  const toggle = () => {
-    const element = bubble.current;
-    const from = element?.offsetHeight;
-
-    flushSync(() => setOpen((value) => !value));
-
-    if (!element || from === undefined || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const to = element.offsetHeight;
-
-    element.animate(
-      { height: [`${from}px`, `${to}px`], overflow: ["hidden", "hidden"] },
-      { duration: to > from ? 220 : 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-    );
-  };
-
-  return (
-    <>
-      <div ref={bubble} className="user-message" data-clamped={long && !open}>
-        {text}
-      </div>
-      {long ? (
-        <button type="button" className="more-lines" onClick={toggle}>
-          {open ? "Show less" : "Show more"}
-        </button>
-      ) : null}
-    </>
-  );
-}
-
 // The answer is the turn's last text; everything before it is the work log. While the turn
 // streams, its last text is the answer from its first token, so the reply does not restyle when the
 // turn ends; once a tool call or thinking follows it, it was commentary and joins the log.
@@ -447,7 +412,8 @@ const TurnView = memo(function TurnView({
   next: string | null;
 }) {
   const live = isLive(turn, mode);
-  const state = turn.state === "streaming" && !live ? "aborted" : turn.state;
+  // A streaming turn that isn't live was cut off; a live one shows no end, so its state is never read.
+  const state: TurnState = turn.state === "streaming" ? "aborted" : turn.state;
   const now = useNow(live && mode === "live");
   // Specialists' replies are their own messages, under ky's part of the turn.
   const replies = turn.items.filter((item): item is Reply => item.kind === "specialist");
@@ -467,7 +433,6 @@ const TurnView = memo(function TurnView({
   const before = !cards.some(({ placement }) => placement.kind === "card" && answers[placement.call] !== undefined);
   const { log, answer } = split(turn.items.filter((item) => item.kind !== "specialist" && !(item.kind === "tool" && item.name === "ui")), live);
   const speaker = useContext(SpeakerContext);
-  const [open, setOpen] = useState(false);
   const started = turn.startedAt === null ? undefined : Date.parse(turn.startedAt);
   // A cut-off turn has no end time, so it has no duration either.
   const ended = turn.endedAt !== null ? Date.parse(turn.endedAt) : live ? now : undefined;
@@ -482,36 +447,16 @@ const TurnView = memo(function TurnView({
   // One layout for live and finished, so the work log and the answer keep their elements when the
   // turn ends: the log folds away behind "Worked" and the answer stays put.
   return (
-    <article className="turn" data-arrived={arrived} data-sending={turn.id.startsWith(SENDING) || undefined}>
+    <ChatTurn arrived={arrived} sending={turn.id.startsWith(SENDING)}>
       <UserMessage text={turn.user} images={turn.images} clips={turn.clips} from={turn.from} task={turn.task} />
       {recalled && recalled.length > 0 && turn.from === null ? <Recalled lines={recalled} /> : null}
-      <div className="assistant">
+      <Assistant>
         {live && mode === "booting" ? null : (
           <>
-            {!live && log.length > 0 ? (
-              <button
-                type="button"
-                className="worked"
-                aria-expanded={open}
-                onClick={() => setOpen((value) => !value)}
-              >
-                <span>
-                  {state === "completed" ? "Worked" : "Ran"}
-                  {took ? (
-                    <>
-                      {" for "}
-                      <b className="tabular">{took}</b>
-                    </>
-                  ) : null}
-                  {steps > 0 ? ` · ${steps} ${steps === 1 ? "step" : "steps"}` : null}
-                </span>
-                <Icon name="chevronRight" size={12} className="chevron" />
-              </button>
-            ) : null}
             {log.length > 0 ? (
-              <Reveal open={live || open}>
-                <WorkLog items={live ? log : log.filter((item) => !errors.includes(item))} live={live} />
-              </Reveal>
+              <WorkLog live={live} state={state} took={took} steps={steps}>
+                <LogEntries items={live ? log : log.filter((item) => !errors.includes(item))} />
+              </WorkLog>
             ) : null}
             {live
               ? null
@@ -519,9 +464,9 @@ const TurnView = memo(function TurnView({
                   item.kind === "notice" ? <Notice key={item.id} text={item.text} tone="error" /> : null,
                 )}
             {answer ? (
-              <div className="answer">
+              <Answer>
                 <Markdown source={answer} />
-              </div>
+              </Answer>
             ) : null}
             <TurnEvents items={turn.items} live={live} />
             {cards.map(({ id, placement }) =>
@@ -543,48 +488,33 @@ const TurnView = memo(function TurnView({
               )
             )}
             {live ? (
-              <button type="button" className="live" disabled={openSteps === null} aria-haspopup="dialog" onClick={openSteps ?? undefined}>
-                <span className="live-avatar" aria-hidden="true">
-                  <BotAvatar name={speaker.name} variantId={speaker.variantId} owner={speaker.variantId && KY_AVATAR} active size={20} />
-                </span>
-                {phase ? <span className="shimmer">{phase}</span> : null}
-                {took ? <span className="quiet tabular">{took}</span> : null}
-                {steps > 0 && openSteps ? (
-                  <span className="quiet live-steps">
-                    {steps} {steps === 1 ? "step" : "steps"}
-                    <Icon name="chevronRight" size={11} />
-                  </span>
-                ) : null}
-              </button>
+              <WorkingLine
+                avatar={<BotAvatar name={speaker.name} variantId={speaker.variantId} owner={speaker.variantId && KY_AVATAR} active size={20} />}
+                phase={phase}
+                took={took}
+                steps={steps}
+                onOpenSteps={openSteps}
+              />
             ) : (
-              <div className="turn-end" data-state={state}>
-                {state === "aborted" ? (
-                  <span className="interrupted">
-                    <Icon name="stop" size={9} /> Interrupted
-                  </span>
-                ) : state === "failed" ? (
-                  <>
-                    <Icon name="alert" size={13} /> Turn failed
-                  </>
-                ) : null}
+              <TurnEnd state={state}>
                 {answer ? (
-                  <span className="answer-actions">
+                  <AnswerActions>
                     <CopyButton text={answer} label="Copy answer" />
-                  </span>
+                  </AnswerActions>
                 ) : null}
                 {turn.post === undefined ? null : <JudgePost item={turn.post} />}
-              </div>
+              </TurnEnd>
             )}
           </>
         )}
-      </div>
+      </Assistant>
       {replies.map((reply) => (
         <SpecialistReply key={reply.id} reply={reply} />
       ))}
       {waiting.map((id) => (
         <SpecialistWaiting key={id} id={id} />
       ))}
-    </article>
+    </ChatTurn>
   );
 });
 
@@ -653,29 +583,21 @@ function entries(items: ReadonlyArray<Item>): Entry[] {
   );
 }
 
-function WorkLog({ items, live = false }: { items: ReadonlyArray<Item>; live?: boolean }) {
-  return (
-    <div className="worklog" data-live={live}>
-      {entries(items).map((entry) =>
-        entry.kind === "explore" ? (
-          <ExploreGroup key={entry.id} tools={entry.tools} />
-        ) : (
-          <LogItem key={entry.item.id} item={entry.item} />
-        ),
-      )}
-    </div>
+function LogEntries({ items }: { items: ReadonlyArray<Item> }) {
+  return entries(items).map((entry) =>
+    entry.kind === "explore" ? <ExploreGroup key={entry.id} tools={entry.tools} /> : <LogItem key={entry.item.id} item={entry.item} />,
   );
 }
 
 function LogItem({ item }: { item: Item }) {
   switch (item.kind) {
     case "tool":
-      return <ToolRow tool={item} />;
+      return <ToolCallRow tool={item} />;
     case "text":
       return item.text ? (
-        <div className="log-text">
+        <LogText>
           <Markdown source={item.text} />
-        </div>
+        </LogText>
       ) : null;
     case "thinking":
       return item.text ? <Thought text={item.text} /> : null;
@@ -684,41 +606,4 @@ function LogItem({ item }: { item: Item }) {
     case "specialist":
       return null;
   }
-}
-
-// Codex reasoning summaries open with a bold title; it reads as the thought's heading.
-function Thought({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const match = /^\*\*(.+?)\*\*\s*/.exec(text);
-  const title = match?.[1];
-  const body = (match === null ? text : text.slice(match[0].length)).replace(/\*\*/g, "");
-
-  return (
-    <div
-      className="log-thought"
-      data-open={open}
-      role="button"
-      tabIndex={0}
-      aria-expanded={open}
-      onClick={() => setOpen((value) => !value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") setOpen((value) => !value);
-      }}
-    >
-      {title ? <b>{title}. </b> : null}
-      {body}
-    </div>
-  );
-}
-
-function Notice({ text, tone }: { text: string; tone: "info" | "error" }) {
-  return (
-    <div className="notice" data-tone={tone}>
-      <Icon
-        name={tone === "error" ? "alert" : text.startsWith("Context") ? "compress" : "refresh"}
-        size={13}
-      />
-      <span>{text}</span>
-    </div>
-  );
 }

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { DreamLedgerRow } from "../protocol";
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 import { day } from "./time";
 
 type LedgerActions = {

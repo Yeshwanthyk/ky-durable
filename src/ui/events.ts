@@ -1,7 +1,7 @@
 import Type from "typebox";
 import { parseOr } from "../core/decode";
 import type { Item, Tool } from "./conversation";
-import type { IconName } from "./Icon";
+import type { IconName } from "../chat-kit/Icon";
 
 /**
  * The lasting changes a turn made, as one quiet line each under its answer:

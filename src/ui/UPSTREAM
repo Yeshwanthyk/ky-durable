@@ -1,3 +1,10 @@
-Thread.tsx, ToolRow.tsx, Composer.tsx, Icon.tsx and scotty.css come from
-../scotty/ui/src (commit c1265a09), adapted to ky: no diffs or attachments,
-Markdown through Streamdown, and turns built from pi's transcript (turns.ts).
+src/chat-kit (Thread.tsx, ToolRow.tsx, Composer.tsx, Icon.tsx and chat.css) comes from
+../scotty/ui/src (commit c1265a09), adapted to ky: no diffs, Markdown through Streamdown,
+and a composer that is a pill opening into a card, its action swapping between the
+microphone, Send and a ringed Stop.
+
+The kit imports only react, react-dom and itself (.fallowrc.json boundaries,
+test/invariants/chat-kit-imports.test.ts). What is ky's own plugs in from src/ui:
+Thread.tsx (turns built from pi's transcript in turns.ts, Markdown, cards, BotAvatar),
+ToolRow.tsx (tool phrases, images, bloubs), composer-parts.tsx (images and clips to
+send, the recording strip, mention avatars) and chat-content.css (their styles).

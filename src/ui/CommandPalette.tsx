@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 
 export type Command = {
   readonly id: string;

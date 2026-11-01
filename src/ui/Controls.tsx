@@ -1,5 +1,5 @@
 import { type HTMLAttributes, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
-import { Icon, type IconName } from "./Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 
 /** How far each arrow key moves a radio group's choice. */
 const ARROWS = new Map([

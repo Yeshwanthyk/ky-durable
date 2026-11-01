@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { Guard } from "typebox/guard";
-import type { IconName } from "./ui/Icon";
+import type { IconName } from "./chat-kit/Icon";
 
 /**
  * Tool calls in a few human words, such as "Reading tasks.ts" or "Browsing
