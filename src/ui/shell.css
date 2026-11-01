@@ -701,36 +701,32 @@
   right: 10px;
 }
 
+/* The panel's head is one row: ky's avatar, then the tabs. Who ky is and how it is connected already sit in
+   the chat's pill, so the name and status are kept for screen readers only. */
 .profile {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: calc(28px + env(safe-area-inset-top)) 20px 16px;
-  text-align: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 8px 20px;
 }
 
-.profile-name {
-  margin: 12px 0 0;
-  font-size: calc(18px * var(--text-scale));
-  font-weight: 600;
-  letter-spacing: -0.02em;
+.profile > svg {
+  flex: none;
 }
 
-.profile-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  max-width: 100%;
-  margin: 4px 0 0;
-  font-size: calc(12.5px * var(--text-scale));
-  color: var(--muted);
+.profile > .segmented {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
 }
 
-.profile-status .quiet {
+.profile-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
+  clip-path: inset(50%);
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .segmented {
@@ -1040,7 +1036,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 8px 14px;
   text-align: left;
 }
 
@@ -1054,7 +1050,7 @@
 
 .ledger-lead {
   flex: none;
-  width: calc(54px * var(--text-scale));
+  width: calc(52px * var(--text-scale));
   font-size: calc(12.5px * var(--text-scale));
   color: var(--quiet);
   white-space: nowrap;
@@ -1086,7 +1082,7 @@
 
 /* What an opened task holds hangs from the title's edge, past the time. */
 .ledger-item > :is(.feed-detail, .feed-files, .feed-changes) {
-  padding-left: calc(24px + 54px * var(--text-scale));
+  padding-left: calc(24px + 52px * var(--text-scale));
 }
 
 .ledger-item[data-live] > :is(.feed-detail, .feed-files, .feed-changes) {
@@ -1898,6 +1894,31 @@
   cursor: pointer;
 }
 
+/* Last night, folded: how many changes, then of what kind, quiet at the right edge, giving way first. */
+.ledger-summary .feed-button {
+  align-items: center;
+}
+
+.ledger-summary .feed-title {
+  flex: none;
+}
+
+.ledger-tally {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-summary .chevron {
+  flex: none;
+  color: var(--quiet);
+}
+
 /* scotty's own rule turns a chevron with transform; this one turns it with rotate, once. */
 .disclosure .chevron {
   transform: none;
@@ -1987,21 +2008,81 @@
   --tone: var(--muted);
 }
 
-/* What matters first: your computer, the main agent, VibeProxy. A card like the rest, a quiet label, a plain value. */
+/* What matters first: one quiet line of what is fine, then a card for each thing that is down. */
 .glance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
 }
 
-.glance-line {
+.glance-health {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 14px;
+  font-size: calc(12.5px * var(--text-scale));
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.glance-health > .row-dot {
+  margin-right: 2px;
+}
+
+.glance-part {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 3px 0;
+  color: inherit;
+  border-radius: 4px;
+}
+
+.glance-alert {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 48px;
-  padding-block: 8px;
-  padding-left: 14px;
-  font-size: calc(13.5px * var(--text-scale));
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 18%, transparent);
   text-align: left;
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+.glance-alert-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.glance-alert-title {
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.glance-alert-sub {
+  font-size: calc(12px * var(--text-scale));
+  color: var(--muted);
+}
+
+.glance-fix {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
 }
 
 /* The label keeps its words; the value beside it gives way first. */
@@ -2031,6 +2112,14 @@
     background: var(--hover);
   }
 
+  .glance-part:hover {
+    color: var(--ink);
+  }
+
+  .glance-alert:hover {
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  }
+
   .row:hover > .row-chevron,
   .glance-line:hover > .row-chevron {
     color: var(--muted);
@@ -2042,29 +2131,33 @@
   }
 }
 
+/* A page's head is one line: the back button, then the title beside it; a line under the title stays under the title. */
 .page-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 30px;
-  margin: 0 0 4px;
-  padding: 0 10px 0 4px;
+  float: left;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 6px 16px -4px;
   border-radius: 8px;
-  font-size: calc(13px * var(--text-scale));
-  font-weight: 500;
   color: var(--muted);
 }
 
 .page-head {
-  margin: 0 4px 20px;
+  display: flow-root;
+  margin: 0 4px 16px 0;
+}
+
+.settings > .page-back ~ :not(.page-head) {
+  clear: both;
 }
 
 .page-title {
   margin: 0;
-  font-size: calc(26px * var(--text-scale));
-  font-weight: 650;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
+  font-size: calc(15px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 28px;
   color: var(--ink);
   overflow-wrap: anywhere;
   text-wrap: balance;
@@ -2078,7 +2171,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 6px 0 0;
+  margin: 0;
   font-size: calc(13px * var(--text-scale));
   line-height: 1.45;
   color: var(--muted);
@@ -2110,8 +2203,23 @@
   gap: 16px;
 }
 
-.settings-more > .card {
-  margin-top: 6px;
+/* Settings' rows sit on a 45px rhythm. */
+.settings .row {
+  min-height: 45px;
+}
+
+/* More names what it holds while closed, and turns its chevron down while open. */
+.more-row .more-sub {
+  color: var(--quiet);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.more-row > .row-label {
+  flex: 1;
+}
+
+.more-row[aria-expanded="true"] > .row-chevron {
+  transform: rotate(90deg);
 }
 
 /* A label names a row in a word or two: it keeps its line, and the value beside it gives way. */
@@ -2132,6 +2240,7 @@
 /* Full-width rows show a press as a fill, not a shrink. */
 .page-link:active,
 .glance-line:active,
+.glance-alert:active,
 .picker:active {
   background: var(--selected);
 }
@@ -2515,6 +2624,13 @@
 
 .scrim {
   display: none;
+}
+
+/* Below 1024px the close button sits at the head's right end, so the tabs stop short of it. */
+@media (max-width: 1023.98px) {
+  .profile {
+    padding-right: 52px;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -4427,7 +4543,7 @@ article.skills-reader > * {
 
 .today-time {
   flex: none;
-  width: 54px;
+  width: calc(52px * var(--text-scale));
   color: var(--quiet);
   font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
@@ -4452,6 +4568,38 @@ article.skills-reader > * {
   font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A routine's row: time, its dot on the rail, then the routine with what it came to under it. The dot sits on
+   the title's line; the note starts on the title's edge. */
+.today-slot {
+  display: grid;
+  grid-template-columns: calc(52px * var(--text-scale)) 7px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+  padding-block: 8px;
+}
+
+.today-slot > .today-dot {
+  align-self: start;
+  margin-top: 6px;
+}
+
+.today-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.today-text > .today-title {
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.today-text > .today-note {
+  flex: none;
+  text-align: left;
 }
 
 /* A run's dot: green done, red failed, blue and breathing while it runs, a hollow ring for one to come. */

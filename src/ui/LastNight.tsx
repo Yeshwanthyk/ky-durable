@@ -19,8 +19,9 @@ export const LedgerContext = createContext<LedgerActions>({
   onUndo: () => Promise.reject(new Error("Not connected."))
 });
 
-/** A change in words, its glyph, and the line under it: the dream's reason, or what a forget dropped. */
-type Described = { readonly title: string; readonly icon: IconName; readonly sub: string | null };
+/** A change in words, its glyph, the line under it (the dream's reason, or what a forget dropped), and the
+ *  word the summary counts it under. */
+type Described = { readonly title: string; readonly icon: IconName; readonly sub: string | null; readonly tally: string };
 
 const verbs = {
   create: ["Made", "plus"],
@@ -37,21 +38,35 @@ const isVerb = (action: string): action is keyof typeof verbs => Object.hasOwn(v
 const forgot = ({ before, reason }: DreamLedgerRow): Described => ({
   title: "Forgot a memory summary",
   icon: "thought",
-  sub: before === null ? reason : `“${before}”`
+  sub: before === null ? reason : `“${before}”`,
+  tally: "forgot"
 });
 
 function describe(row: DreamLedgerRow): Described {
   const { kind, action, target, absorbed_into, reason } = row;
 
-  if (kind === "memory" && action === "note") return { title: "Noted a memory", icon: "thought", sub: row.before === null ? reason : `“${row.before}”` };
+  if (kind === "memory" && action === "note")
+    return { title: "Noted a memory", icon: "thought", sub: row.before === null ? reason : `“${row.before}”`, tally: "noted" };
 
   if (kind === "memory") return forgot(row);
 
-  if (absorbed_into !== null) return { title: `Merged ${target} into ${absorbed_into}`, icon: "compress", sub: reason };
+  if (absorbed_into !== null) return { title: `Merged ${target} into ${absorbed_into}`, icon: "compress", sub: reason, tally: "merged" };
 
   const [verb, icon]: readonly [string, IconName] = isVerb(action) ? verbs[action] : [action, "list"];
 
-  return { title: `${verb} ${target}`, icon, sub: reason };
+  return { title: `${verb} ${target}`, icon, sub: reason, tally: isVerb(action) ? verb.toLowerCase() : "changed" };
+}
+
+/** What the night came to, by kind, in the order each first happened: "2 noted · 1 merged · 1 rewrote". */
+function tallyOf(rows: readonly DreamLedgerRow[]): string {
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    const { tally } = describe(row);
+    counts.set(tally, (counts.get(tally) ?? 0) + 1);
+  }
+
+  return [...counts].map(([word, count]) => `${count} ${word}`).join(" · ");
 }
 
 const recent = new Set(["Today", "Yesterday"]);
@@ -63,9 +78,11 @@ function heading(rows: readonly DreamLedgerRow[], now: number): string {
   return recent.has(when) ? "Last night" : `Last dream · ${when}`;
 }
 
-// What the latest dream changed, each with its reason and an undo; an undone change says so, and a refused undo says why.
+// What the latest dream changed, as one row of how many and of what kind; open, each change with its reason and an
+// undo. An undone change says so, and a refused undo says why.
 export function LastNight({ now }: { now: number }) {
   const actions = useContext(LedgerContext);
+  const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<readonly DreamLedgerRow[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
   const [refusals, setRefusals] = useState<Readonly<Record<number, string | undefined>>>({});
@@ -91,9 +108,23 @@ export function LastNight({ now }: { now: number }) {
     <section className="feed-group last-night" aria-label="Last night">
       <h3 className="feed-head">{heading(rows, now)}</h3>
       <ul className="feed">
-        {rows.map((row) => (
-          <LedgerChange key={row.id} row={row} busy={busy === row.id} refusal={refusals[row.id]} onUndo={() => undo(row.id)} />
-        ))}
+        <li className="feed-item ledger-summary">
+          <button type="button" className="feed-button disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <span className="feed-glyph">
+              <Icon name="moon" size={16} />
+            </span>
+            <span className="feed-title">
+              {rows.length} {rows.length === 1 ? "change" : "changes"}
+            </span>
+            <span className="ledger-tally">{tallyOf(rows)}</span>
+            <Icon name="chevronRight" size={12} className="chevron" />
+          </button>
+        </li>
+        {open
+          ? rows.map((row) => (
+              <LedgerChange key={row.id} row={row} busy={busy === row.id} refusal={refusals[row.id]} onUndo={() => undo(row.id)} />
+            ))
+          : null}
       </ul>
     </section>
   );
