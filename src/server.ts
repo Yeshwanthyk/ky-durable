@@ -15,6 +15,7 @@ import { KY_AVATAR, type Missing as NotSetUp, preamble, type PromptConfig } from
 import { Avatars, avatarTools, seed, Setup } from "./avatars/wiring";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
+import { migrateStorage } from "./core/migrate";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./cards/wiring";
 import { ChatList, chatActivityExtension } from "./chats/chats";
@@ -46,6 +47,7 @@ import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
 import { MailBox, type MailDesk, mailExtension, readMail, receive } from "./mail/wiring";
+import { MIGRATIONS } from "./migrations";
 import { type Hook, type HookDelivery, Inbound, type Received, type SecretAsk } from "./inbound/inbound";
 import type { HooksView } from "./inbound/shapes";
 import { hookRoute, inboundRoute } from "./inbound/routes";
@@ -97,8 +99,20 @@ export function notSetUp(boundary: Boundary, providers: readonly string[] = []):
   return modelsNotSetUp(boundary, providers);
 }
 
+/**
+ * A Durable Object whose data this release's migrations (src/migrations.ts) have brought to its level before
+ * any field of the subclass is made, since a field's domain makes and reads its tables. A migration that fails
+ * throws here, so the object serves nothing: every call to it rejects with why, until a release fixes it.
+ */
+abstract class Migrated extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    migrateStorage(ctx.storage, MIGRATIONS);
+  }
+}
+
 /** The user's one agent, one Durable Object. */
-export class PiAgent extends DurableObject<Env> {
+export class PiAgent extends Migrated {
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   /** What the models cost, by day in the user's zone, and the daily cap that holds unasked work (src/spend). */
@@ -198,7 +212,7 @@ export class PiAgent extends DurableObject<Env> {
     (session) => this.chats.list().find((chat) => chat.session === session)?.title || "untitled"
   );
   /** Its SQLite, dumped for a backup and swapped whole by a restore. */
-  readonly backups = new Backups(this.ctx.storage);
+  readonly backups = new Backups(this.ctx.storage, MIGRATIONS);
   readonly titler = new Titler((system, text) => this.models.complete("background", system, text));
   /** @-mentions and group chats: who answers a user's message, and the specialists' own replies. Routing is on the background model. */
   readonly group = new GroupDesk({
