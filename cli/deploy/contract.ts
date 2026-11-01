@@ -2,11 +2,17 @@ import * as Schema from "effect/Schema";
 
 import type { Refusable } from "../../src/core/edge.ts";
 
-export const TAG = "ky";
+/**
+ * How the deployer knows what it owns in an owner's Cloudflare account: the tag on its Worker and Access
+ * apps, the tag prefix naming the release a Worker runs, and the object marking its buckets. They are
+ * identities stored in owners' accounts, not the product's name: never change them with branding, or the
+ * next deploy reads every existing deploy as someone else's. An earlier ky's markers are in legacy.ts.
+ */
+export const TAG = "self-hosted-agent";
 
-export const RELEASE_TAG = "ky-release-";
+export const RELEASE_TAG = "self-hosted-agent-release-";
 
-export const MARKER = ".ky";
+export const MARKER = ".self-hosted-agent";
 
 const Deployed = Schema.Struct({
   url: Schema.String,

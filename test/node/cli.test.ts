@@ -18,7 +18,7 @@ import { settingsFile, writeSettings } from "../../cli/runner/settings.ts";
 import { bundleOf, loadRelease, packOf, type Release, useRelease } from "../../cli/release.ts";
 import { type FakeSystem, fakeSystem } from "../fakes/system.ts";
 import { type FakeRegistry, fakeRegistry } from "../fakes/registry.ts";
-import { type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, fakeZone, NO_ORGANIZATION_TOKEN, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
+import { earlierKy, type FakeAccount, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare, fakeZone, NO_ORGANIZATION_TOKEN, WRANGLER_TOKEN } from "../fakes/cloudflare.ts";
 
 const REPO = path.resolve(import.meta.dirname, "../..");
 
@@ -206,7 +206,7 @@ describe("ky init and deploy", () => {
     const text = (name: string) => bindings.find((binding) => binding.name === name)?.text;
 
     expect(await readOverlay(ky.overlay)).toEqual(SETTINGS);
-    expect(worker).toMatchObject({ tags: ["ky", "ky-release-r1"], migrationTag: "v3", workersDev: true, modules: ["index.js", "assets/models.js"] });
+    expect(worker).toMatchObject({ tags: ["self-hosted-agent", "self-hosted-agent-release-r1"], migrationTag: "v3", workersDev: true, modules: ["index.js", "assets/models.js"] });
     expect(worker?.migrations).toEqual([
       { new_tag: "v3", steps: [{ new_sqlite_classes: ["PiAgent"] }, { new_sqlite_classes: ["Vault"] }, { new_sqlite_classes: ["CloudMachine"] }] }
     ]);
@@ -233,7 +233,7 @@ describe("ky init and deploy", () => {
     );
     expect([text("ACCESS_TEAM_DOMAIN"), text("ACCESS_EMAILS")]).toEqual(["test.cloudflareaccess.com", EMAIL]);
     expect(text("ACCESS_AUD")).toBe(apps().find((app) => app.name === "ky")?.aud);
-    expect(account.buckets).toEqual(new Map([["ky-files", new Set([".ky"])]]));
+    expect(account.buckets).toEqual(new Map([["ky-files", new Set([".self-hosted-agent"])]]));
     expect(worker?.secrets.size).toBe(0);
     expect(output).toContain(`ky is live at https://${HOST}, behind Access for ${EMAIL}`);
   });
@@ -257,19 +257,19 @@ describe("ky init and deploy", () => {
       expect.objectContaining({
         name: "ky",
         type: "self_hosted",
-        tags: ["ky"],
+        tags: ["self-hosted-agent"],
         destinations: [{ type: "public", uri: HOST }],
         policies: [{ name: "owner", decision: "allow", include: [{ email: { email: EMAIL } }] }]
       }),
       expect.objectContaining({
         name: "ky bypass",
         type: "self_hosted",
-        tags: ["ky"],
+        tags: ["self-hosted-agent"],
         destinations: BYPASS.map((bypass) => ({ type: "public", uri: `${HOST}${bypass}` })),
         policies: [{ name: "runners and files", decision: "bypass", include: [{ everyone: {} }] }]
       })
     ]);
-    expect(account.tags).toEqual(new Set(["ky"]));
+    expect(account.tags).toEqual(new Set(["self-hosted-agent"]));
     expect(BYPASS).toEqual(["/runner/*", "/api/runners/pair", "/api/files", "/peer/*", "/manifest.webmanifest", "/icons/*", "/p/*", "/hooks/*"]);
   });
 
@@ -279,14 +279,14 @@ describe("ky init and deploy", () => {
       aud: "aud-elsewhere",
       name: "ky",
       type: "self_hosted",
-      tags: ["ky"],
+      tags: ["self-hosted-agent"],
       destinations: [{ type: "public", uri: "ky.example.com" }],
       policies: [{ name: "team", decision: "allow", include: [] }]
     };
 
     const mine = { ...elsewhere, id: "mine", aud: "aud-mine", name: "my ky", destinations: [{ type: "public", uri: `HTTPS://KY.Test.workers.dev/` }] };
 
-    account.tags.add("ky");
+    account.tags.add("self-hosted-agent");
     account.apps.set("elsewhere", elsewhere).set("mine", mine);
     const ky = await setUp();
 
@@ -341,7 +341,7 @@ describe("ky init and deploy", () => {
 
     current = release("r2");
     await upgradeCommand(ky);
-    expect(script()).toMatchObject({ tags: ["ky", "ky-release-r2"], migrationTag: "v3" });
+    expect(script()).toMatchObject({ tags: ["self-hosted-agent", "self-hosted-agent-release-r2"], migrationTag: "v3" });
     expect(script()?.migrations).toHaveLength(1);
     expect(script()?.metadata.migrations).toBeUndefined();
     expect(output).toContain(`ky r2 is live at https://${HOST} (was r1)`);
@@ -790,14 +790,14 @@ describe("ky teardown", () => {
     const ky = await fresh();
 
     await initCommand(ky, { account: "acc", name: "ky2", email: EMAIL });
-    account.scripts.set("other", { ...foreignWorker("ky2-files"), tags: ["ky"] });
+    account.scripts.set("other", { ...foreignWorker("ky2-files"), tags: ["self-hosted-agent"] });
     expect(await teardownCommand(ky, "ky2")).toBe(0);
     expect(output).toContain("· Leaving the bucket ky2-files: other binds it");
     expect([...account.scripts.keys()]).toEqual(["ky", "other"]);
     expect(account.buckets).toEqual(
       new Map([
         ["ky-files", new Set(["chat/a.png"])],
-        ["ky2-files", new Set([".ky"])]
+        ["ky2-files", new Set([".self-hosted-agent"])]
       ])
     );
   });
@@ -1066,6 +1066,47 @@ describe("a deploy", () => {
 
     expect(upgraded).toBeGreaterThan(-1);
     expect(restarted).toBeGreaterThan(upgraded);
+  });
+});
+
+describe("a ky an earlier release deployed", () => {
+  it("is ky's by its earlier tags and marker, reads ok in doctor, and is moved over by the next deploy", async () => {
+    const ky = await setUp();
+
+    account.buckets.get("ky-files")?.add("chat/a.png");
+    earlierKy(account);
+    expect(script()?.tags).toEqual(["ky", "ky-release-r1"]);
+
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    expect(checks()).toEqual(
+      expect.arrayContaining([
+        "✓ Worker: ky, still on an earlier ky's tags: `ky deploy` moves it over",
+        "✓ Bucket: ky-files, still on an earlier ky's marker: `ky deploy` moves it over",
+        `✓ Access for the owner: ${HOST}, still on an earlier ky's tag: \`ky deploy\` moves it over`,
+        "✓ Release: r1"
+      ])
+    );
+
+    output = [];
+    expect(await deployCommand(ky)).toBe(0);
+    expect(output).toContain("· Upgrading the Worker from r1 to r1");
+    expect(script()?.tags).toEqual(["self-hosted-agent", "self-hosted-agent-release-r1"]);
+    expect(apps().map((app) => [app.name, app.tags])).toEqual([
+      ["ky", ["self-hosted-agent"]],
+      ["ky bypass", ["self-hosted-agent"]]
+    ]);
+    expect(account.buckets).toEqual(new Map([["ky-files", new Set(["chat/a.png", ".self-hosted-agent"])]]));
+
+    expect(await doctor(ky)).toEqual({ code: 0, next: "All good" });
+    expect(checks()).toEqual(expect.arrayContaining(["✓ Worker: ky", "✓ Bucket: ky-files", `✓ Access for the owner: ${HOST}`, "✓ Access bypass: 8 paths"]));
+  });
+
+  it("is torn down as ky's", async () => {
+    const ky = await setUp();
+
+    earlierKy(account);
+    expect(await teardownCommand(ky, "ky")).toBe(0);
+    expect([account.scripts.size, account.buckets.size, account.apps.size]).toEqual([0, 0, 0]);
   });
 });
 
