@@ -152,6 +152,22 @@ function errorText(error: unknown): string {
 }
 
 export class CloudMachine extends DurableObject<Env> {
+  /**
+   * The container's one lane: whatever starts it (the alarm for a task, the ChatGPT relay), puts it to sleep or
+   * stops it waits for the one before to end. Calls interleave at every await, so two that saw it stopped would
+   * each start it, and the second's pairing revokes the token the first's container dials with; a sleep would
+   * destroy a container a relay had just found running.
+   */
+  #lane: Promise<unknown> = Promise.resolve();
+
+  #inLane<T>(work: () => Promise<T>): Promise<T> {
+    const turn = this.#lane.then(work);
+
+    this.#lane = turn.catch(() => undefined);
+
+    return turn;
+  }
+
   /** The container, or undefined on a deploy without one. */
   box(): CloudBox | undefined {
     return containerBox(this.ctx);
@@ -214,15 +230,17 @@ export class CloudMachine extends DurableObject<Env> {
     if (!box) throw new Error("This deploy has no cloud machine");
     const id = await this.#id();
 
-    if (!(await box.running())) {
-      const sandbox = await this.#agent().sandboxNow(id);
+    await this.#inLane(async () => {
+      if (!(await box.running())) {
+        const sandbox = await this.#agent().sandboxNow(id);
 
-      if (!sandbox) throw new Error(`The sandbox ${id} is deleted`);
-      await this.#up(box, id, sandbox.name);
-    } else {
-      // Running may still mean starting, for a wake or the alarm: wait until it listens.
-      await this.#ping(box, START_WITHIN_MS);
-    }
+        if (!sandbox) throw new Error(`The sandbox ${id} is deleted`);
+        await this.#up(box, id, sandbox.name);
+      } else {
+        // Running may still mean starting, for a container an evicted object started: wait until it listens.
+        await this.#ping(box, START_WITHIN_MS);
+      }
+    });
 
     await this.ctx.storage.delete(IDLE_KEY);
 
@@ -260,7 +278,7 @@ export class CloudMachine extends DurableObject<Env> {
 
       if (sandbox.busy) {
         await this.ctx.storage.delete(IDLE_KEY);
-        await this.#up(box, id, sandbox.name);
+        await this.#inLane(() => this.#up(box, id, sandbox.name));
         await this.ctx.storage.delete(START_FAILURES_KEY);
         await this.ctx.storage.setAlarm(this.clock() + tickMs);
 
@@ -362,7 +380,11 @@ export class CloudMachine extends DurableObject<Env> {
    * runs. The runner stops before the save, so no run starts that the save would miss; a run sent
    * meanwhile waits in the inbox, and wakes the machine again.
    */
-  async sleep(): Promise<boolean> {
+  sleep(): Promise<boolean> {
+    return this.#inLane(() => this.#sleep());
+  }
+
+  async #sleep(): Promise<boolean> {
     const box = this.box();
     const id = await this.#id();
 
@@ -386,7 +408,11 @@ export class CloudMachine extends DurableObject<Env> {
    * and Settings starts no sandbox from its disk. A failed save throws, and the alarm tries again.
    * A sandbox live again by the time the save is in (as after a restore) keeps running.
    */
-  async retire(): Promise<void> {
+  retire(): Promise<void> {
+    return this.#inLane(() => this.#retire());
+  }
+
+  async #retire(): Promise<void> {
     const box = this.box();
     const id = await this.#id();
 
@@ -427,7 +453,11 @@ export class CloudMachine extends DurableObject<Env> {
   }
 
   /** Its kept disk is being deleted: stop the container with no save, if one still runs, and forget everything. */
-  async forget(): Promise<void> {
+  forget(): Promise<void> {
+    return this.#inLane(() => this.#forget());
+  }
+
+  async #forget(): Promise<void> {
     const box = this.box();
 
     if (box && (await box.running())) await box.destroy();
