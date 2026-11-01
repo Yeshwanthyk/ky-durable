@@ -139,36 +139,39 @@ export function Panel({
         <Icon name="x" size={16} />
       </button>
       <header className="profile">
-        <BotAvatar name={name} variantId={variantId} owner={KY_AVATAR} active={active} size={72} />
-        <h2 className="profile-name">{name}</h2>
-        <p className="profile-status" role="status">
-          <span className="status-dot" data-connected={status.connected} data-tone={CONNECTION_TONE[status.kind]} />
-          {status.label}
-          <span className="quiet"> · {model}</span>
-        </p>
+        <BotAvatar name={name} variantId={variantId} owner={KY_AVATAR} active={active} size={24} />
+        {/* The chat's own pill shows who and how connected; here it stays for screen readers. */}
+        <div className="profile-text">
+          <h2 className="profile-name">{name}</h2>
+          <p className="profile-status" role="status">
+            <span className="status-dot" data-connected={status.connected} data-tone={CONNECTION_TONE[status.kind]} />
+            {status.label}
+            <span className="quiet"> · {model}</span>
+          </p>
+        </div>
+        <Segmented role="tablist" chosen={tab}>
+          {(
+            [
+              ["activity", "Activity"],
+              ["soul", "Soul"],
+              ["settings", "Settings"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className="pressable"
+              onClick={() => onTab(id)}
+            >
+              {id === "settings" ? <Icon name="gear" size={14} className="gear" /> : null}
+              {id === "soul" ? <Icon name="fingerprint" size={14} /> : null}
+              {label}
+            </button>
+          ))}
+        </Segmented>
       </header>
-      <Segmented role="tablist" chosen={tab}>
-        {(
-          [
-            ["activity", "Activity"],
-            ["soul", "Soul"],
-            ["settings", "Settings"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className="pressable"
-            onClick={() => onTab(id)}
-          >
-            {id === "settings" ? <Icon name="gear" size={14} className="gear" /> : null}
-            {id === "soul" ? <Icon name="fingerprint" size={14} /> : null}
-            {label}
-          </button>
-        ))}
-      </Segmented>
       {tab === "activity" ? (
         <Activity
           tasks={tasks}
@@ -456,38 +459,53 @@ const clockAt = (time: number) => clockIn(time, BROWSER_ZONE);
 /** How long after a task finishes the fold opens on its own, to show it. */
 const FRESH_MS = 5 * 60_000;
 
-// Today's finished tasks as one timeline row: how many and how they went. It opens on its own once one has just
-// finished, and stays as the user leaves it after that.
+// Today's finished tasks on the timeline. Failed ones stay out as their own rows, since they need the user; the rest
+// fold to one quieter row of how many. It opens on its own once one has just finished, and stays as the user leaves
+// it after that.
 function FinishedFold({ latest, tasks, ...feed }: FeedProps & { latest: TaskRow; tasks: readonly TaskRow[] }) {
   const [choice, setChoice] = useState<boolean | null>(null);
   const [fresh, setFresh] = useState(false);
   const [shown, setShown] = useState(RECENT);
   const open = choice ?? fresh;
+  const failed = tasks.filter((task) => task.status === "failed");
+  const rest = tasks.filter((task) => task.status !== "failed");
 
-  if (!fresh && tasks.some((task) => Date.now() - task.updated_at < FRESH_MS)) setFresh(true);
+  if (!fresh && rest.some((task) => Date.now() - task.updated_at < FRESH_MS)) setFresh(true);
 
-  const failed = tasks.filter((task) => task.status === "failed").length;
-  const noun = tasks.every((task) => task.kind === "cloud") ? "subagent task" : "task";
-  const earlier = new Set(tasks.slice(RECENT, shown).map((task) => task.id));
-  const hidden = tasks.length - shown;
+  const noun = rest.every((task) => task.kind === "cloud") ? "subagent task" : "task";
+  const earlier = new Set(rest.slice(RECENT, shown).map((task) => task.id));
+  const hidden = rest.length - shown;
+  const label = failed.length > 0 ? `${rest.length} more finished` : `${rest.length} ${noun}${rest.length === 1 ? "" : "s"}`;
 
   return (
     <li className="today-item today-fold" data-open={open || undefined}>
-      <button type="button" className="today-row disclosure" aria-expanded={open} onClick={() => setChoice(!open)}>
-        <span className="today-time tabular">{clockAt(latest.updated_at)}</span>
-        <span className="today-dot" data-tone={failed > 0 ? "failed" : "done"} />
-        <span className="today-title">
-          {tasks.length} {noun}
-          {tasks.length === 1 ? "" : "s"}
-        </span>
-        <span className="today-note">{failed > 0 ? `${failed} failed` : tasks.length === 1 ? "done" : "all done"}</span>
-        <Icon name="chevronRight" size={12} className="chevron" />
-      </button>
-      {open ? (
+      {failed.length > 0 ? (
+        <ul className="feed today-tasks today-failed">
+          {failed.map((task, index) => (
+            <TaskItem key={task.id} task={task} arriveKey={`past:${task.id}`} sameTime={sameTimeAs(failed, index)} {...feed} />
+          ))}
+        </ul>
+      ) : null}
+      {rest.length > 0 ? (
+        <button type="button" className="today-row disclosure" aria-expanded={open} onClick={() => setChoice(!open)}>
+          <span className="today-time tabular">{failed.length > 0 ? null : clockAt(latest.updated_at)}</span>
+          <span className="today-title">{label}</span>
+          <span className="today-note" />
+          <Icon name="chevronRight" size={12} className="chevron" />
+        </button>
+      ) : null}
+      {open && rest.length > 0 ? (
         <>
           <ul className="feed today-tasks">
-            {tasks.slice(0, shown).map((task) => (
-              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} arriveKey={`past:${task.id}`} {...feed} />
+            {rest.slice(0, shown).map((task, index) => (
+              <TaskItem
+                key={task.id}
+                task={task}
+                earlier={earlier.has(task.id)}
+                arriveKey={`past:${task.id}`}
+                sameTime={sameTimeAs(rest, index)}
+                {...feed}
+              />
             ))}
           </ul>
           {hidden > 0 ? (
@@ -596,8 +614,15 @@ function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
         <section key={label} className="feed-group" data-earlier={earlier.has(rows[0]!.id)} data-arrive={`day:${label}`}>
           <h3 className="feed-head">{label}</h3>
           <ul className="feed">
-            {rows.map((task) => (
-              <TaskItem key={task.id} task={task} earlier={earlier.has(task.id)} arriveKey={`past:${task.id}`} {...feed} />
+            {rows.map((task, index) => (
+              <TaskItem
+                key={task.id}
+                task={task}
+                earlier={earlier.has(task.id)}
+                arriveKey={`past:${task.id}`}
+                sameTime={sameTimeAs(rows, index)}
+                {...feed}
+              />
             ))}
           </ul>
         </section>
@@ -1647,12 +1672,21 @@ function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
   );
 }
 
-/** A row's first column: when a finished task ended, or a live one's spinner. */
-function TaskLead({ task }: { task: TaskRow }) {
+/** A row's first column: when a finished task ended (blank under a row that says the same time), or a live one's spinner. */
+function TaskLead({ task, sameTime }: { task: TaskRow; sameTime: boolean }) {
   return (
-    <span className="ledger-lead tabular">{isLive(task) ? <StatusGlyph status={task.status} /> : clockAt(task.updated_at)}</span>
+    <span className="ledger-lead tabular">
+      {isLive(task) ? <StatusGlyph status={task.status} /> : sameTime ? null : clockAt(task.updated_at)}
+    </span>
   );
 }
+
+/** Whether a finished row ends the same minute as the row above it, so its time is said once. */
+const sameTimeAs = (tasks: readonly TaskRow[], index: number) => {
+  const [task, before] = [tasks[index], tasks[index - 1]];
+
+  return task !== undefined && before !== undefined && !isLive(task) && clockAt(task.updated_at) === clockAt(before.updated_at);
+};
 
 /** A finished task's last column: Done, Failed or Stopped in its colour. Live ones have Stop there instead. */
 function TaskState({ task }: { task: TaskRow }) {
@@ -1708,6 +1742,7 @@ function TaskItem({
   earlier,
   arriveKey,
   gone = false,
+  sameTime = false,
   session,
   now,
   machines,
@@ -1721,6 +1756,8 @@ function TaskItem({
   arriveKey?: string;
   /** Finished a moment ago: closing its space here while it opens in its day. */
   gone?: boolean;
+  /** Ends the same minute as the row above: its time is left blank. */
+  sameTime?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const row = useRef<HTMLLIElement>(null);
@@ -1752,7 +1789,7 @@ function TaskItem({
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
-        <TaskLead task={task} />
+        <TaskLead task={task} sameTime={sameTime} />
         <span className="row-text">
           <span className="ledger-title">{plain(task.title)}</span>
           <TaskNow task={task} machines={machines} now={now} />
@@ -2316,7 +2353,7 @@ function PageHead({ title, children }: { title: string; children?: ReactNode }) 
   );
 }
 
-// A row that opens a page: its icon, its name and a line under it, what it is set to, and a chevron.
+// A row that opens a page: its icon if it has one, its name and a line under it, what it is set to, and a chevron.
 function PageLink({
   to,
   icon,
@@ -2325,7 +2362,7 @@ function PageLink({
   children,
 }: {
   to: SettingsPage;
-  icon: IconName;
+  icon?: IconName | undefined;
   label: string;
   sub?: ReactNode;
   children?: ReactNode;
@@ -2335,9 +2372,11 @@ function PageLink({
   return (
     <li>
       <button type="button" className="row page-link" data-goes={keyOf(to)} onClick={() => go(to)}>
-        <span className="row-tile">
-          <Icon name={icon} size={15} />
-        </span>
+        {icon ? (
+          <span className="row-tile">
+            <Icon name={icon} size={15} />
+          </span>
+        ) : null}
         <span className="row-text">
           <span className="row-label">{label}</span>
           {sub ? <span className="row-sub">{sub}</span> : null}
@@ -2422,22 +2461,70 @@ function vibeGlance(settings: SettingsView | null, setup: SetupView | null): Gla
 
 const VIBEPROXY = "vibeproxy";
 
-// The three things worth checking first: your computer, the main agent's model, and VibeProxy; each opens its page.
+/** What a line says inside the health line, where its label is often the thing itself. */
+function healthText(line: GlanceLine): string {
+  if (line.label === "VibeProxy") return "VibeProxy";
+
+  if (line.label === "Main agent") return line.text === "Not set" ? "No main model" : line.text;
+
+  if (line.to.kind === "machines") return line.text === "None paired" ? "No machines" : `${line.text.replace(" online", "")} machines online`;
+
+  return `${line.label} ${line.text.toLowerCase()}`;
+}
+
+/** What a broken line says on its card: what is wrong, and what that stops. */
+type GlanceAlert = { title: string; sub: string };
+
+function alertText(line: GlanceLine): GlanceAlert {
+  if (line.label === "VibeProxy") return { title: "VibeProxy isn’t connected", sub: "Claude models are off until it is" };
+
+  if (line.to.kind === "machines") return { title: "No machine is online", sub: "Work waits until one is back" };
+
+  return { title: `${line.label} is offline`, sub: "Work on it waits until it’s back" };
+}
+
+/** Whether a line belongs on the health line: VibeProxy only once it is connected, so one not set up says nothing. */
+const shownHealthy = (line: GlanceLine): boolean => line.label !== "VibeProxy" || line.tone === "online";
+
+// What matters first, as one line of what is fine and a card for each thing that is down; each opens its page.
 function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machines" | "settings" | "setup" | "now">) {
   const { go } = useContext(SettingsNavContext);
   const lines = [machineGlance(machines, now), mainGlance(settings), vibeGlance(settings, setup)];
+  const down = lines.filter((line) => line.tone === "offline");
+  const fine = lines.filter((line) => line.tone !== "offline" && shownHealthy(line));
 
   return (
-    <ul className="card glance" aria-label="Status">
-      {lines.map((line) => (
-        <li key={line.label}>
-          <button type="button" className="glance-line" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
-            <span className="glance-label">{line.label}</span>
-            <RowValue tone={line.tone}>{line.text}</RowValue>
-            <Icon name="chevronRight" size={14} className="row-chevron" />
-          </button>
+    <ul className="glance" aria-label="Status">
+      {fine.length > 0 ? (
+        <li className="glance-health">
+          <span className="row-dot" data-tone={fine.find((line) => line.tone !== undefined)?.tone ?? "off"} aria-hidden="true" />
+          {fine.map((line, index) => (
+            <Fragment key={line.label}>
+              {index > 0 ? <span aria-hidden="true">·</span> : null}
+              <button type="button" className="glance-part" data-goes={keyOf(line.to)} aria-label={`${line.label} ${line.text}`} onClick={() => go(line.to)}>
+                {healthText(line)}
+              </button>
+            </Fragment>
+          ))}
         </li>
-      ))}
+      ) : null}
+      {down.map((line) => {
+        const { title, sub } = alertText(line);
+
+        return (
+          <li key={line.label}>
+            <button type="button" className="glance-alert" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
+              <span className="glance-alert-text">
+                <span className="glance-alert-title">{title}</span>
+                <span className="glance-alert-sub">{sub}</span>
+              </span>
+              <span className="glance-fix" aria-hidden="true">
+                Fix
+              </span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -2512,7 +2599,7 @@ function AppearanceValue({ theme }: { theme: Theme }) {
 
 function GroupLinks({ rows, props }: { rows: readonly GroupRow[]; props: SettingsProps }) {
   return rows.map((row) => (
-    <PageLink key={row.label} to={row.to} icon={row.icon} label={row.label}>
+    <PageLink key={row.label} to={row.to} label={row.label}>
       {row.value?.(props)}
     </PageLink>
   ));
@@ -2531,18 +2618,16 @@ function SettingsHome(props: PageProps) {
             <GroupLinks rows={rows} props={props} />
           </ul>
         ))}
-        <div className="settings-more">
-          <button type="button" className="routine-more disclosure" aria-expanded={more} onClick={() => onMore(!more)}>
-            <Icon name="chevronRight" size={12} className="chevron" />
-            More
-            <span className="routine-more-sub">Peers, Mail, Self-edits</span>
-          </button>
-          {more ? (
-            <ul className="card">
-              <GroupLinks rows={MORE} props={props} />
-            </ul>
-          ) : null}
-        </div>
+        <ul className="card settings-more">
+          <li>
+            <button type="button" className="row page-link more-row" aria-expanded={more} onClick={() => onMore(!more)}>
+              <span className="row-label">More</span>
+              {more ? null : <span className="row-value-text more-sub">{MORE.map((row) => row.label).join(", ")}</span>}
+              <Icon name="chevronRight" size={14} className="row-chevron" />
+            </button>
+          </li>
+          {more ? <GroupLinks rows={MORE} props={props} /> : null}
+        </ul>
       </div>
     </>
   );
@@ -2812,9 +2897,8 @@ function Settings(props: SettingsProps) {
       }}
     >
       {page.kind === "home" ? null : (
-        <button type="button" className="page-back pressable" onClick={back}>
-          <Icon name="arrowLeft" size={14} />
-          {BACK_LABELS[parent.kind] ?? "Settings"}
+        <button type="button" className="page-back pressable" aria-label={BACK_LABELS[parent.kind] ?? "Settings"} title={`Back to ${BACK_LABELS[parent.kind] ?? "Settings"}`} onClick={back}>
+          <Icon name="arrowLeft" size={16} />
         </button>
       )}
       <View page={page} more={more} onMore={setMore} {...props} />

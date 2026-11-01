@@ -217,15 +217,17 @@ function once(slots: readonly Slot[], timeOf: (slot: Slot) => string): [Slot, st
   });
 }
 
-/** A row of the timeline: its time, a dot, the routine and a quiet note; it opens the routine. */
+/** A row of the timeline: its time, a dot on the rail, the routine and under it a quiet note; it opens the routine. */
 function SlotRow({ slot, time, onOpen }: { slot: Slot; time: string; onOpen: (event: MouseEvent) => void }) {
   return (
     <li className="today-item">
-      <button type="button" className="today-row" onClick={onOpen}>
+      <button type="button" className="today-row today-slot" onClick={onOpen}>
         <span className="today-time tabular">{time}</span>
         <span className="today-dot" data-tone={slot.tone} />
-        <span className="today-title">{plain(slot.automation.title)}</span>
-        {slot.note ? <span className="today-note">{slot.note}</span> : null}
+        <span className="today-text">
+          <span className="today-title">{plain(slot.automation.title)}</span>
+          {slot.note ? <span className="today-note">{slot.note}</span> : null}
+        </span>
       </button>
     </li>
   );

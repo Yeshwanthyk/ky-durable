@@ -1464,6 +1464,10 @@ test("lists last night's dream in Activity with its reasons, undoes a change, sa
   await open(page);
   await panel(page).getByRole("tab", { name: "Activity" }).click();
   const night = panel(page).getByRole("region", { name: "Last night" });
+  // Folded, the night is one row of how many changes and of what kind; it opens to each change.
+  const summary = night.getByRole("button", { name: /^\d+ changes?/ });
+  await expect(summary).toContainText("1 merged");
+  await summary.click();
   const merge = night.getByRole("listitem", { name: `Merged ${run} into ${groceries}` });
   await expect(merge.getByText(`Same steps as ${groceries}`)).toBeVisible();
   await expect(night.getByRole("listitem", { name: `Edited ${groceries}` }).getByText("You order tea every Friday")).toBeVisible();
