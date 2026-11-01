@@ -30,7 +30,6 @@ import {
   tarPadding
 } from "./archive";
 import { decode, decodeOr, parseAs } from "./core/decode";
-import { must } from "./core/must";
 import { saveKey } from "./runners/contract";
 import { restores } from "./tables";
 import { fromBase64, toBase64 } from "./machines/contract";
@@ -317,33 +316,38 @@ export class Backups {
     };
   }
 
+  /** Up to PAGE_ROWS of `table`'s rows after the key `last`: each its key, then its cells. */
+  #page(table: string, dumping: Dumping, last: SqlStorageValue[] | null): SqlStorageValue[][] {
+    const keys = dumping.key.map(quote).join(", ");
+    const where = last === null ? "" : `WHERE (${keys}) > (${last.map(() => "?").join(", ")})`;
+
+    return Array.from(this.#sql.exec(`SELECT ${keys}, ${selectCells(dumping)} FROM ${quote(table)} ${where} ORDER BY ${keys} LIMIT ${PAGE_ROWS}`, ...(last ?? [])).raw());
+  }
+
   /** The next part of `table`'s rows, after the row whose key is `after`. */
   rows(table: string, after: SqlStorageValue[] | null): Page {
     const found = this.#tables().find((each) => each.name === table);
 
     if (!found || found.virtual || skipped(table)) throw new Error(`No table ${table} to back up.`);
     const dumping = this.#dumping(found.name, found.sql);
-    const keys = dumping.key.map(quote).join(", ");
-    const cells = selectCells(dumping);
     let text = "";
     let rows = 0;
     let last = after;
 
-    while (text.length < PART_CHARS) {
-      const where = last === null ? "" : `WHERE (${keys}) > (${last.map(() => "?").join(", ")})`;
+    for (;;) {
+      const page = this.#page(found.name, dumping, last);
 
-      const page = Array.from(
-        this.#sql.exec(`SELECT ${keys}, ${cells} FROM ${quote(table)} ${where} ORDER BY ${keys} LIMIT ${PAGE_ROWS}`, ...(last ?? [])).raw()
-      );
+      // The part is capped row by row: a query's 256 rows of photos or voice notes would pass a call's 32 MiB.
+      for (const row of page) {
+        text += `${JSON.stringify(rowCells(row.slice(dumping.key.length)))}\n`;
+        rows += 1;
+        last = row.slice(0, dumping.key.length);
 
-      for (const row of page) text += `${JSON.stringify(rowCells(row.slice(dumping.key.length)))}\n`;
-      rows += page.length;
+        if (text.length >= PART_CHARS) return { text, rows, after: last };
+      }
 
       if (page.length < PAGE_ROWS) return { text, rows, after: null };
-      last = must(page.at(-1), "A full page has a last row.").slice(0, dumping.key.length);
     }
-
-    return { text, rows, after: last };
   }
 
   /** Whether this ky has been used: a side chat, a note, or a message from the user. */
