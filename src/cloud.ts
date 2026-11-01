@@ -202,6 +202,32 @@ export class CloudMachine extends DurableObject<Env> {
    * A turn of the sandbox ended: snapshot it now, not at the next tick, so a container that dies
    * right after loses none of it. An alarm is booked whenever a container runs; with none, nothing does.
    */
+  /**
+   * Send a chat's request to ChatGPT's Codex backend from the container, which chatgpt.com doesn't turn
+   * away as it does many from a Worker (src/providers/sources/chatgpt.ts); answer as ChatGPT did. A
+   * sleeping container starts first. The container passes the request on and keeps nothing of it. A chat
+   * in use holds the container up as a task does, then the alarm puts it to sleep once it has idled.
+   */
+  async chatgpt(headers: Record<string, string>, body: ArrayBuffer): Promise<Response> {
+    const box = this.box();
+
+    if (!box) throw new Error("This deploy has no cloud machine");
+    const id = await this.#id();
+
+    if (!(await box.running())) {
+      const sandbox = await this.#agent().sandboxNow(id);
+
+      if (!sandbox) throw new Error(`The sandbox ${id} is deleted`);
+      await this.#up(box, id, sandbox.name);
+    }
+
+    await this.ctx.storage.delete(IDLE_KEY);
+
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(this.clock() + (await this.timing(null)).tickMs);
+
+    return box.fetch("/chatgpt", { method: "POST", headers, body });
+  }
+
   async turnEnded(): Promise<void> {
     const at = await this.ctx.storage.getAlarm();
 

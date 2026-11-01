@@ -416,6 +416,52 @@ describe("a ChatGPT sign-in", () => {
     expect(sent[0]).toMatchObject({ url: "https://chatgpt.com/backend-api/codex/responses", model: "gpt-6.1-sol" });
     expect(sent[0]!.headers).toMatchObject({ authorization: `Bearer ${CHATGPT_TOKEN}`, "chatgpt-account-id": CHATGPT_ACCOUNT });
   });
+
+  /** chatgpt.com's page for a request it turns away, as squarey's Worker got it. */
+  const turnedAway = () =>
+    new Response("<html><body>Unable to load site [IP:2a06:98c0:3600::103]</body></html>", { status: 403, headers: { "content-type": "text/html" } });
+
+  const askedThrough = async (cloud: (sent: () => Promise<Response>) => Promise<Response>) => {
+    const name = await fresh("bare");
+
+    return inside(name, async (instance, state) => {
+      const worker = { tries: 0 };
+      const cloudSent: string[] = [];
+
+      const models = new Models(state.storage, {
+        ...instance.boundary,
+        fetch: async (input, init) => (new Request(input).url.startsWith("https://chatgpt.com/") ? (worker.tries++, turnedAway()) : instance.boundary.fetch(input, init)),
+        chatgptCloud: (input, init) => {
+          cloudSent.push(new Request(input).url);
+
+          return cloud(() => instance.boundary.fetch(input, init));
+        }
+      }, signedIn, instance.machines, instance.pipe);
+
+      await models.refresh();
+      const answer = await models.complete("main", "Answer briefly.", "hello").catch((error: Error) => `failed: ${error.message}`);
+
+      return { answer, workerTries: worker.tries, cloudSent };
+    });
+  };
+
+  it("sends a request chatgpt.com turned the Worker away from again through the cloud machine", async () => {
+    const { answer, workerTries, cloudSent } = await askedThrough((sent) => sent());
+
+    expect(answer).toBe("echo: hello");
+    expect(workerTries).toBe(1);
+    expect(cloudSent).toEqual(["https://chatgpt.com/backend-api/codex/responses"]);
+  });
+
+  it("keeps ChatGPT's own refusal when the cloud machine can't send it either", async () => {
+    const { answer, cloudSent } = await askedThrough(async () => {
+      throw new Error("The sandbox cloud is deleted");
+    });
+
+    expect(answer).toContain("failed:");
+    expect(answer).toContain("Unable to load site");
+    expect(cloudSent).toHaveLength(1);
+  });
 });
 
 describe("thinking on Workers AI", () => {
