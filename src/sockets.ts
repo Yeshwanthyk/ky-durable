@@ -33,7 +33,7 @@ import {
   runnerTag
 } from "./machines/contract";
 import type { RunnerPipe } from "./machines/wiring";
-import { checkInput, imagesOf, spokenText } from "./files/media";
+import { checkInput, imagesOf, spokenText, withCurrentMediaTags } from "./files/media";
 import { withLateNote } from "./core/late";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
@@ -852,17 +852,21 @@ export class PiSessionSockets {
 
     const purpose = session === ROOT_SESSION || chat ? "main" : "worker";
 
+    // A page from before the tags were renamed still writes the old media tag: renamed first, it is checked and
+    // titled as a clip.
+    const current = withCurrentMediaTags(message.input);
+
     // A submit with images waits for the purpose's provider probe: cached for 30s, up to 3s when stale.
     const problem =
-      checkInput(message.input) ??
-      (imagesOf(message.input).length > 0 ? await this.#models.imageSupport(purpose) : null);
+      checkInput(current) ??
+      (imagesOf(current).length > 0 ? await this.#models.imageSupport(purpose) : null);
 
     if (problem !== null) throw new Error(problem);
 
-    if (chat) this.#chats.touch(session, spokenText(textOf(message.input)));
+    if (chat) this.#chats.touch(session, spokenText(textOf(current)));
 
     // A message the page kept offline for long reaches the model with a note saying so; the thread drops the note.
-    const input = withLateNote(message.input, message.waited);
+    const input = withLateNote(current, message.waited);
 
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.

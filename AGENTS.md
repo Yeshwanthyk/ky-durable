@@ -24,6 +24,9 @@ answered every request with "Access isn't set up" and pointed its files at the w
      ships an old release.
   3. `pnpm ky deploy <name>`, then `git checkout container/image.digest`.
   4. `pnpm ky doctor <name>`: the Release line names `main`'s commit and nothing is marked ✗.
+- **After a release with a data migration ships** (src/migrations.ts gained one), roll forward, never back: an older
+  Worker can't read what the migration rewrote (it refuses the newer level, or parks tasks of kinds it doesn't know).
+  Fix forward with a new release; the workflow's `-f sha=` rollback is only for releases with no new migration.
 - `ky upgrade` and `ky init` are the owner's to run on their own computer; ask, don't run them.
 - **To check a deploy**, use `ky doctor [name]` and read-only wrangler commands (`wrangler versions list`,
   `wrangler deployments list`). These change nothing.

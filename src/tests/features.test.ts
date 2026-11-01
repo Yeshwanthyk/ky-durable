@@ -341,6 +341,23 @@ describe("side chats and titles", () => {
     main.socket.close();
   });
 
+  it("titles a chat by the clip a page from before the tag rename sent, as a clip", async () => {
+    const name = crypto.randomUUID();
+    const main = await session(name);
+    const created = await command(main.socket, main.client, { type: "new-chat" });
+    const chat = created.type === "result" ? (decodeNewChat(created.result) ?? "") : "";
+    const side = await session(name, `?session=${chat}`);
+
+    // `no-title` makes the fake titles model refuse, so the title is the one the message gave.
+    const clip = '<ky-media kind="audio" file="0123456789abcdef0123456789abcdef" type="audio/webm" name="Voice note">pick up milk</ky-media>';
+    side.socket.send(JSON.stringify({ type: "submit", input: `no-title ${clip}` }));
+    await side.client.until(() => !side.client.view().running && side.client.view().messages.length > 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(latest(main.client, "chats")?.chats.find((row) => row.session === chat)?.title).toBe("pick up milk no-title");
+    main.socket.close();
+    side.socket.close();
+  });
+
   it("archives a side chat and puts it back, keeping it across restarts", async () => {
     const name = crypto.randomUUID();
     const main = await session(name);

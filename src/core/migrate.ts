@@ -7,6 +7,9 @@
  * a table, and when a restore swaps an older archive in (src/backup.ts), and either way every pending one
  * runs in one `transactionSync`: a failure anywhere leaves storage exactly as the last release left it, so
  * rolling the release back brings the ky back. The agent then throws, and serves nothing until it can.
+ * That includes running out of CPU: the same data runs out the same way on every wake, so a ky would serve
+ * nothing until a release with a cheaper migration. A migration that rewrites rows must stay well inside the
+ * limit at the largest storage a ky holds (migration 1 measured about 1.4 s per GB of transcript).
  *
  * A fresh ky, with no table yet, has nothing to change: it records every migration as applied, unrun. So a
  * migration only ever runs on data at the level before it, with the tables that level had: none of a later
