@@ -276,6 +276,20 @@ describe("a specialist's machines", () => {
     expect(owners).toEqual({ home: "eng", chat: "ky" });
   });
 
+  it("are read from a ky that ran Phases 1+2, whose owned table has no profile column", async () => {
+    const name = crypto.randomUUID();
+    await make(name, "eng");
+
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("DROP TABLE ky_specialist_owned");
+      state.storage.sql.exec("CREATE TABLE ky_specialist_owned (conversation TEXT PRIMARY KEY, specialist TEXT NOT NULL)");
+      state.storage.sql.exec("INSERT INTO ky_specialist_owned (conversation, specialist) VALUES ('m-1', 'eng')");
+    });
+    await evictDurableObject(agent(name));
+
+    expect(await inside(name, (instance) => [instance.specialists.profileOf("1").owner, instance.specialists.profileOf("m-1").owner])).toEqual(["ky", "eng"]);
+  });
+
   it("are granted, revoked and moved by the user in Settings, and the specialist is deleted there", async () => {
     const name = crypto.randomUUID();
     await make(name, "eng");

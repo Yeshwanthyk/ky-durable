@@ -80,7 +80,7 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
   static readonly layer = (hooks: { readonly listeners: ReadonlySet<() => void> }) =>
     Layer.effect(Profiles)(
       Effect.gen(function* () {
-        const { exec, rows } = yield* storage;
+        const { exec, rows, addColumns } = yield* storage;
         const roster = yield* Roster;
         const machines = yield* Machines;
 
@@ -93,6 +93,8 @@ export class Profiles extends Context.Service<Profiles, SpecialistProfiles>()("k
           conversation TEXT PRIMARY KEY,
           specialist TEXT NOT NULL,
           profile TEXT)`);
+        // A ky that ran Phases 1+2 made this table before runs kept their profile.
+        yield* addColumns(SKILL_TABLES.specialistOwned, [["profile", "TEXT"]]);
 
         const ref = ({ id, name }: { readonly id: string; readonly name: string }) => ({ id, name });
 
