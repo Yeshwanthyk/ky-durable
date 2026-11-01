@@ -15,6 +15,7 @@ import { KY_AVATAR, type Missing as NotSetUp, preamble, type PromptConfig } from
 import { Avatars, avatarTools, seed, Setup } from "./avatars/wiring";
 import type { ArchivedFile, End, Manifest, Restored } from "./archive";
 import { backupRoute, Backups, type Page, type Plan } from "./backup";
+import { pruneAgentRevisions } from "./revisions";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uiExtension } from "./cards/wiring";
 import { ChatList, chatActivityExtension } from "./chats/chats";
@@ -912,6 +913,7 @@ export class PiAgent extends DurableObject<Env> {
     // Task tokens whose revoke a failure or a restart lost.
     this.ctx.waitUntil(this.machines.sweepTokens());
     await this.applyMain();
+    this.ctx.waitUntil(pruneAgentRevisions(this.ctx.storage).catch((error) => console.warn("agent revisions not pruned", error)));
     await this.automations.recover();
     // Reports a restart left waiting for their chat's turn to end.
     this.deliveries.recover();
