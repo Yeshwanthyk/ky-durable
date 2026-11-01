@@ -85,7 +85,7 @@ function ChangeSet({ task, id, caption, patch }: ChangeSetProps) {
   return (
     <div className="tool changes">
       <button type="button" className="tool-row" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <Icon name="branch" size={14} />
+        <span className="mark" aria-hidden="true" />
         <span className="verb">Changes</span>
         <span className="target">{plural(summary.files, "file")}</span>
         <span className="trail">

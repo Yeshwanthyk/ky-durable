@@ -2075,7 +2075,7 @@
 .report {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   width: 100%;
 }
 
@@ -2099,7 +2099,7 @@
 }
 
 .report-body {
-  margin: 8px auto 0;
+  margin: 8px 0 0;
   padding: 10px 14px;
   max-width: min(100%, 36rem);
   border: 1px solid var(--line);

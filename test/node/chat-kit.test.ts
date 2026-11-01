@@ -87,25 +87,25 @@ describe("the composer", () => {
 describe("a tool row", () => {
   it("opens to its body, and doesn't without one", () => {
     const body = createElement(ToolBody, { input: "ls", output: "a\nb\n\n", command: true });
-    const open = draw(ToolRow, { icon: "terminal", status: "done", verb: "Ran", target: "ls", mono: true, body });
+    const open = draw(ToolRow, { status: "done", verb: "Ran", target: "ls", mono: true, body });
 
     expect(open).toContain('aria-expanded="false"');
     expect(open).toContain('<span class="target mono">ls</span>');
     expect(open).toContain('<div class="reveal" data-open="false" inert=""><div class="reveal-inner"></div></div>');
     expect(renderToStaticMarkup(body)).toBe('<div class="tool-body"><pre class="command">ls</pre><pre>a\nb</pre></div>');
-    expect(draw(ToolRow, { icon: "eye", status: "done", verb: "Read" })).toMatch(/class="tool-row" disabled=""/);
+    expect(draw(ToolRow, { status: "done", verb: "Read" })).toMatch(/class="tool-row" disabled=""/);
   });
 
-  it("shimmers its verb while running and swaps its icon when it fails", () => {
-    const row = (status: "running" | "done" | "failed") => draw(ToolRow, { icon: "eye", status, verb: "Read" });
+  it("shimmers its verb while running and marks a failed call for its red dot", () => {
+    const row = (status: "running" | "done" | "failed") => draw(ToolRow, { status, verb: "Read" });
 
     expect(row("running")).toContain('class="verb shimmer"');
     expect(row("failed")).toContain('data-status="failed"');
-    expect(row("failed").replace("failed", "done")).not.toEqual(row("done"));
+    expect(row("done")).toContain('<span class="mark" aria-hidden="true"></span>');
   });
 
   it("groups calls behind one line, their rows mounted only once it opens", () => {
-    const html = draw(ToolGroup, { icon: "search", verb: "Explored", target: "2 files", running: false, children: "rows" });
+    const html = draw(ToolGroup, { verb: "Explored", target: "2 files", running: false, children: "rows" });
 
     expect(html).toContain('<span class="target">2 files</span>');
     expect(html).toContain('aria-expanded="false"');
