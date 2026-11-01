@@ -2193,6 +2193,29 @@ test("lists today's routines above its finished tasks, and only recent tasks unt
   await expect(jobs).toHaveCount(11);
 });
 
+test("folds a past day's finished tasks into one row that opens to them", async ({ page }) => {
+  await page.clock.install();
+  await open(page);
+  const id = crypto.randomUUID().slice(0, 8);
+
+  for (let index = 0; index < 3; index++) {
+    await send(page, `machine@webmac quick job ${id} ${index}`);
+    // Finished, not just started: a job still running at the day's turn would land in Today.
+    await expect(chat(page).getByText(`quick job ${id} ${index}" finished`)).toBeVisible();
+  }
+
+  await page.clock.fastForward("24:00:00");
+
+  const yesterday = panel(page).getByRole("region", { name: "Yesterday" });
+  const jobs = yesterday.getByRole("button", { name: new RegExp(`quick job ${id}`) });
+  const fold = yesterday.getByRole("button", { name: /^\d+ tasks?$/ });
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(jobs).toHaveCount(0);
+
+  await fold.click();
+  await expect(jobs).toHaveCount(3);
+});
+
 test("shows a task's screenshot and opens it in the lightbox", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [attach] screenshot the web page");
