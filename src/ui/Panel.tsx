@@ -149,28 +149,7 @@ export function Panel({
             <span className="quiet"> · {model}</span>
           </p>
         </div>
-        <Segmented role="tablist" chosen={tab}>
-          {(
-            [
-              ["activity", "Activity"],
-              ["soul", "Soul"],
-              ["settings", "Settings"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className="pressable"
-              onClick={() => onTab(id)}
-            >
-              {id === "settings" ? <Icon name="gear" size={14} className="gear" /> : null}
-              {id === "soul" ? <Icon name="fingerprint" size={14} /> : null}
-              {label}
-            </button>
-          ))}
-        </Segmented>
+        <PanelTabs tab={tab} onTab={onTab} />
       </header>
       {tab === "activity" ? (
         <Activity
@@ -183,7 +162,8 @@ export function Panel({
           onStop={onStop}
           onStopAll={onStopAll}
         />
-      ) : tab === "soul" ? (
+      ) : null}
+      {tab === "soul" ? (
         <Soul
           soul={soul}
           now={now}
@@ -197,7 +177,8 @@ export function Panel({
           providers={settings?.providers ?? []}
           machines={machines}
         />
-      ) : (
+      ) : null}
+      {tab === "settings" ? (
         <Settings
           settings={settings}
           setup={setup}
@@ -212,8 +193,33 @@ export function Panel({
           onSetRepo={onSetRepo}
           keyActions={keyActions}
         />
-      )}
+      ) : null}
     </aside>
+  );
+}
+
+const PANEL_TABS = [
+  ["activity", "Activity"],
+  ["soul", "Soul"],
+  ["settings", "Settings"],
+] as const satisfies readonly (readonly [PanelTab, string])[];
+
+const TAB_ICON: Partial<Record<PanelTab, ReactNode>> = {
+  settings: <Icon name="gear" size={14} className="gear" />,
+  soul: <Icon name="fingerprint" size={14} />,
+};
+
+// The panel's three tabs, beside who ky is.
+function PanelTabs({ tab, onTab }: { tab: PanelTab; onTab: (tab: PanelTab) => void }) {
+  return (
+    <Segmented role="tablist" chosen={tab}>
+      {PANEL_TABS.map(([id, label]) => (
+        <button key={id} type="button" role="tab" aria-selected={tab === id} className="pressable" onClick={() => onTab(id)}>
+          {TAB_ICON[id] ?? null}
+          {label}
+        </button>
+      ))}
+    </Segmented>
   );
 }
 
@@ -472,51 +478,68 @@ function FinishedFold({ latest, tasks, ...feed }: FeedProps & { latest: TaskRow;
 
   if (!fresh && rest.some((task) => Date.now() - task.updated_at < FRESH_MS)) setFresh(true);
 
-  const noun = rest.every((task) => task.kind === "cloud") ? "subagent task" : "task";
-  const earlier = new Set(rest.slice(RECENT, shown).map((task) => task.id));
-  const hidden = rest.length - shown;
-  const label = failed.length > 0 ? `${rest.length} more finished` : `${rest.length} ${noun}${rest.length === 1 ? "" : "s"}`;
 
   return (
     <li className="today-item today-fold" data-open={open || undefined}>
-      {failed.length > 0 ? (
-        <ul className="feed today-tasks today-failed">
-          {failed.map((task, index) => (
-            <TaskItem key={task.id} task={task} arriveKey={`past:${task.id}`} sameTime={sameTimeAs(failed, index)} {...feed} />
-          ))}
-        </ul>
-      ) : null}
+      {failed.length > 0 ? <FailedTasks failed={failed} feed={feed} /> : null}
       {rest.length > 0 ? (
         <button type="button" className="today-row disclosure" aria-expanded={open} onClick={() => setChoice(!open)}>
           <span className="today-time tabular">{failed.length > 0 ? null : clockAt(latest.updated_at)}</span>
-          <span className="today-title">{label}</span>
+          <span className="today-title">{foldLabel(rest, failed.length)}</span>
           <span className="today-note" />
           <Icon name="chevronRight" size={12} className="chevron" />
         </button>
       ) : null}
-      {open && rest.length > 0 ? (
-        <>
-          <ul className="feed today-tasks">
-            {rest.slice(0, shown).map((task, index) => (
-              <TaskItem
-                key={task.id}
-                task={task}
-                earlier={earlier.has(task.id)}
-                arriveKey={`past:${task.id}`}
-                sameTime={sameTimeAs(rest, index)}
-                {...feed}
-              />
-            ))}
-          </ul>
-          {hidden > 0 ? (
-            <button type="button" className="feed-more pressable" onClick={() => setShown((count) => count + EARLIER)}>
-              Show earlier
-              <span className="feed-more-count tabular">{hidden} more</span>
-            </button>
-          ) : null}
-        </>
-      ) : null}
+      {open && rest.length > 0 ? <FoldedTasks rest={rest} shown={shown} onMore={() => setShown((count) => count + EARLIER)} feed={feed} /> : null}
     </li>
+  );
+}
+
+/** The fold's row: "3 tasks", or "3 more finished" under failed rows. */
+function foldLabel(rest: readonly TaskRow[], failed: number): string {
+  if (failed > 0) return `${rest.length} more finished`;
+  const noun = rest.every((task) => task.kind === "cloud") ? "subagent task" : "task";
+
+  return `${rest.length} ${noun}${rest.length === 1 ? "" : "s"}`;
+}
+
+// Failed tasks, each its own row above the fold, since they need the user.
+function FailedTasks({ failed, feed }: { failed: readonly TaskRow[]; feed: FeedProps }) {
+  return (
+    <ul className="feed today-tasks today-failed">
+      {failed.map((task, index) => (
+        <TaskItem key={task.id} task={task} arriveKey={`past:${task.id}`} sameTime={sameTimeAs(failed, index)} {...feed} />
+      ))}
+    </ul>
+  );
+}
+
+// The fold opened: the latest finished tasks, and a way to show earlier ones.
+function FoldedTasks({ rest, shown, onMore, feed }: { rest: readonly TaskRow[]; shown: number; onMore: () => void; feed: FeedProps }) {
+  const earlier = new Set(rest.slice(RECENT, shown).map((task) => task.id));
+  const hidden = rest.length - shown;
+
+  return (
+    <>
+      <ul className="feed today-tasks">
+        {rest.slice(0, shown).map((task, index) => (
+          <TaskItem
+            key={task.id}
+            task={task}
+            earlier={earlier.has(task.id)}
+            arriveKey={`past:${task.id}`}
+            sameTime={sameTimeAs(rest, index)}
+            {...feed}
+          />
+        ))}
+      </ul>
+      {hidden > 0 ? (
+        <button type="button" className="feed-more pressable" onClick={onMore}>
+          Show earlier
+          <span className="feed-more-count tabular">{hidden} more</span>
+        </button>
+      ) : null}
+    </>
   );
 }
 

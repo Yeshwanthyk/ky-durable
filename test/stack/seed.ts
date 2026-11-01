@@ -10,7 +10,7 @@
 import { chromium, type Page } from "@playwright/test";
 import path from "node:path";
 import { accessCookie } from "../../src/tests/fake-access.ts";
-import { machine, pairingCode } from "../harness/runner.ts";
+import { machine, pairingCode, type Runner } from "../harness/runner.ts";
 import { REPO } from "../harness/stack.ts";
 
 const URL = process.env.KY_STACK_URL ?? "http://127.0.0.1:8790";
@@ -88,7 +88,16 @@ async function routines(page: Page) {
   return panel(page).getByRole("region", { name: "Routines" });
 }
 
-async function main(): Promise<void> {
+// Last night's dream, so Activity has a night to show.
+async function dream(page: Page): Promise<void> {
+  step("last night's dream");
+  const dreamt = await page.request.post("/test/dream-night?tag=fri");
+
+  if (!dreamt.ok()) throw new Error(`The dream didn't seed (${dreamt.status()}): ${(await dreamt.text()).slice(0, 300)}`);
+}
+
+// Fails fast without a stack, then pairs the Mac the machine tasks run on.
+async function pairMac(): Promise<Runner> {
   const ready = await fetch(`${URL}/manifest.webmanifest`).catch(() => undefined);
 
   if (!ready?.ok) throw new Error(`No stack at ${URL}: start one with \`pnpm stack\`.`);
@@ -98,7 +107,12 @@ async function main(): Promise<void> {
   const paired = await webmac.pair(URL, await pairingCode(URL));
 
   if (paired.code !== 0) throw new Error(`webmac did not pair: ${paired.output}`);
-  const runner = webmac.launch(URL);
+
+  return webmac.launch(URL);
+}
+
+async function main(): Promise<void> {
+  const runner = await pairMac();
 
   const browser = await chromium.launch();
   const context = await browser.newContext({ baseURL: URL, viewport: { width: 1440, height: 900 } });
@@ -108,11 +122,25 @@ async function main(): Promise<void> {
   await page.getByRole("button", { name: /^ky: Connected/ }).waitFor({ timeout: TIMEOUT });
 
   // The dream seeder forgets the first memory block, so it runs before any chat writes a memory.
-  step("last night's dream");
-  const dreamt = await page.request.post("/test/dream-night?tag=fri");
+  await dream(page);
 
-  if (!dreamt.ok()) throw new Error(`The dream didn't seed (${dreamt.status()}): ${(await dreamt.text()).slice(0, 300)}`);
+  await seedChats(page);
+  await seedRoutines(page);
 
+  await browser.close();
+  console.log(`\nSeeded ${URL}. The Mac stays up so the staging watch keeps running; Ctrl-C to stop it.`);
+
+  const stop = async () => {
+    await runner.stop();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+}
+
+// Executor, two specialists, four side chats and a main chat that starts every kind of task.
+async function seedChats(page: Page): Promise<void> {
   step("connecting Executor");
   await executor(page);
 
@@ -144,7 +172,10 @@ async function main(): Promise<void> {
   await send(page, "Rebuild the search index on the Mac", "Started the rebuild");
   await send(page, "Watch the staging deploy and tell me if it breaks", "until the deploy finishes");
   await send(page, "How does a change get deployed?", "the config ky computes");
+}
 
+// Two routines run once and one paused, so the Routines sheet shows each state.
+async function seedRoutines(page: Page): Promise<void> {
   step("running and pausing routines");
   const sheet = await routines(page);
 
@@ -158,17 +189,6 @@ async function main(): Promise<void> {
 
   if (await pause.isVisible().catch(() => false)) await pause.click();
   else step("(no Pause button on Water the plants; left running)");
-
-  await browser.close();
-  console.log(`\nSeeded ${URL}. The Mac stays up so the staging watch keeps running; Ctrl-C to stop it.`);
-
-  const stop = async () => {
-    await runner.stop();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
 }
 
 await main();
