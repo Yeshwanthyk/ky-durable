@@ -35,7 +35,7 @@ describe("SOUL.md", () => {
     const text = await system(name);
     expect(text.slice(0, soul.length + 2)).toBe(`${soul}\n\n`);
     expect(text.indexOf("The <soul> section is SOUL.md")).toBe(soul.length + 2);
-    expect(text.indexOf("You are ky,")).toBeGreaterThan(soul.length);
+    expect(text.indexOf("You are orbit,")).toBeGreaterThan(soul.length);
 
     // A user edit between turns shows on the next request.
     await inside(name, (instance) => instance.soul.apply({ action: "edit", body: "# SOUL.md\nSpeak like a pirate." }, "user"));

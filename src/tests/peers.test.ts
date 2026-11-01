@@ -38,6 +38,8 @@ async function peer(name: string, args: Record<string, string>): Promise<string>
 async function invite(name: string, what: string): Promise<string> {
   const said = await peer(name, { action: "invite", name: what });
   expect(said).toContain(`Address: ${address(name)}`);
+  // It offers the name its owner gave it as what the other side calls it.
+  expect(said).toContain(`they say: pair with orbit, ${address(name)} `);
 
   return /^Code: (\S+)$/m.exec(said)![1]!;
 }
@@ -98,7 +100,7 @@ describe("pairing with another person's ky", () => {
     const { ana } = await paired();
 
     expect(await peer(ana, { action: "invite", name: "benky" })).toMatch(/^There is already a peer named benky/);
-    expect(await peer(ana, { action: "pair", name: "self", address: address(ana), code: "x" })).toBe("That is this ky's own address.");
+    expect(await peer(ana, { action: "pair", name: "self", address: address(ana), code: "x" })).toBe("That is orbit's own address.");
     expect(await peer(ana, { action: "pair", name: "Not A Name", address: address(ana), code: "x" })).toMatch(/needs a name/);
   });
 });
@@ -211,7 +213,7 @@ describe("asking a peer", () => {
       const now = Date.now();
       expect(["a", "b", "c"].map((id) => asks.received("anaky", id, "?", now))).toEqual(["new", "new", "new"]);
       expect(asks.received("anaky", "a", "?", now)).toBe("known");
-      expect(asks.received("anaky", "d", "?", now)).toMatch(/3 questions open/);
+      expect(asks.received("anaky", "d", "?", now)).toBe("You have 3 questions open with orbit; wait for its answers.");
       // Another peer has its own count.
       expect(asks.received("carlky", "a", "?", now)).toBe("new");
 
@@ -222,7 +224,7 @@ describe("asking a peer", () => {
         asks.answered("in", "anaky", id, "!");
       }
 
-      expect(asks.received("anaky", "k", "?", now)).toMatch(/10 questions this hour/);
+      expect(asks.received("anaky", "k", "?", now)).toBe("You asked orbit 10 questions this hour; ask again later.");
       expect(asks.received("anaky", "k", "?", now + 3_600_000)).toBe("new");
     });
   });
@@ -278,7 +280,7 @@ describe("asking a peer", () => {
 
     expect(await peer(ana, { action: "ask", name: "nobody", question: "hi?" })).toBe("No peer named nobody.");
     await peer(ben, { action: "remove", name: "anaky" });
-    expect(await peer(ana, { action: "ask", name: "benky", question: "hi?" })).toBe("benky unpaired from this ky, so it can't be asked.");
+    expect(await peer(ana, { action: "ask", name: "benky", question: "hi?" })).toBe("benky unpaired from orbit, so it can't be asked.");
     expect(await peer(ana, { action: "list" })).toContain("- benky, ");
     expect(await peer(ana, { action: "list" })).toContain(": revoked");
   });
@@ -342,7 +344,7 @@ describe("what goes wrong between peers", () => {
     const { ana, ben } = await paired();
     await vaultOf(ana).remove("peer", "benky");
 
-    expect(await peer(ana, { action: "list" })).toContain(`- benky, ${address(ben)}: unreachable (This ky lost its token for benky. Remove it, and pair again.)`);
+    expect(await peer(ana, { action: "list" })).toContain(`- benky, ${address(ben)}: unreachable (orbit lost its token for benky. Remove it, and pair again.)`);
     // Ana's ky didn't take its 401 for an unpairing: Ben's ky still reaches it, and Ana's still lists benky.
     expect(await peer(ben, { action: "list" })).toContain(`- anaky, ${address(ana)}: on`);
     expect(await peer(ana, { action: "list" })).not.toContain(": revoked");

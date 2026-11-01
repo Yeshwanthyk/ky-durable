@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { clock, framesOf, readMedia } from "../files/media";
 import { type Outgoing, outgoingImages, outgoingText } from "../outbox";
 import { Icon } from "../chat-kit/Icon";
+import { NAME } from "./open-chat";
 
 /** What a row says: the words, each clip, and how many images ride along; a video's frames aren't the user's images. */
 function summary(item: Outgoing): string {
@@ -30,12 +31,12 @@ function QueueHead({ queued, connected, running, onSteer }: { queued: number; co
 
   return (
     <div className="queue-head">
-      <p className="queue-note">{steering ? "Steering · stopping ky's current step" : "Queued · goes in at ky's next step"}</p>
+      <p className="queue-note">{steering ? `Steering · stopping ${NAME}'s current step` : `Queued · goes in at ${NAME}'s next step`}</p>
       {running ? (
         <button
           type="button"
           className="pressable queue-steer"
-          title={connected ? "Stop what ky is running now, so the queue goes in at once" : "Offline · steer once ky reconnects"}
+          title={connected ? `Stop what ${NAME} is running now, so the queue goes in at once` : `Offline · steer once ${NAME} reconnects`}
           disabled={steering || !connected}
           onClick={steer}
         >

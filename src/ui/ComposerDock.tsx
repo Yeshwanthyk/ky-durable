@@ -53,7 +53,7 @@ function ErrorNote({ error }: { error: string | null }) {
 }
 
 function placeholder(running: boolean, connected: boolean, offline: boolean, talksToMain: boolean, group: boolean) {
-  if (!connected) return offline ? "Offline · sends on reconnect" : "Sends when ky reconnects";
+  if (!connected) return offline ? "Offline · sends on reconnect" : `Sends when ${NAME} reconnects`;
 
   if (running) return "Steer the running turn";
 
