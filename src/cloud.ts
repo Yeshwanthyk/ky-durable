@@ -219,6 +219,9 @@ export class CloudMachine extends DurableObject<Env> {
 
       if (!sandbox) throw new Error(`The sandbox ${id} is deleted`);
       await this.#up(box, id, sandbox.name);
+    } else {
+      // Running may still mean starting, for a wake or the alarm: wait until it listens.
+      await this.#ping(box, START_WITHIN_MS);
     }
 
     await this.ctx.storage.delete(IDLE_KEY);
