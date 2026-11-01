@@ -92,8 +92,9 @@ async function chatgpt(request: IncomingMessage, response: ServerResponse): Prom
   const body = await buffer(request);
   const headers = new Headers();
 
-  for (const [name, values = []] of Object.entries(request.headersDistinct)) {
-    if (!NOT_PASSED.has(name)) for (const value of values) headers.append(name, value);
+  // `headers`, not `headersDistinct`: the container runs ky compiled with Bun, which has no headersDistinct.
+  for (const [name, value = []] of Object.entries(request.headers)) {
+    if (!NOT_PASSED.has(name)) for (const one of [value].flat()) headers.append(name, one);
   }
 
   const cancel = new AbortController();

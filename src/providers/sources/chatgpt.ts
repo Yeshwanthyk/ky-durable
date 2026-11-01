@@ -44,10 +44,11 @@ function viaCloudWhenTurnedAway(direct: FetchFunction, cloud: FetchFunction | un
       const again = await cloud(input, init);
 
       await first.body?.cancel();
+      console.log(`ChatGPT turned the Worker away; through the cloud machine it answered ${again.status}`);
 
       return again;
     } catch (error) {
-      console.warn("ChatGPT turned the Worker away, and the cloud machine couldn't send it either", error);
+      console.warn(`ChatGPT turned the Worker away, and the cloud machine couldn't send it either: ${error instanceof Error ? error.message : String(error)}`);
 
       return first;
     }
