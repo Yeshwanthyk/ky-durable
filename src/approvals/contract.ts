@@ -10,12 +10,13 @@ export const ApprovalKindSchema = Type.Union([
 
 export type ApprovalKind = Static<typeof ApprovalKindSchema>;
 
-export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: string }>> = {
-  executor: { title: "Approve this app action?" },
-  "webhook-action": { title: "Approve this, on a webhook's data?" },
-  "secret-request": { title: "Approve this call with a credential?" },
-  "browser-handoff": { title: "ky needs you in its browser" },
-  "browse-steps": { title: "Let ky act where you're signed in?" }
+/** Each card's title, given what the owner calls the agent. */
+export const APPROVAL_KINDS: Readonly<Record<ApprovalKind, { readonly title: (agent: string) => string }>> = {
+  executor: { title: () => "Approve this app action?" },
+  "webhook-action": { title: () => "Approve this, on a webhook's data?" },
+  "secret-request": { title: () => "Approve this call with a credential?" },
+  "browser-handoff": { title: (agent) => `${agent} needs you in its browser` },
+  "browse-steps": { title: (agent) => `Let ${agent} act where you're signed in?` }
 };
 
 export const APPROVAL_TABLES = { approvals: "ky_approvals", policies: "ky_tool_policies", inputs: "ky_executor_inputs" } as const;

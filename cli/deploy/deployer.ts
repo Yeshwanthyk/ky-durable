@@ -653,9 +653,10 @@ const cloudImage = (accountId: string, release: Release, tell: (step: string) =>
 function upload(
   config: Unstable_RawConfig,
   buckets: Names["buckets"],
-  { access, image, applied }: { access: Record<string, string>; image: string | undefined; applied: string | undefined }
+  { script, access, image, applied }: { script: string; access: Record<string, string>; image: string | undefined; applied: string | undefined }
 ): { upload: Upload } | { refused: CantDeployKey | OlderThanWorker } {
-  const bound = bindings(config, buckets, { ...access, ...(image && { KY_CLOUD: "1" }) });
+  // KY_NAME: the name the owner gave this ky, which its agent goes by (src/core/instance.ts).
+  const bound = bindings(config, buckets, { ...access, KY_NAME: script, ...(image && { KY_CLOUD: "1" }) });
   const migrations = pendingMigrations(config.migrations ?? [], applied);
 
   if (!Array.isArray(bound)) return { refused: bound };
@@ -720,7 +721,7 @@ const deploy = (site: Site, release: Release, say: Say) =>
     yield* ensureBuckets(name);
     yield* tell("Setting up Access");
     const aud = yield* ensureAccess(name, address, allowed);
-    const worker = upload(config, name.buckets, { access: { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }, image, applied });
+    const worker = upload(config, name.buckets, { script: name.script, access: { ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, ACCESS_EMAILS: allowed.join(",") }, image, applied });
     const current = "upload" in worker && (yield* deployedAlready(accountId, script, release.version, worker.upload));
     const from = ranRelease(script);
 

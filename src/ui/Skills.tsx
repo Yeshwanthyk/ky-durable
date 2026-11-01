@@ -4,6 +4,7 @@ import { type Need, parse } from "../skills/contract";
 import { Icon } from "../chat-kit/Icon";
 import { ago } from "./time";
 import type { SkillFilter } from "./use-session-route";
+import { NAME } from "./open-chat";
 
 export const since = (time: number, now: number) => {
   const text = ago(time, now);
@@ -16,8 +17,8 @@ export const times = (count: number) => `${count} ${count === 1 ? "time" : "time
 /** Whose a skill is: the user's (ky's starter skills count as theirs), or one ky wrote, which its dreams may tend. */
 export const origin = (skill: SkillRow) =>
   skill.created_by === "user"
-    ? { by: "Yours", title: "Yours: ky's dreams never archive it" }
-    : { by: "Written by ky", title: "ky wrote it: its dreams may merge or archive it" };
+    ? { by: "Yours", title: `Yours: ${NAME}'s dreams never archive it` }
+    : { by: `Written by ${NAME}`, title: `${NAME} wrote it: its dreams may merge or archive it` };
 
 /** The needs the user hasn't answered yet. */
 export const openNeeds = (skill: SkillRow) => parse(skill.body).needs.filter((need) => skill.answers[need.key] === undefined);
@@ -33,7 +34,7 @@ function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: Sk
       type="button"
       className="pill"
       aria-pressed={skill.pinned}
-      title={skill.pinned ? "Let ky's dreams and reviews tend it again" : "Keep ky's dreams and reviews from changing it"}
+      title={skill.pinned ? `Let ${NAME}'s dreams and reviews tend it again` : `Keep ${NAME}'s dreams and reviews from changing it`}
       onClick={() => onChange({ action: skill.pinned ? "unpin" : "pin", name: skill.name })}
     >
       <Icon name="pin" size={13} />
@@ -43,8 +44,8 @@ function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: Sk
 }
 
 export const EMPTY: Record<SkillFilter, string> = {
-  all: "No skills yet. ky writes one after a busy turn, or when you ask it to remember how to do something.",
-  kits: "No kits yet. A kit runs several skills together; ask ky to make one when the same skills keep running in a row.",
+  all: `No skills yet. ${NAME} writes one after a busy turn, or when you ask it to remember how to do something.`,
+  kits: `No kits yet. A kit runs several skills together; ask ${NAME} to make one when the same skills keep running in a row.`,
   skills: "No skills yet.",
   needs: "Nothing to answer. A skill that asks something before it runs shows here until you answer it.",
   archived: "Nothing archived."

@@ -5,6 +5,7 @@ import type { StoredAct } from "../outbox-store";
 import { BlockCard, ReplyContext } from "./Blocks";
 import { Sheet } from "./Sheet";
 import { Problem } from "./Subscriptions";
+import { NAME } from "./open-chat";
 
 /**
  * An approval ky asked of the user (src/approvals/approvals.ts) shows as a
@@ -32,9 +33,9 @@ export function decisionsWaiting(acts: readonly StoredAct[]): ReadonlyMap<string
 
 /** What a card says under a tap made offline. */
 const WAITING_NOTE: Record<ApprovalAction, string> = {
-  accept: "Approved offline · goes to ky when it reconnects.",
-  decline: "Declined offline · goes to ky when it reconnects.",
-  cancel: "Cancelled offline · goes to ky when it reconnects."
+  accept: `Approved offline · goes to ${NAME} when it reconnects.`,
+  decline: `Declined offline · goes to ${NAME} when it reconnects.`,
+  cancel: `Cancelled offline · goes to ${NAME} when it reconnects.`
 };
 
 const TAKE_OVER = "take-over";
@@ -42,7 +43,7 @@ const TAKE_OVER = "take-over";
 /** A hand-off of ky's browser or a specialist's: take the live page over, then say how it went. */
 function handoffCard(approval: ApprovalView): UiCard {
   return {
-    title: APPROVAL_KINDS[approval.kind].title,
+    title: APPROVAL_KINDS[approval.kind].title(NAME),
     subtitle: approval.subject,
     icon: "globe",
     blocks: [
@@ -56,19 +57,19 @@ function handoffCard(approval: ApprovalView): UiCard {
         ]
       }
     ],
-    note: "What you do there stays in the cloud browser. Once you're done, ky keeps this site's login in its Vault for whoever asked; Settings › Webhooks lists it to move or remove."
+    note: `What you do there stays in the cloud browser. Once you're done, ${NAME} keeps this site's login in its Vault for whoever asked; Settings › Webhooks lists it to move or remove.`
   };
 }
 
 // One nobody answered stays a day as expired, with nothing left to tap.
 const lapsedCard = (approval: ApprovalView): UiCard => ({
-  title: APPROVAL_KINDS[approval.kind].title,
+  title: APPROVAL_KINDS[approval.kind].title(NAME),
   blocks: [{ type: "text", text: approval.summary }],
-  note: `Expired · ${NOBODY_ANSWERED}, so nothing was done. Ask ky again if it still matters.`
+  note: `Expired · ${NOBODY_ANSWERED}, so nothing was done. Ask ${NAME} again if it still matters.`
 });
 
 const askingCard = (approval: ApprovalView): UiCard => ({
-  title: APPROVAL_KINDS[approval.kind].title,
+  title: APPROVAL_KINDS[approval.kind].title(NAME),
   blocks: [
     { type: "text", text: approval.summary },
     {
@@ -79,7 +80,7 @@ const askingCard = (approval: ApprovalView): UiCard => ({
       ]
     }
   ],
-  note: "Only your tap approves it: ky can't, and nobody else can."
+  note: `Only your tap approves it: ${NAME} can't, and nobody else can.`
 });
 
 const titled = (approval: ApprovalView, card: UiCard): UiCard => (approval.subject ? { ...card, subtitle: approval.subject, icon: approval.subject } : card);
@@ -151,7 +152,7 @@ function LiveView({ link, site, onDone, onClose }: { link: string; site: string;
       <iframe
         className="handoff-view"
         src={link}
-        title={`ky's browser on ${site}`}
+        title={`${NAME}'s browser on ${site}`}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         allow="clipboard-read; clipboard-write"
         referrerPolicy="no-referrer"

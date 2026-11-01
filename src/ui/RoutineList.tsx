@@ -5,7 +5,7 @@ import { AutomationForm, AutomationsContext, scheduleOf, useZone } from "./Autom
 import { Switch } from "./Controls";
 import { Icon } from "../chat-kit/Icon";
 import { Markdown } from "./Markdown";
-import { MAIN_SESSION } from "./open-chat";
+import { MAIN_SESSION, NAME } from "./open-chat";
 import { plain } from "./plain";
 import { clock } from "./time";
 
@@ -375,7 +375,7 @@ export function RoutineList({
         {shown.length === 0 && open !== NEW_ROUTINE ? (
           <div className="rt-empty">
             <p>No routines yet</p>
-            <p className="rt-quiet">Ask ky to do something on a schedule, or add one here.</p>
+            <p className="rt-quiet">Ask {NAME} to do something on a schedule, or add one here.</p>
           </div>
         ) : null}
       </div>

@@ -5,6 +5,7 @@ import { parseOr } from "../core/decode";
 import { peaksFrom } from "./Media";
 import { base64 } from "./pick-images";
 import type { Recording } from "./use-recorder";
+import { NAME } from "./open-chat";
 
 /**
  * A clip in the composer, from the time it is attached until it is sent: read on the device (its length,
@@ -131,7 +132,7 @@ export async function prepareClip(file: File): Promise<PendingClip> {
   const type = baseType(file.type);
   const kind = mediaKind(type);
 
-  if (kind === null) throw new Error(`${file.name || "That file"} isn't a clip ky takes: send audio or video.`);
+  if (kind === null) throw new Error(`${file.name || "That file"} isn't a clip ${NAME} takes: send audio or video.`);
 
   if (file.size > MAX_MEDIA_BYTES) throw new Error(`${file.name || "That clip"} is over ${MAX_MEDIA_BYTES / 1024 / 1024} MB.`);
   const preview = URL.createObjectURL(file);

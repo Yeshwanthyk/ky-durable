@@ -23,8 +23,11 @@ import { bold, cancelled, dim, green, open, type Output, output, qr, terminal } 
 
 export type InitFlags = { account?: string; name?: string; email?: string; subdomain?: string; mail?: string };
 
-/** A Worker name whose bucket, `<name>-files`, is a valid bucket name too. */
-const NAME = /^[a-z0-9]([a-z0-9-]{0,55}[a-z0-9])?$/;
+/**
+ * A Worker name whose bucket, `<name>-files`, is a valid bucket name too, and short enough to be a peer's
+ * name: another ky pairs with this one under it (src/peers/peers.ts NAME, 32 at most).
+ */
+const NAME = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 
 /** The flag's value, or the prompt's answer in a terminal. */
 async function ask(given: string | undefined, flag: string, prompt: () => ReturnType<typeof text>): Promise<string> {
@@ -45,7 +48,7 @@ const blank = (value: string | undefined) => (value?.trim() ? undefined : "Paste
 const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function validName(name: string): string | undefined {
-  return NAME.test(name) ? undefined : "Lowercase letters, digits and dashes, at most 57";
+  return NAME.test(name) ? undefined : "Lowercase letters, digits and dashes, at most 32";
 }
 
 /** The account the flag names (by id or name), the only one, or the one picked. */

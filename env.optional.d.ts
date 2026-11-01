@@ -16,6 +16,8 @@ interface Env {
   readonly ACCESS_AUD?: string;
   /** The emails Access lets in, comma separated. */
   readonly ACCESS_EMAILS?: string;
+  /** The name the owner gave this ky's Worker, which its agent goes by (src/core/instance.ts). `ky deploy` sets it. */
+  readonly KY_NAME?: string;
   /** "1" when `ky deploy` gave the CloudMachine its container (Workers Paid): the cloud machine is listed and woken. */
   readonly KY_CLOUD?: string;
   /** How many idle minutes the cloud machine stays up before it sleeps (src/cloud.ts): 10 when unset; a live test sets 1. */

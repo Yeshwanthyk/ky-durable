@@ -7,7 +7,9 @@ const testsDir = import.meta.dirname;
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") }
+      wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
+      // The name an owner gave this ky, as `ky deploy` passes it; the local stack, unnamed, goes by ky.
+      miniflare: { bindings: { KY_NAME: "orbit" } }
     })
   ],
   resolve: {

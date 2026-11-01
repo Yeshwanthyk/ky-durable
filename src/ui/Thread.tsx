@@ -23,6 +23,7 @@ import { firstNew, folded, type Mark, marks, type Visit } from "./thread-marks";
 import { ExploreGroup, ToolCallRow } from "./ToolRow";
 import { Reveal } from "../chat-kit/Reveal";
 import { Answer, AnswerActions, Assistant, ChatTurn, LogText, Notice, Thought, TurnEnd, type TurnState, UserBubble, WorkingLine, WorkLog } from "../chat-kit/Thread";
+import { NAME } from "./open-chat";
 
 /** Opens the running turn's steps as a timeline; a thread with nowhere to show them has none. */
 export const OpenStepsContext = createContext<(() => void) | null>(null);
@@ -39,7 +40,7 @@ const CardsContext = createContext<{ readonly placed: ReadonlyMap<string, Placem
 /** Who answers in this chat, for the working row: ky's name and blob, or a subagent's name without one. */
 export type Speaker = { readonly name: string; readonly variantId?: BlobVariantId };
 
-export const SpeakerContext = createContext<Speaker>({ name: "ky" });
+export const SpeakerContext = createContext<Speaker>({ name: NAME });
 
 // The last few turns stay open; older ones fold behind one button, as in pecan.
 const openTurns = 3;
@@ -191,7 +192,7 @@ function useScrollStep(button: RefObject<HTMLButtonElement | null>, step: RefObj
   }, [button, step]);
 }
 
-const SEPARATOR = { summary: "ky summarized the chat above", reset: "Context reset" };
+const SEPARATOR = { summary: `${NAME} summarized the chat above`, reset: "Context reset" };
 
 /** Where the model's context starts again, above the turn that opens there; nothing above any other turn. */
 function Boundary({ turn }: { turn: Turn }) {

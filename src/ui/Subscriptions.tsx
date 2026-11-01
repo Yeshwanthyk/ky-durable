@@ -4,6 +4,7 @@ import { EmptyState } from "./Controls";
 import { Icon, type IconName } from "../chat-kit/Icon";
 import { clock } from "./time";
 import { SettingsNavContext } from "./use-panel";
+import { NAME } from "./open-chat";
 
 type SubscriptionActions = {
   /** Resolves with why the token was refused, if it was. */
@@ -43,7 +44,7 @@ function claudeNote(view: SubscriptionView, now: number): string {
 function chatgptNote(view: SubscriptionView): string {
   if (!view.connected) return "Sign in with a code";
 
-  return view.error ?? "Signed in; ky renews it";
+  return view.error ?? `Signed in; ${NAME} renews it`;
 }
 
 function githubNote(view: SubscriptionView): string {

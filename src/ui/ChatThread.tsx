@@ -13,6 +13,7 @@ import type { Visit } from "./thread-marks";
 import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
+import { NAME } from "./open-chat";
 
 type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools" | "answers"> & Partial<Pick<PiSessionView, "earlier" | "before">>;
 
@@ -365,7 +366,7 @@ function anchorsIn(thread: HTMLElement, inner: HTMLElement): Anchor[] {
 /** The current turn's tools as a timeline, live while ky works. */
 function TurnSteps({ session, onClose }: { session: ThreadView; onClose: () => void }) {
   return (
-    <TimelineSheet title="This turn" sub={session.running ? "ky · Working" : "ky · Done"} onClose={onClose}>
+    <TimelineSheet title="This turn" sub={session.running ? `${NAME} · Working` : `${NAME} · Done`} onClose={onClose}>
       <Timeline steps={turnTimeline(session)} working={session.running} empty="No tools used" />
     </TimelineSheet>
   );

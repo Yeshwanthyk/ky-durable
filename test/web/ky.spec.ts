@@ -1327,7 +1327,7 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
   await expect(pair.getByLabel("Name for their ky")).toHaveValue(new URL(origin).hostname.split(".")[0]!);
   await page.screenshot({ path: SHOTS ? `${SHOTS}/peers-invite.png` : undefined });
   await pair.getByRole("button", { name: "Pair" }).click();
-  await expect(pair.getByRole("alert")).toHaveText("That is this ky's own address.");
+  await expect(pair.getByRole("alert")).toHaveText("That is ky's own address.");
 });
 
 test("tells the chat what a mail to ky says, and sends ky's mail to someone new once the user does in Settings › Mail", async ({ page, request }) => {

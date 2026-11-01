@@ -8,6 +8,7 @@ import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
+import { NAME } from "./open-chat";
 
 /** Settings › the sites each owner's browser stays signed in to, by owner: ky's, then each specialist's. Only the user moves one. */
 
@@ -52,7 +53,7 @@ export function BrowserLogins() {
     <section className="group" id="settings-browser-logins">
       <h3 className="group-label">Browser logins</h3>
       {logins.length === 0 ? (
-        <EmptyState icon="globe">None yet. When ky hands you its browser to sign in to a site, it keeps that login here.</EmptyState>
+        <EmptyState icon="globe">None yet. When {NAME} hands you its browser to sign in to a site, it keeps that login here.</EmptyState>
       ) : (
         groups.map(({ owner, own }) => (
           <div key={owner} data-owner={owner}>

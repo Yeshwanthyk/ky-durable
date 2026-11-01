@@ -29,6 +29,7 @@ import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
 import { FileStore, retype, uploadMedia } from "./files/wiring";
 import { History, startedByUser } from "./history/wiring";
+import { instanceName } from "./core/instance";
 import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { machineSubject, saveKey, type Sandbox, type SandboxChange, type SandboxDraft } from "./runners/contract";
@@ -99,6 +100,8 @@ export function notSetUp(boundary: Boundary, providers: readonly string[] = []):
 
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
+  /** What the owner calls this agent: the name they gave its Worker (src/core/instance.ts). */
+  readonly agentName = instanceName(this.env);
   readonly boundary = this.boundaryFor(this.env);
   readonly feed = new TaskFeed(this.ctx.storage.sql);
   /** What the models cost, by day in the user's zone, and the daily cap that holds unasked work (src/spend). */
@@ -125,7 +128,7 @@ export class PiAgent extends DurableObject<Env> {
   /** Which conversations read outside content (src/outside), for what one conversation tells another. */
   readonly outside = new Outside(this.ctx.storage);
   /** The questions this ky and its peers ask each other. */
-  readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env));
+  readonly peerAsks = new PeerAsks(this.ctx.storage.sql, peerLimits(this.env), this.agentName);
   /** ky's repo and address, for self-edits. */
   readonly setup = new Setup(this.ctx.storage);
   /** What the peer tool and Settings › Peers work with. */
@@ -134,6 +137,7 @@ export class PiAgent extends DurableObject<Env> {
     asks: this.peerAsks,
     vault: () => this.peerVault(),
     fetch: this.boundary.peerFetch ?? ((input, init) => fetch(input, init)),
+    name: this.agentName,
     origin: () => this.setup.origin(),
     tell: async (session, content, requestId) => {
       const conversation = await this.harness.conversation(session ?? ROOT_SESSION);
@@ -287,8 +291,8 @@ export class PiAgent extends DurableObject<Env> {
     vault: () => this.env.Vault.getByName("owner"),
     zone: () => this.automations.checkIns().zone,
     most: () => this.proactivity.rightAway(),
-    // A side chat by its name; the main chat, and one not named yet, as ky.
-    title: (session) => this.chats.list().find((chat) => chat.session === session)?.title || "ky",
+    // A side chat by its name; the main chat, and one not named yet, by the agent's.
+    title: (session) => this.chats.list().find((chat) => chat.session === session)?.title || this.agentName,
     origin: () => this.setup.origin()
   });
   /** What ky asks the user before it acts for them; only their tap decides (src/approvals/approvals.ts). */
@@ -467,6 +471,7 @@ export class PiAgent extends DurableObject<Env> {
             key: "preamble",
             render: () =>
               preamble({
+                name: this.agentName,
                 executor: this.registry.snapshot().extension("executor") !== undefined,
                 cloud: this.machines.cloudOn(),
                 ...this.#selfEditing()
@@ -1083,7 +1088,7 @@ export class PiAgent extends DurableObject<Env> {
       content: peerQuestion(name, question)
     });
 
-    const answer = said || "This ky couldn't answer that just now.";
+    const answer = said || `${this.agentName} couldn't answer that just now.`;
 
     // A question the conversation escalated waits on the user's reply instead.
     if (this.peerAsks.answered("in", name, id, answer, ["open"])) await deliver(this.peerDesk, name, id, answer);
@@ -1118,7 +1123,7 @@ export class PiAgent extends DurableObject<Env> {
   inboundHooks(): HooksView {
     const chats = this.chats.list().filter((chat) => chat.archived_at === null);
 
-    return { hooks: this.inbound.hooks(), chats: [{ session: ROOT_SESSION, title: "ky" }, ...chats.map(({ session, title }) => ({ session, title: title || "New chat" }))] };
+    return { hooks: this.inbound.hooks(), chats: [{ session: ROOT_SESSION, title: this.agentName }, ...chats.map(({ session, title }) => ({ session, title: title || "New chat" }))] };
   }
 
   inboundHook(id: string): Hook | null {

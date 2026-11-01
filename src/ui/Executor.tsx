@@ -4,6 +4,7 @@ import type { ExecutorView } from "../protocol";
 import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
+import { NAME } from "./open-chat";
 
 type ExecutorActions = {
   /** Resolves with why the connection was refused, if it was. */
@@ -217,7 +218,7 @@ export function SpecialistTools({
           <div className="row" key={tool}>
             <span className="row-text">
               <span className="row-label">{tool}</span>
-              <span className="row-sub row-sub-text">ky's: {POLICIES.find(([each]) => each === (kys.get(tool) ?? "ask"))?.[1]}</span>
+              <span className="row-sub row-sub-text">{NAME}'s: {POLICIES.find(([each]) => each === (kys.get(tool) ?? "ask"))?.[1]}</span>
             </span>
             <Segmented small role="radiogroup" aria-label={`@${id}'s approvals for ${tool}`} chosen={chosen}>
               <SegmentedOption checked={chosen === "ky"} onChoose={() => void onPolicy(tool, null).then(setRefused)}>

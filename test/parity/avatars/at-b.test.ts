@@ -50,7 +50,8 @@ describe("avatar and setup rows written at B", () => {
 });
 
 describe("the main prompt written at B", () => {
+  // B named every agent ky.
   it("is the one the port writes, for every deploy", () => {
-    for (const { config, prompt } of promptsAtB) expect(preamble(config)).toBe(prompt);
+    for (const { config, prompt } of promptsAtB) expect(preamble({ name: "ky", ...config })).toBe(prompt);
   });
 });
