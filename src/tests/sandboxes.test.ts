@@ -499,3 +499,70 @@ describe("Settings › Machines › sandboxes", () => {
     expect((await call("/api/sandboxes", { ...json("POST", { name: unique("web") }), ...signedOut })).ok).toBe(false);
   });
 });
+
+/**
+ * The container has one owner of its lifecycle at a time: the alarm, a task's wake, and the ChatGPT relay
+ * (src/cloud.ts chatgpt) may each want it up, and the alarm may put it to sleep, while another is halfway.
+ */
+describe("a sandbox's container, wanted by several at once", () => {
+  const relay = async (instance: CloudMachine, body: string) => instance.chatgpt({ "content-type": "application/json" }, await new Response(body).arrayBuffer());
+
+  /** Whether ky takes `token` for the machine `name`'s runner: 426 asks a socket of it, 401 refuses it. */
+  const accepted = async (name: string, token: string | undefined) =>
+    (await call(`/runner/${name}`, { headers: { Authorization: `Bearer ${token ?? ""}` } })).status === 426;
+
+  it("starts once for two requests to ChatGPT that find it asleep, and its runner keeps a token ky takes", async () => {
+    const sandbox = await created({ name: unique("relay") });
+
+    const answers = await onBox(sandbox.id, async (instance, box) => {
+      await instance.primed(sandbox.id, "https://ky.test");
+      // The first start is under way as the second request comes: a chat and its subagent, turned away together.
+      box.onStart = () => scheduler.wait(50);
+
+      return Promise.all([relay(instance, "chat"), relay(instance, "subagent")].map(async (answer) => (await answer).text()));
+    });
+
+    const box = await onBox(sandbox.id, (_instance, fake) => {
+      // A disk the delete's save can keep: a real runner's never is empty.
+      fake.disk = "work";
+
+      return { starts: fake.starts, token: fake.token, relayed: fake.relayed.toSorted() };
+    });
+
+    expect(answers).toEqual(["relayed", "relayed"]);
+    expect(box.starts).toBe(1);
+    expect(box.relayed).toEqual(["chat", "subagent"]);
+    expect(await accepted(sandbox.name, box.token)).toBe(true);
+
+    await call(`/api/sandboxes/${sandbox.id}`, { method: "DELETE" });
+    await call(`/api/sandboxes/kept/${sandbox.id}`, { method: "DELETE" });
+  });
+
+  it("answers a request to ChatGPT that comes while it falls asleep, from a container started after", async () => {
+    const sandbox = await created({ name: unique("relay") });
+
+    const late = await onBox(sandbox.id, async (instance, box) => {
+      await instance.primed(sandbox.id, "https://ky.test");
+      await relay(instance, "before");
+      box.disk = "work";
+      let during: Promise<Response> | undefined;
+
+      // The request lands as the sleep's save is in and its destroy begins.
+      box.onDestroy = async () => {
+        box.onDestroy = undefined;
+        during = relay(instance, "during");
+        await scheduler.wait(50);
+      };
+
+      expect(await instance.sleep()).toBe(true);
+
+      return (await during!).text();
+    });
+
+    expect(late).toBe("relayed");
+    expect(await onBox(sandbox.id, (_instance, box) => ({ up: box.up, starts: box.starts, relayed: box.relayed }))).toEqual({ up: true, starts: 2, relayed: ["before", "during"] });
+
+    await call(`/api/sandboxes/${sandbox.id}`, { method: "DELETE" });
+    await call(`/api/sandboxes/kept/${sandbox.id}`, { method: "DELETE" });
+  });
+});

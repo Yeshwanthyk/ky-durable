@@ -130,6 +130,10 @@ export class FakeBox implements CloudBox {
   uploads: boolean[] = [];
   /** The machine token each start was handed, in order. */
   tokens: string[] = [];
+  /** The machine token the running container was started with: its runner dials ky with it. */
+  token: string | undefined;
+  /** The requests the relay (`POST /chatgpt`) passed on, by their bodies. */
+  relayed: string[] = [];
   /** When each start came, by `clock`. */
   startedAt: number[] = [];
   /** The time the starts are stamped with: the CloudMachine's clock, once a test sets it. */
@@ -148,7 +152,11 @@ export class FakeBox implements CloudBox {
     this.tokens.push(env?.KY_RUNNER_TOKEN ?? "");
     this.startedAt.push(this.clock());
     await this.onStart?.();
+
+    // As the platform's own container does: one start per container.
+    if (this.up) throw new Error("start() cannot be called on a container that is already running.");
     this.#unplaced = this.refusing;
+    this.token = this.refusing ? undefined : env?.KY_RUNNER_TOKEN;
     this.ghost = false;
     this.up = !this.refusing;
     this.state = "waiting";
@@ -186,32 +194,43 @@ export class FakeBox implements CloudBox {
     return new Response(this.disk, { headers: { "content-length": String(length) } });
   }
 
+  /** `ky runner cloud`'s routes, by path. */
+  readonly #routes = new Map<string, (init?: RequestInit) => Promise<Response> | Response>([
+    ["/ping", () => new Response(this.state)],
+    [
+      "/restore",
+      async (init) => {
+        this.disk = await new Response(init?.body).text();
+        this.restored.push(this.disk);
+        this.state = "running";
+
+        return new Response(null, { status: 204 });
+      }
+    ],
+    [
+      "/save",
+      () => {
+        this.state = "stopped";
+
+        return this.#upload(true);
+      }
+    ],
+    ["/snapshot", () => (this.state === "running" ? this.#upload(false) : new Response(`the runner is ${this.state}`, { status: 409 }))],
+    [
+      "/chatgpt",
+      async (init) => {
+        this.relayed.push(await new Response(init?.body).text());
+
+        return new Response("relayed");
+      }
+    ]
+  ]);
+
   async fetch(path: string, init?: RequestInit): Promise<Response> {
     if (!this.up) throw new Error(this.#unplaced ? NO_INSTANCE : "No container runs.");
+    const route = this.#routes.get(path);
 
-    if (path === "/ping") return new Response(this.state);
-
-    if (path === "/restore") {
-      this.disk = await new Response(init?.body).text();
-      this.restored.push(this.disk);
-      this.state = "running";
-
-      return new Response(null, { status: 204 });
-    }
-
-    if (path === "/save") {
-      this.state = "stopped";
-
-      return this.#upload(true);
-    }
-
-    if (path === "/snapshot") {
-      if (this.state !== "running") return new Response(`the runner is ${this.state}`, { status: 409 });
-
-      return this.#upload(false);
-    }
-
-    return new Response("Not found", { status: 404 });
+    return route ? route(init) : new Response("Not found", { status: 404 });
   }
 
   async destroy(): Promise<void> {
