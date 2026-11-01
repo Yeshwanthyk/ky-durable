@@ -28,6 +28,28 @@
     "cli/login.ts",
     "cli/runner/commands.ts"
   ],
+  "boundaries": {
+    "zones": [
+      {
+        "name": "chat-kit",
+        "patterns": [
+          "src/chat-kit/**"
+        ]
+      },
+      {
+        "name": "ky",
+        "patterns": [
+          "**"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "from": "chat-kit",
+        "allow": []
+      }
+    ]
+  },
   "ignoreDependencies": [
     "@earendil-works/pi-telemetry"
   ],

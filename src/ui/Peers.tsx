@@ -2,7 +2,7 @@ import { createContext, type FormEvent, useCallback, useContext, useEffect, useS
 import type { PeerInvite, PeerView } from "../protocol";
 import { EmptyState } from "./Controls";
 import { CopyLine } from "./CopyButton";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { clock } from "./time";
 import { useNow } from "./use-now";

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { clock, framesOf, readMedia } from "../files/media";
 import { type Outgoing, outgoingImages, outgoingText } from "../outbox";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 /** What a row says: the words, each clip, and how many images ride along; a video's frames aren't the user's images. */
 function summary(item: Outgoing): string {

@@ -1,5 +1,5 @@
 import { type ReactNode, type RefObject, useEffect } from "react";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 // A sheet over the page: a close button, a title, optional tools, and a scrolling body. `dialog` lets the caller close it.
 export function Sheet({

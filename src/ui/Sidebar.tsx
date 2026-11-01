@@ -1,7 +1,7 @@
 import { type ReactNode, useRef, useState } from "react";
 import type { AutomationInfo, ChatRow } from "../protocol";
 import { ago } from "./time";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { useChanges } from "./use-changes";
 
 const ARCHIVE = { label: "Archive", icon: "archive" } as const;

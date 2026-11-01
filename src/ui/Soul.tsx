@@ -17,7 +17,7 @@ import { BotAvatar } from "./BotAvatar";
 import { SpecialistPage } from "./SpecialistPage";
 import { SpecialistTools } from "./Executor";
 import { Switch } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
 import { Sheet } from "./Sheet";

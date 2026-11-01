@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type Login, Logins } from "../browse/contract";
 import { KY, ownerName } from "../skills/contract";
 import { EmptyState, VaultBadge } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";

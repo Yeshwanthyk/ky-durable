@@ -1,9 +1,10 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AVATAR_TOOL } from "../avatars/contract";
 import { BloubOptions, bloubsIn } from "./Bloub";
 import type { Tool } from "./conversation";
 import { duration } from "./duration";
-import { Icon, type IconName } from "./Icon";
+import type { IconName } from "../chat-kit/Icon";
+import { ToolBody, ToolGroup, ToolRow } from "../chat-kit/ToolRow";
 import { useLightbox } from "./Lightbox";
 
 const categoryIcon: Record<Tool["category"], IconName> = {
@@ -59,56 +60,26 @@ function Trail({ tool }: { tool: Tool }) {
   ) : null;
 }
 
-// A body opens in place: its grid row grows from 0fr to 1fr, so what is below glides down rather
-// than jumping. It mounts on the first open and stays, so closing animates too; while closed it is
-// inert, so it takes no clicks or focus and screen readers skip it.
-export function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
-  const [opened, setOpened] = useState(open);
-
-  if (open && !opened) setOpened(true);
-
-  return (
-    <div className="reveal" data-open={open} inert={!open}>
-      <div className="reveal-inner">{opened ? children : null}</div>
-    </div>
-  );
-}
-
 const hasBody = (tool: Tool) => tool.output !== "" || tool.input !== "";
 
-const iconOf = (tool: Tool) => (tool.status === "failed" ? "alert" : categoryIcon[tool.category]);
-
-export function ToolRow({ tool }: { tool: Tool }) {
-  const [open, setOpen] = useState(false);
+/** A tool call as the kit's row: its phrase, how long it took, and what it showed under it. */
+export function ToolCallRow({ tool }: { tool: Tool }) {
   const { verb, target, mono } = phrase(tool);
-  const expandable = hasBody(tool);
 
   return (
-    <div className="tool" data-status={tool.status}>
-      <button
-        type="button"
-        className="tool-row"
-        aria-expanded={expandable ? open : undefined}
-        disabled={!expandable}
-        onClick={() => setOpen((value) => !value)}
-        title={tool.input || tool.summary}
-      >
-        <Icon name={iconOf(tool)} size={14} />
-        <span className={tool.status === "running" ? "verb shimmer" : "verb"}>{verb}</span>
-        {target ? <span className={mono ? "target mono" : "target"}>{target}</span> : null}
-        <span className="trail">
-          <Trail tool={tool} />
-          {expandable ? <Icon name="chevronRight" size={12} className="chevron" /> : null}
-        </span>
-      </button>
+    <ToolRow
+      icon={categoryIcon[tool.category]}
+      status={tool.status}
+      verb={verb}
+      target={target}
+      mono={mono}
+      trail={<Trail tool={tool} />}
+      title={tool.input || tool.summary}
+      body={hasBody(tool) ? <ToolBody input={tool.input} output={tool.output} command={tool.category === "run"} /> : null}
+    >
       {tool.images.length > 0 ? <ToolImages tool={tool} /> : null}
       {tool.name === AVATAR_TOOL ? <ToolBloubs output={tool.output} /> : null}
-      {expandable ? (
-        <Reveal open={open}>
-          <ToolBody tool={tool} />
-        </Reveal>
-      ) : null}
-    </div>
+    </ToolRow>
   );
 }
 
@@ -136,20 +107,8 @@ function ToolBloubs({ output }: { output: string }) {
   return specs && specs.length > 0 ? <BloubOptions specs={specs} /> : null;
 }
 
-function ToolBody({ tool }: { tool: Tool }) {
-  const command = tool.category === "run";
-
-  return (
-    <div className="tool-body">
-      {tool.input ? <pre className={command ? "command" : undefined}>{tool.input}</pre> : null}
-      {tool.output ? <pre>{tool.output.replace(/\n+$/, "")}</pre> : null}
-    </div>
-  );
-}
-
 // Consecutive reads, searches and listings read as one line: "Explored 4 files, 2 searches".
 export function ExploreGroup({ tools }: { tools: Tool[] }) {
-  const [open, setOpen] = useState(false);
   const running = tools.some((tool) => tool.status === "running");
   const reads = tools.filter((tool) => tool.summary.startsWith("Read")).length;
   const searches = tools.filter((tool) => tool.summary.startsWith("Search")).length;
@@ -162,27 +121,10 @@ export function ExploreGroup({ tools }: { tools: Tool[] }) {
   ].filter(Boolean);
 
   return (
-    <div className="tool group-row">
-      <button
-        type="button"
-        className="tool-row"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Icon name="search" size={14} />
-        <span className={running ? "verb shimmer" : "verb"}>{running ? "Exploring" : "Explored"}</span>
-        <span className="target">{parts.join(", ")}</span>
-        <span className="trail">
-          <Icon name="chevronRight" size={12} className="chevron" />
-        </span>
-      </button>
-      <Reveal open={open}>
-        <div className="group-children">
-          {tools.map((tool) => (
-            <ToolRow key={tool.id} tool={tool} />
-          ))}
-        </div>
-      </Reveal>
-    </div>
+    <ToolGroup icon="search" verb={running ? "Exploring" : "Explored"} target={parts.join(", ")} running={running}>
+      {tools.map((tool) => (
+        <ToolCallRow key={tool.id} tool={tool} />
+      ))}
+    </ToolGroup>
   );
 }

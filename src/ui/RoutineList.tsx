@@ -3,7 +3,7 @@ import type { AutomationInfo, RunInfo, TaskRow } from "../protocol";
 import { byNextRun } from "./automation-order";
 import { AutomationForm, AutomationsContext, scheduleOf, useZone } from "./Automations";
 import { Switch } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Markdown } from "./Markdown";
 import { MAIN_SESSION } from "./open-chat";
 import { plain } from "./plain";

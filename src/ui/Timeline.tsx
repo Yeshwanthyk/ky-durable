@@ -1,11 +1,11 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import type { TaskLogStep, TaskRow } from "../protocol";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Markdown } from "./Markdown";
 import { plain } from "./plain";
 import { isLive, spendParts } from "./task-progress";
 import { type TimelineState, type TimelineStep, taskTimeline, titleParts } from "./timeline-steps";
-import { Reveal } from "./ToolRow";
+import { Reveal } from "../chat-kit/Reveal";
 
 // A task's steps as a live vertical timeline in a sheet: a glyph per step on a dotted line, its
 // title with the key result, a dim line of what came back, and the raw call behind a chevron.

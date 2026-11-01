@@ -154,20 +154,6 @@
         "count": 1
       }
     },
-    "src/ui/Composer.tsx": {
-      "complexity_critical": {
-        "count": 2
-      },
-      "crap_critical": {
-        "count": 4
-      },
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "src/ui/ComposerDock.tsx": {
       "complexity_moderate": {
         "count": 1
@@ -575,7 +561,6 @@
     "src/ui/thread-marks.ts:high impact",
     "src/ui/Panel.tsx:complexity",
     "tools/oxlint/anti-slop/rules/no-known-value-widening.ts:untested risk",
-    "src/ui/Composer.tsx:complexity",
     "src/use-pi-session.ts:complexity",
     "tools/oxlint/anti-slop/rules/no-widen-then-assert.ts:untested risk",
     "src/ui/crew-of.ts:high impact",

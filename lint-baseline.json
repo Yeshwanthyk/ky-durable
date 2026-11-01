@@ -106,9 +106,6 @@
   "src/ui/CommandPalette.tsx": {
     "typescript(no-non-null-assertion)": 1
   },
-  "src/ui/Composer.tsx": {
-    "typescript(no-non-null-assertion)": 3
-  },
   "src/ui/Lightbox.tsx": {
     "typescript(no-non-null-assertion)": 2
   },

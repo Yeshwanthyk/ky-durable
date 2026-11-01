@@ -13,7 +13,7 @@ import { ChatThread } from "./ui/ChatThread";
 import { CommandPalette } from "./ui/CommandPalette";
 import { isQueued, isReturned, isWaiting, type Outgoing, sendingMessage, type Upload } from "./outbox";
 import { paletteCommands } from "./ui/commands";
-import type { Mentionable } from "./ui/Composer";
+import type { Mentionable } from "./chat-kit/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
 import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
@@ -55,7 +55,8 @@ import { AvatarsContext } from "./ui/Bloub";
 import { type FirstRunTarget, type SetUp, SOUL_INTERVIEW, Welcome } from "./ui/Welcome";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
-import "./ui/scotty.css";
+import "./chat-kit/chat.css";
+import "./ui/chat-content.css";
 import "./ui/shell.css";
 
 /** ky's own blob, ink on light and cream on dark; subagents get one from their name. */

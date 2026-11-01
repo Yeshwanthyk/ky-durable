@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Counts, plural, type Review } from "./change-review";
 import { useMode } from "./use-mode";
 import { countsOf, fileLabel, type Note, notesOn } from "./review";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 
 // The open Changes row: the file list, each file's diff, and line comments.
 // `@pierre/diffs` and Shiki live in this chunk, so they load on first open.

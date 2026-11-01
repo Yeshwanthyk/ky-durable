@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PALETTE } from "../../src/sites/embed-theme";
 
-const css = readFileSync(new URL("../../src/ui/scotty.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../src/chat-kit/chat.css", import.meta.url), "utf8");
 
-/** A scotty.css block's custom properties, from its selector's first rule. */
+/** A chat.css block's custom properties, from its selector's first rule. */
 function tokens(selector: string): Map<string, string> {
   const start = css.indexOf(`${selector} {`);
   const body = css.slice(start, css.indexOf("\n}", start));

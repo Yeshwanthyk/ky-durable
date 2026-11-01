@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from "react";
 import type { SkillChange, SkillRow, SkillVersion } from "../protocol";
 import { type Need, parse } from "../skills/contract";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { ago } from "./time";
 import type { SkillFilter } from "./use-session-route";
 

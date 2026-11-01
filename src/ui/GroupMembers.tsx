@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { BotAvatar } from "./BotAvatar";
-import type { Mentionable } from "./Composer";
-import { Icon } from "./Icon";
+import type { Mentionable } from "../chat-kit/Composer";
+import { Icon } from "../chat-kit/Icon";
 
 /** A chat's specialists, and the user's way to change them. */
 export type Group = {

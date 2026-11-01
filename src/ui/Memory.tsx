@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "../protocol";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { Sheet } from "./Sheet";
 
 /** A memory's date, YYYY-MM-DD, as a card's MM.DD.YY. */

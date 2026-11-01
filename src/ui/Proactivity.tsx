@@ -3,7 +3,7 @@ import { RIGHT_AWAY_MOST } from "../dreaming/contract";
 import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Problem } from "./Subscriptions";
 import { RowValue, Segmented, SegmentedOption, Stepper, Switch } from "./Controls";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { UsefulRate } from "./PostVerdict";
 
 type ProactivityActions = {

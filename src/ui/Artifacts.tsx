@@ -4,7 +4,7 @@ import { parseOr } from "../core/decode";
 import type { FileRow } from "../files/contract";
 import { FilesContext, isMedia } from "./Attachments";
 import { CopyButton } from "./CopyButton";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { type Media, useLightbox } from "./Lightbox";
 import { VoiceNote } from "./Media";
 import { day } from "./time";

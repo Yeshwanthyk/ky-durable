@@ -23,7 +23,7 @@ import type {
 import { nextLocals } from "../automations/contract";
 import { KY } from "../skills/contract";
 import { byNextRun } from "./automation-order";
-import { Icon } from "./Icon";
+import { Icon } from "../chat-kit/Icon";
 import { MAIN_SESSION } from "./open-chat";
 import { plain } from "./plain";
 import { ProactivityContext } from "./Proactivity";

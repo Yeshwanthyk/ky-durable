@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 /**
  * Settings → Appearance → Accent: the color of the user's bubble, the unread
  * dot and focus rings. Ink by default; the rest of ky stays ink either way.
- * Remembered in localStorage and set on <html> for the CSS (scotty.css).
+ * Remembered in localStorage and set on <html> for the CSS (chat-kit/chat.css).
  */
 export const ACCENTS = ["ink", "violet", "blue", "green", "ember", "pink"] as const;
 
