@@ -4,16 +4,16 @@
  * machine, with its own `claude` or `codex` login, shell, files and browser. Nothing listens on a
  * port. launchd or systemd runs it (cli/runner/service.ts); run in a terminal, it logs there.
  *
- * Its settings are runner.json's, each overridable by a KY_ variable (cli/runner/settings.ts),
+ * Its settings are runner.json's, each overridable by an AGENT_ variable (cli/runner/settings.ts),
  * and:
  *
- * KY_CLAUDE       the claude executable (default: claude)
- * KY_CODEX        the codex executable (default: codex)
- * KY_STATE_DIR    what must outlive the runner: handled seqs, each Codex task's home, its status (default: ~/.ky)
- * KY_RUNNER_PROBE_MS  how long it waits to try again while ky turns it away (default: 10 minutes)
+ * AGENT_CLAUDE    the claude executable (default: claude)
+ * AGENT_CODEX     the codex executable (default: codex)
+ * AGENT_STATE_DIR what must outlive the runner: handled seqs, each Codex task's home, its status (default: ~/.ky)
+ * AGENT_RUNNER_PROBE_MS  how long it waits to try again while ky turns it away (default: 10 minutes)
  *
  * Each task finds `ky` on its PATH: `ky attach` shares an image or video, and `ky diff` a
- * repository's changes as a reviewable diff. Both send the task's own token, KY_TASK_TOKEN; a task
+ * repository's changes as a reviewable diff. Both send the task's own token, AGENT_TASK_TOKEN; a task
  * never gets the machine token.
  */
 import { spawnSync } from "node:child_process";
@@ -27,6 +27,7 @@ import { HandledSeqs } from "./handled.ts";
 import { Runner, type Link } from "./runner.ts";
 import type { Settings } from "./settings.ts";
 import { tasks } from "./tasks.ts";
+import { fromEnv } from "../../src/machines/contract.ts";
 
 /** What `ky runner status` and `ky runner add` read of the running runner. */
 export const StatusSchema = Type.Object({
@@ -87,8 +88,8 @@ const disconnected = (code: number | undefined, reason: string) => `disconnected
 /** Runs the runner until ky turns it away, or a signal ends it. */
 export async function runRunner({ settings, token, state, version, ky, service, kind = "computer", stop, probe = PROBE_MS }: RunOptions): Promise<void> {
   const { url, name: machine, workdir } = settings;
-  const claude = process.env.KY_CLAUDE ?? "claude";
-  const codex = process.env.KY_CODEX ?? "codex";
+  const claude = fromEnv(process.env, "CLAUDE") ?? "claude";
+  const codex = fromEnv(process.env, "CODEX") ?? "codex";
 
   const work = tasks({
     url,

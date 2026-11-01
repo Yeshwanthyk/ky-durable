@@ -212,7 +212,7 @@ process.on("SIGINT", () => {
 record("start", {
   resume: resume ?? "",
   token: handed === undefined ? "" : createHash("sha256").update(handed).digest("hex").slice(0, 12),
-  ky: Object.keys(process.env).filter((name) => name.startsWith("KY_")).sort().join(",")
+  ky: Object.keys(process.env).filter((name) => /^(KY|AGENT)_/u.test(name)).sort().join(",")
 });
 
 if (process.env.FAKE_CLAUDE_SESSIONS) {

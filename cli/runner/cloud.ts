@@ -1,7 +1,7 @@
 /**
  * `ky runner cloud`: the cloud machine's runner, the entrypoint of ky's container image. The
  * CloudMachine (src/cloud.ts) starts the container with what it pairs as, and talks to this over
- * HTTP on KY_CLOUD_PORT:
+ * HTTP on AGENT_CLOUD_PORT:
  *
  *   GET  /ping     whether it is up: waiting for its files, running, or stopped
  *   PUT  /restore  a tar.gz of what the last sleep saved (or nothing, the first time), unpacked into
@@ -17,10 +17,10 @@
  * Its settings are the variables `ky runner run` reads with no runner.json (cli/runner/settings.ts),
  * and:
  *
- *   KY_RUNNER_TOKEN  the machine token the CloudMachine minted for this start; tasks never see it
- *   KY_CLOUD_PORT    where the CloudMachine reaches this (default: 8080)
- *   KY_GITHUB_PROXY  where git reaches github.com (default: http://github.internal/api/git/, which
- *                    the CloudMachine routes to the Worker's GitHub proxy, which holds the token)
+ *   AGENT_RUNNER_TOKEN  the machine token the CloudMachine minted for this start; tasks never see it
+ *   AGENT_CLOUD_PORT    where the CloudMachine reaches this (default: 8080)
+ *   AGENT_GITHUB_PROXY  where git reaches github.com (default: http://github.internal/api/git/, which
+ *                       the CloudMachine routes to the Worker's GitHub proxy, which holds the token)
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -32,8 +32,9 @@ import { checkoutVersion, runRunner } from "./run.ts";
 import { pack, unpack } from "./save.ts";
 import { withEnv } from "./settings.ts";
 import { compiled } from "./system.ts";
+import { envNames, fromEnv } from "../../src/machines/contract.ts";
 
-/** Where the CloudMachine reaches the runner, unless KY_CLOUD_PORT says. */
+/** Where the CloudMachine reaches the runner, unless AGENT_CLOUD_PORT says. */
 const CLOUD_PORT = 8080;
 
 const GITHUB_PROXY = "http://github.internal/api/git/";
@@ -80,10 +81,11 @@ const answer = (response: ServerResponse, status: number, body = "") => response
 
 export async function cloudCommand(context: Context): Promise<number> {
   const { env, system } = context;
-  const token = env.KY_RUNNER_TOKEN;
+  const token = fromEnv(env, "RUNNER_TOKEN");
 
-  if (!token) throw new Error("ky runner cloud runs in ky's cloud machine, which passes KY_RUNNER_TOKEN; on a computer, run ky runner run");
-  delete process.env.KY_RUNNER_TOKEN;
+  if (!token) throw new Error("ky runner cloud runs in ky's cloud machine, which passes AGENT_RUNNER_TOKEN; on a computer, run ky runner run");
+
+  for (const name of envNames("RUNNER_TOKEN")) delete process.env[name];
   const settings = withEnv(undefined, env, system);
   const version = compiled() ? (await context.release()).version : checkoutVersion();
   const saved = [path.join(system.home, ".claude", "projects"), system.state, settings.workdir];
@@ -93,7 +95,7 @@ export async function cloudCommand(context: Context): Promise<number> {
   let state: State = "waiting";
   let runner: Promise<void> | undefined;
 
-  await configureGit(system.home, env.KY_GITHUB_PROXY ?? GITHUB_PROXY);
+  await configureGit(system.home, fromEnv(env, "GITHUB_PROXY") ?? GITHUB_PROXY);
 
   const restore = async (request: IncomingMessage, response: ServerResponse) => {
     if (state !== "waiting") return answer(response, 409, `the runner is ${state}`);
@@ -147,7 +149,7 @@ export async function cloudCommand(context: Context): Promise<number> {
     });
   });
 
-  const port = Number(env.KY_CLOUD_PORT ?? CLOUD_PORT);
+  const port = Number(fromEnv(env, "CLOUD_PORT") ?? CLOUD_PORT);
 
   await new Promise<void>((resolve) => server.listen(port, resolve));
   console.log(`ky runner cloud: waiting on port ${port} for its files`);

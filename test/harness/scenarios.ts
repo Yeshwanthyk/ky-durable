@@ -604,7 +604,8 @@ export const SCENARIOS: Scenario[] = [
       check(context.main.heard(`task ${task}`), "the report names the task");
       // claude gets ky's address and its task's own token, never the machine token or the user's.
       const ky = mac.claude().find((event) => event.event === "start" && event.task === task)?.ky;
-      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `claude's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
+      // Each under its new name and its old one, which PR5b drops.
+      check(ky === "AGENT_TASK,AGENT_TASK_TOKEN,AGENT_URL,KY_TASK,KY_TASK_TOKEN,KY_URL", `claude's variables are TASK, TASK_TOKEN and URL as AGENT_ and KY_, got ${ky}`);
     }
   },
   {
@@ -886,7 +887,8 @@ export const SCENARIOS: Scenario[] = [
       check(file?.caption === "a fake screenshot", "the task lists the screenshot");
       // codex gets ky's address and its task's own token, never the machine token or the user's.
       const ky = shots.codex().find((event) => event.event === "start" && event.task === task)?.ky;
-      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `codex's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
+      // Each under its new name and its old one, which PR5b drops.
+      check(ky === "AGENT_TASK,AGENT_TASK_TOKEN,AGENT_URL,KY_TASK,KY_TASK_TOKEN,KY_URL", `codex's variables are TASK, TASK_TOKEN and URL as AGENT_ and KY_, got ${ky}`);
     }
   },
   {
