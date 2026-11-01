@@ -9,6 +9,7 @@ import { type Media, useLightbox } from "./Lightbox";
 import { VoiceNote } from "./Media";
 import { day } from "./time";
 import type { ArtifactKind } from "./use-session-route";
+import { NAME } from "./open-chat";
 
 /**
  * Everything ky made, in one place: the screenshots, videos and sounds tasks attached (src/files.ts), and the
@@ -35,8 +36,8 @@ const TABS: ReadonlyArray<readonly [ArtifactKind, string]> = [
 const NOUN: Record<Artifact["kind"], string> = { sites: "Site", images: "Image", videos: "Video", audio: "Audio" };
 
 const EMPTY: Record<ArtifactKind, string> = {
-  all: "Nothing yet. What ky makes for you, pictures, videos, sounds and sites, gathers here.",
-  sites: "No sites yet. Ask ky to make you a page.",
+  all: `Nothing yet. What ${NAME} makes for you, pictures, videos, sounds and sites, gathers here.`,
+  sites: `No sites yet. Ask ${NAME} to make you a page.`,
   images: "No images yet.",
   videos: "No videos yet.",
   audio: "No audio yet."
@@ -197,7 +198,7 @@ async function refusalOf(response: Response | null): Promise<string | null> {
   if (response?.ok) return null;
   const text = response ? await response.text().catch(() => "") : "";
 
-  return parseOr(Refused, text, { error: "ky couldn't reach the site's links." }).error;
+  return parseOr(Refused, text, { error: `${NAME} couldn't reach the site's links.` }).error;
 }
 
 function LinkItem({ link, base, onDone }: { link: Link; base: string; onDone: (response: Response | null) => void }) {

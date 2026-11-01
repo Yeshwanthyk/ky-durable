@@ -10,6 +10,7 @@ import type { MachineInfo, SpecialistAccess, SpecialistView } from "../protocol"
 import { AutomationsContext } from "./Automations";
 import { BotAvatar } from "./BotAvatar";
 import { Sheet } from "./Sheet";
+import { NAME } from "./open-chat";
 
 /** Soul › a specialist's page: its computer and Macs, workflows, skills, logins, keys and rules at a glance, and a box to ask it. */
 
@@ -126,7 +127,7 @@ export function SpecialistPage({ specialist, access, machines, onBrief, onSettin
         </Part>
         <section className="group" aria-label="Skills">
           <h4 className="group-sublabel">Skills</h4>
-          <p className="group-empty">Every skill ky has is its too.</p>
+          <p className="group-empty">Every skill {NAME} has is its too.</p>
         </section>
         <Part label="Logins" empty="None. It keeps a login when you sign in to a site in its browser.">
           {kept.logins.map((site) => (
@@ -138,7 +139,7 @@ export function SpecialistPage({ specialist, access, machines, onBrief, onSettin
             <Line key={name} label={name} value="In the Vault" />
           ))}
         </Part>
-        <Part label="Rules" empty="ky's: Settings › Executor.">
+        <Part label="Rules" empty={`${NAME}'s: Settings › Executor.`}>
           {rules.map(([tool, policy]) => (
             <Line key={tool} label={tool} value={POLICY[policy]} />
           ))}

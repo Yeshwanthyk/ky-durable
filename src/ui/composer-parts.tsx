@@ -5,6 +5,7 @@ import { clock, mediaKind } from "../files/media";
 import type { PendingClip } from "./pick-media";
 import { imageSrc, type PendingImage } from "./pick-images";
 import type { Recorder } from "./use-recorder";
+import { NAME } from "./open-chat";
 
 /** ky's side of the composer: what waits to be sent, the recording in the text's place, and who a mention is. */
 
@@ -74,7 +75,7 @@ function ClipChip({ clip, onRemove }: { clip: PendingClip; onRemove: () => void 
   const uploading = clip.file === null && !waiting;
 
   return (
-    <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined} title={waiting ? "Offline · uploads when ky reconnects" : undefined}>
+    <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined} title={waiting ? `Offline · uploads when ${NAME} reconnects` : undefined}>
       <ClipPreview clip={clip} />
       <ClipLabel clip={clip} waiting={waiting} />
       {uploading ? <span className="composer-clip-progress" style={{ width: `${clip.progress * 100}%` }} role="progressbar" aria-label={`Uploading ${clip.name}`} aria-valuenow={Math.round(clip.progress * 100)} /> : null}

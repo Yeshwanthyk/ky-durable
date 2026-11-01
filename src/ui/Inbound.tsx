@@ -9,6 +9,7 @@ import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
+import { NAME } from "./open-chat";
 
 /**
  * Settings › Webhooks: the URLs that post into a chat, and the API credentials ky calls with. A hook's URL, and its
@@ -86,7 +87,7 @@ export function Inbound() {
         <h3 className="group-label">Webhooks</h3>
         {shown ? <ShownOnce shown={shown} onClose={() => setShown(null)} /> : null}
         {view.hooks.length === 0 ? (
-          <EmptyState icon="plug">No webhooks yet. A webhook posts what a service sends into a chat, for ky to read.</EmptyState>
+          <EmptyState icon="plug">No webhooks yet. A webhook posts what a service sends into a chat, for {NAME} to read.</EmptyState>
         ) : (
           <div className="card">
             {view.hooks.map((hook) => (
@@ -106,7 +107,7 @@ export function Inbound() {
       <section className="group">
         <h3 className="group-label">Credentials</h3>
         {secrets.length === 0 ? (
-          <EmptyState icon="lock">None yet. ky asks for one in a chat when it needs to call an API.</EmptyState>
+          <EmptyState icon="lock">None yet. {NAME} asks for one in a chat when it needs to call an API.</EmptyState>
         ) : (
           groups.map(({ owner, own }) => (
             <div key={owner} data-owner={owner}>
@@ -210,7 +211,7 @@ function AddHook({ chats, onAdded }: { chats: HooksView["chats"]; onAdded: (show
 
   return (
     <form className="card form-card" aria-label="Add a webhook" onSubmit={(event) => void add(event)}>
-      <p className="field-hint">What it posts reaches the chat as outside data: ky reads it, and asks you before it changes anything.</p>
+      <p className="field-hint">What it posts reaches the chat as outside data: {NAME} reads it, and asks you before it changes anything.</p>
       <label className="field" data-stack>
         <span className="field-label">Name</span>
         <input className="field-input" value={label} placeholder="e.g. GitHub pushes" maxLength={80} onChange={(event) => setLabel(event.currentTarget.value)} />

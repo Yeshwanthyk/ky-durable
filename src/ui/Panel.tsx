@@ -55,6 +55,7 @@ import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-prog
 import { TaskTimeline } from "./Timeline";
 import { ago, clock, day } from "./time";
 import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-panel";
+import { NAME } from "./open-chat";
 
 export type Theme = "light" | "dark";
 
@@ -781,7 +782,7 @@ async function sandboxCall(path: string, method: string, body?: SandboxBody): Pr
 
   if (response.ok) return answer?.problem ?? null;
 
-  return answer?.refused ?? `ky could not do that (HTTP ${response.status}).`;
+  return answer?.refused ?? `${NAME} could not do that (HTTP ${response.status}).`;
 }
 
 /** A disk's size in words: "640 MB", "1.2 GB". */
@@ -989,7 +990,7 @@ function AddSandbox({
 
   return (
     <form className="card form-card sandbox-add" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
-      <p className="field-hint">ky's own Linux machine in Cloudflare. A task wakes it; it sleeps when idle.</p>
+      <p className="field-hint">{NAME}'s own Linux machine in Cloudflare. A task wakes it; it sleeps when idle.</p>
       <label className="field" data-stack>
         <span className="field-label">Name</span>
         <input className="field-input" value={name} placeholder="e.g. web" maxLength={32} required onChange={(event) => setName(event.currentTarget.value)} />
@@ -1139,7 +1140,7 @@ function AddMachine({ now }: { now: number }) {
     const made = response.ok ? parseOr(PairingCodeSchema, await response.text(), null) : null;
 
     if (!made) {
-      setError(`ky could not make a code (HTTP ${response.status}).`);
+      setError(`${NAME} could not make a code (HTTP ${response.status}).`);
 
       return;
     }
@@ -1463,7 +1464,7 @@ function MachineUnpair({ machine }: { machine: MachineInfo }) {
     setConfirming(false);
     const response = await fetch(`/api/runners/${encodeURIComponent(machine.name)}`, { method: "DELETE" });
 
-    setError(response.ok ? null : `ky could not unpair ${machine.name} (HTTP ${response.status}).`);
+    setError(response.ok ? null : `${NAME} could not unpair ${machine.name} (HTTP ${response.status}).`);
   };
 
   return (
@@ -1538,7 +1539,7 @@ function MachineField({ label, hint, children }: { label: string; hint?: ReactNo
 function MachineSwitch({ machine, onSet }: { machine: MachineInfo; onSet: (machine: string, change: MachineChange) => void }) {
   return (
     <MachineField label="Takes tasks">
-      <Segmented small role="radiogroup" aria-label={`Let ky use ${machine.name}`} chosen={machine.state}>
+      <Segmented small role="radiogroup" aria-label={`Let ${NAME} use ${machine.name}`} chosen={machine.state}>
         {MACHINE_STATES.map(([each, label]) => (
           <button
             key={each}
@@ -2316,7 +2317,7 @@ function ToolsGroup({ catalog }: { catalog: readonly ToolInfo[] }) {
       <h3 className="group-label">Tools</h3>
       <div className="card">
         <button type="button" className="row disclosure" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          <span className="row-label">What ky can use</span>
+          <span className="row-label">What {NAME} can use</span>
           <RowValue>{catalog.length}</RowValue>
           <Icon name="chevronRight" size={14} className="row-chevron chevron" />
         </button>
@@ -2716,7 +2717,7 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
 function PeersPage() {
   return (
     <>
-      <PageHead title="Peers">Your ky and a friend's can ask each other questions.</PageHead>
+      <PageHead title="Peers">{NAME} and a friend's agent can ask each other questions.</PageHead>
       <Peers />
     </>
   );
@@ -2725,7 +2726,7 @@ function PeersPage() {
 function MailPage() {
   return (
     <>
-      <PageHead title="Mail">ky's own address. It asks before writing to anyone new.</PageHead>
+      <PageHead title="Mail">{NAME}'s own address. It asks before writing to anyone new.</PageHead>
       <Mail />
     </>
   );
@@ -2734,7 +2735,7 @@ function MailPage() {
 function InboundPage() {
   return (
     <>
-      <PageHead title="Webhooks">URLs a service posts to, into a chat, the API credentials ky calls with, and the sites its browser stays signed in to.</PageHead>
+      <PageHead title="Webhooks">URLs a service posts to, into a chat, the API credentials {NAME} calls with, and the sites its browser stays signed in to.</PageHead>
       <Inbound />
       <BrowserLogins />
     </>
@@ -2836,7 +2837,7 @@ function AccentRow() {
 function SelfEditsPage({ setup, onSetRepo }: PageProps) {
   return (
     <>
-      <PageHead title="Self-edits">ky opens pull requests here to change itself.</PageHead>
+      <PageHead title="Self-edits">{NAME} opens pull requests here to change itself.</PageHead>
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : <p className="group-empty">Loading…</p>}
     </>
   );

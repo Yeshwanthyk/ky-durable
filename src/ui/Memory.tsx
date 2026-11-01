@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MemoryItem, MemoryRow, MemorySearch, MemoryView } from "../protocol";
 import { Icon } from "../chat-kit/Icon";
 import { Sheet } from "./Sheet";
+import { NAME } from "./open-chat";
 
 /** A memory's date, YYYY-MM-DD, as a card's MM.DD.YY. */
 const dayStamp = (date: string) => {
@@ -153,7 +154,7 @@ export function MemorySheet({
       }
     >
       <p className="soul-note">
-        What ky remembers about you and your work. ky writes these itself as you talk. Ask ky in chat to remember or
+        What {NAME} remembers about you and your work. {NAME} writes these itself as you talk. Ask {NAME} in chat to remember or
         correct something.
       </p>
       <label className="memory-search">
@@ -171,7 +172,7 @@ export function MemorySheet({
       {query.trim() !== "" ? (
         <SearchResults found={found} />
       ) : memory.count === 0 ? (
-        <p className="memory-empty">No memories yet. ky writes them as you talk.</p>
+        <p className="memory-empty">No memories yet. {NAME} writes them as you talk.</p>
       ) : (
         <MemoryList items={memory.items} tree={tree} label="Memories, newest first" />
       )}
@@ -260,7 +261,7 @@ function MemoryBlock({ item, tree }: { item: Extract<MemoryItem, { kind: "block"
             {dates}
           </span>
           {item.text === null ? (
-            <p className="memory-pending">Not summarized yet. ky is writing it.</p>
+            <p className="memory-pending">Not summarized yet. {NAME} is writing it.</p>
           ) : (
             <p>{item.text}</p>
           )}
@@ -295,7 +296,7 @@ function MemoryBlock({ item, tree }: { item: Extract<MemoryItem, { kind: "block"
       {confirming ? (
         <div className="memory-confirm" role="alertdialog" aria-label={`Rebuild summary #${item.block}`}>
           <p>
-            Drop this summary, and the larger ones built on it? ky writes them again from the memories, which stay as
+            Drop this summary, and the larger ones built on it? {NAME} writes them again from the memories, which stay as
             they are.
           </p>
           <div className="soul-form-actions">

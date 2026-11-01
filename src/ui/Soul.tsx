@@ -22,6 +22,7 @@ import { Markdown } from "./Markdown";
 import { type MemoryActions, MemoryCard, MemorySheet } from "./Memory";
 import { Sheet } from "./Sheet";
 import { ago } from "./time";
+import { NAME } from "./open-chat";
 
 const since = (time: number, now: number) => {
   const text = ago(time, now);
@@ -54,10 +55,10 @@ export type SpecialistActions = {
 };
 
 const SOUL_NOTE =
-  "This file shapes how ky talks in every conversation. It starts from a template. ky may refine it over time and tells you when it does. You can edit it at any time. This note is not part of the file.";
+  `This file shapes how ${NAME} talks in every conversation. It starts from a template. ${NAME} may refine it over time and tells you when it does. You can edit it at any time. This note is not part of the file.`;
 
 const BRIEF_NOTE =
-  "This brief is the specialist's standing instructions, in every conversation it has. ky may refine it and tells you when it does. Ask it in chat with @id. This note is not part of the brief.";
+  `This brief is the specialist's standing instructions, in every conversation it has. ${NAME} may refine it and tells you when it does. Ask it in chat with @id. This note is not part of the brief.`;
 
 // ky's persona, memory and specialists: an Edit action, the SOUL and MEMORY cards, and the specialists' rows, each opening its sheet.
 export function Soul({
@@ -641,7 +642,7 @@ function SpecialistDelete({ id, onDelete, onDeleted }: { id: string; onDelete: S
 
   return (
     <div className="machine-confirm" role="alertdialog" aria-label={`Delete @${id}`}>
-      <p>Delete @{id}? Its runs stop, its own logins and keys go, and its workflows become ky's, paused. Its brief's versions and its sandbox stay.</p>
+      <p>Delete @{id}? Its runs stop, its own logins and keys go, and its workflows become {NAME}'s, paused. Its brief's versions and its sandbox stay.</p>
       {refused ? (
         <p className="automation-refused" role="alert">
           {refused}

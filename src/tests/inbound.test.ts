@@ -25,7 +25,7 @@ const READ = new Map([
   ["web", "a web page"],
   ["webhook", "a webhook's post"],
   ["mail", "a mail"],
-  ["peer", "another person's ky's words"]
+  ["peer", "another person's agent's words"]
 ]);
 
 const TableRow = Type.Object({ name: Type.String() });

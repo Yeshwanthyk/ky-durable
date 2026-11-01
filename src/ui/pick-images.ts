@@ -1,5 +1,6 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { IMAGE_TYPES, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, MAX_IMAGES } from "../files/media";
+import { NAME } from "./open-chat";
 
 /** An image picked in the composer, ready to send. */
 export type PendingImage = ImageContent & {
@@ -36,7 +37,7 @@ const encode = (canvas: HTMLCanvasElement, quality: number) =>
  */
 export async function prepareImage(file: File): Promise<PendingImage> {
   const bitmap = await createImageBitmap(file).catch(() => {
-    throw new Error(`${file.name || "That file"} isn't an image ky can read.`);
+    throw new Error(`${file.name || "That file"} isn't an image ${NAME} can read.`);
   });
 
   const id = crypto.randomUUID();

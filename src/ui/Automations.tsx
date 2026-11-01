@@ -24,7 +24,7 @@ import { nextLocals } from "../automations/contract";
 import { KY } from "../skills/contract";
 import { byNextRun } from "./automation-order";
 import { Icon } from "../chat-kit/Icon";
-import { MAIN_SESSION } from "./open-chat";
+import { MAIN_SESSION, NAME } from "./open-chat";
 import { plain } from "./plain";
 import { ProactivityContext } from "./Proactivity";
 import {
@@ -72,7 +72,7 @@ function nextOf(automation: AutomationInfo, now: number): string {
 
 /** A card's one muted line: when it runs, when next, and a quiet "by ky" or "check-in" when ky made it. */
 function metaOf(automation: AutomationInfo, now: number): string {
-  const by = automation.created_by === "ky" ? ["by ky"] : automation.created_by === "dream" ? ["check-in"] : [];
+  const by = automation.created_by === "ky" ? [`by ${NAME}`] : automation.created_by === "dream" ? ["check-in"] : [];
 
   return [scheduleOf(automation), nextOf(automation, now), ...by].join(" · ");
 }
@@ -305,7 +305,7 @@ function CheckInsSwitch() {
       type="button"
       className="feed-action pressable"
       aria-pressed={checkIns}
-      title="ky looks again on the day at things you asked about with a date ahead, and tells you only what's new"
+      title={`${NAME} looks again on the day at things you asked about with a date ahead, and tells you only what's new`}
       onClick={() => onCheckIns(!checkIns)}
     >
       Check-ins {checkIns ? "on" : "off"}
