@@ -88,6 +88,30 @@ async function fill(): Promise<{ chat: string; upload: string }> {
 }
 
 describe("backup and restore", () => {
+  it("dumps a table of big rows in parts that each fit one call, however many rows a query reads", async () => {
+    const name = crypto.randomUUID();
+    const big = "x".repeat(200 * 1024);
+
+    // 300 rows of 200 KB, like chat entries holding photos and voice notes: 60 MB, past a call's 32 MiB.
+    await inside(name, (_instance, state) => {
+      state.storage.sql.exec("CREATE TABLE ky_bulk (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
+
+      for (let id = 1; id <= 300; id++) state.storage.sql.exec("INSERT INTO ky_bulk (id, body) VALUES (?, ?)", id, big);
+    });
+
+    const parts: number[] = [];
+    let after = null;
+
+    do {
+      const page = await agent(name).backupRows("ky_bulk", after);
+      parts.push(page.rows);
+      after = page.after;
+    } while (after !== null);
+
+    expect(parts.reduce((total, rows) => total + rows, 0)).toBe(300);
+    expect(Math.max(...parts)).toBeLessThan(256);
+  });
+
   it("backs a ky up whole and restores it into a fresh one, with every version, file and chat", async () => {
     const { chat, upload } = await fill();
     const { archive, tar } = await backUp();
