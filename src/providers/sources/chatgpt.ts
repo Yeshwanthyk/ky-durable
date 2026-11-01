@@ -1,4 +1,5 @@
 import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-responses.lazy";
+import type { FetchFunction } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import { Breaker } from "../breaker";
@@ -24,6 +25,35 @@ const CHECK_TTL_MS = 30_000;
 
 const RECORD: ProviderRecord = { id: CHATGPT, kind: "chatgpt", vendor: null, machine: null, port: null, api: null, label: NAME, enabled: true };
 
+/**
+ * chatgpt.com answers many requests from a Worker with its "Unable to load site" page, a 403 in HTML
+ * naming a Cloudflare address, while the same request from ky's container goes through (Scotty found
+ * the same). Each request goes from the Worker first, which needs no container; one turned away goes
+ * again through `cloud`, and the first answer stands when there is no cloud machine or it fails too.
+ */
+function viaCloudWhenTurnedAway(direct: FetchFunction, cloud: FetchFunction | undefined): FetchFunction {
+  if (!cloud) return direct;
+
+  // pi sends the body as bytes or text, never a stream, so the same request can go twice.
+  return async (input, init) => {
+    const first = await direct(input, init);
+
+    if (first.status !== 403 || !first.headers.get("content-type")?.includes("text/html")) return first;
+
+    try {
+      const again = await cloud(input, init);
+
+      await first.body?.cancel();
+
+      return again;
+    } catch (error) {
+      console.warn("ChatGPT turned the Worker away, and the cloud machine couldn't send it either", error);
+
+      return first;
+    }
+  };
+}
+
 function endpoint({ boundary, vault, now }: SourceHost, signedIn: () => boolean): Endpoint {
   const { models, featured, light } = offered(
     Object.values(OPENAI_CODEX_MODELS).map((model) => ({ ...model, provider: CHATGPT })),
@@ -31,7 +61,7 @@ function endpoint({ boundary, vault, now }: SourceHost, signedIn: () => boolean)
   );
 
   const breaker = new Breaker(NAME, now);
-  const fetch = breaker.watch(boundary.fetch);
+  const fetch = breaker.watch(viaCloudWhenTurnedAway(boundary.fetch, boundary.chatgptCloud));
 
   const provider = createProvider({
     id: CHATGPT,

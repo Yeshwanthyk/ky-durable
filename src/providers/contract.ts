@@ -44,6 +44,11 @@ export type ModelsBoundary = {
   readonly ai: AiBinding;
   readonly fetch: FetchFunction;
   readonly vibeProxy: VibeProxyBoundary;
+  /**
+   * The cloud machine's way to ChatGPT's Codex backend (CloudMachine.chatgpt), on a deploy with one:
+   * chatgpt.com turns many requests from a Worker away, and takes the same request from the container.
+   */
+  readonly chatgptCloud?: FetchFunction;
   readonly probeTtlMs?: number;
 };
 

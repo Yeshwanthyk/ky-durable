@@ -56,6 +56,9 @@ export const MACHINE_EXTENSION = "machines";
 
 export const CLOUD = "cloud";
 
+/** The one address the cloud machine sends a chat's requests to for the Worker (CloudMachine.chatgpt). */
+export const CHATGPT_RESPONSES = "https://chatgpt.com/backend-api/codex/responses";
+
 export const CLOUD_FACTS: MachineFacts = {
   os: "linux",
   chrome: false,

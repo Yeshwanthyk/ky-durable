@@ -13,6 +13,9 @@
  *                  tar writes it (chunked, no content-length); a tar that fails breaks the answer off
  *   GET  /snapshot the same tar.gz while the runner keeps running, after a turn ends: the container
  *                  may then die at any time and lose at most the open turn; 409 unless it runs
+ *   POST /chatgpt  a chat's request to ChatGPT's Codex backend (CHATGPT_RESPONSES), sent on as it came
+ *                  and answered as ChatGPT answers, streamed: chatgpt.com turns many requests from a
+ *                  Worker away, not this container's. It keeps nothing of the request, token and all
  *
  * Its settings are the variables `ky runner run` reads with no runner.json (cli/runner/settings.ts),
  * and:
@@ -26,7 +29,10 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { buffer } from "node:stream/consumers";
 import { pipeline } from "node:stream/promises";
+import { CHATGPT_RESPONSES } from "../../src/machines/contract.ts";
 import type { Context } from "../commands.ts";
 import { checkoutVersion, runRunner } from "./run.ts";
 import { pack, unpack } from "./save.ts";
@@ -77,6 +83,30 @@ function kept(home: string, folders: string[]): string[] {
 }
 
 const answer = (response: ServerResponse, status: number, body = "") => response.writeHead(status, { "content-type": "text/plain" }).end(body);
+
+/** What isn't passed on either way: what belongs to one connection, and what fetch undoes (the body arrives decoded). */
+const NOT_PASSED = new Set(["host", "connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "upgrade"]);
+
+/** Pass `request` on to ChatGPT, and its answer back, streamed; a closed answer cancels the request. */
+async function chatgpt(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await buffer(request);
+  const headers = new Headers();
+
+  for (const [name, values = []] of Object.entries(request.headersDistinct)) {
+    if (!NOT_PASSED.has(name)) for (const value of values) headers.append(name, value);
+  }
+
+  const cancel = new AbortController();
+
+  response.on("close", () => cancel.abort());
+  const upstream = await fetch(CHATGPT_RESPONSES, { method: "POST", headers, body, signal: cancel.signal });
+
+  response.writeHead(upstream.status, Object.fromEntries([...upstream.headers].filter(([name]) => !NOT_PASSED.has(name))));
+
+  if (!upstream.body) return void response.end();
+  // SAFETY: fetch's body is node:stream/web's ReadableStream; the global type only names it differently.
+  await pipeline(Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream), response);
+}
 
 export async function cloudCommand(context: Context): Promise<number> {
   const { env, system } = context;
@@ -137,7 +167,9 @@ export async function cloudCommand(context: Context): Promise<number> {
             ? save(response)
             : route === "GET /snapshot"
               ? snapshot(response)
-              : Promise.resolve(answer(response, 404));
+              : route === "POST /chatgpt"
+                ? chatgpt(request, response)
+                : Promise.resolve(answer(response, 404));
 
     handled.catch((error: Error) => {
       console.error(`${route} failed`, error);

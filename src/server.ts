@@ -3,6 +3,7 @@ import { Workspace, type DurableObjectStorageLike } from "@cloudflare/computer";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { createGitClient } from "@cloudflare/computer/git";
 import type { BrowserWorker } from "@cloudflare/playwright";
+import type { FetchFunction } from "@earendil-works/pi-ai";
 import { ConversationBusy, createRegistry, type Extension, Harness, LiveDoc } from "@earendil-works/pi-durable";
 import { routeAgentRequest } from "agents";
 import { PiHarness, ROOT_SESSION } from "agents/harness/pi";
@@ -37,7 +38,7 @@ import { sandboxRoute } from "./sandbox-routes";
 import { LivingSites, publicSiteRoute, siteExtension, siteRoute } from "./sites/wiring";
 import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } from "./sites/contract";
 import { meter, Spend, spendExtension } from "./spend/wiring";
-import { type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
+import { CHATGPT_RESPONSES, CLOUD, type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
 import { type ModelsBoundary, type Slot, SLOT_PROVIDER, slotModel } from "./providers/contract";
@@ -95,6 +96,17 @@ export type Boundary = ModelsBoundary & {
 /** What a deploy lacks, as each model source says, given the providers ky has. Executor is connected in Settings instead. */
 export function notSetUp(boundary: Boundary, providers: readonly string[] = []): readonly NotSetUp[] {
   return modelsNotSetUp(boundary, providers);
+}
+
+/** A request to ChatGPT's Codex backend, sent from the cloud machine `cloud` (CloudMachine.chatgpt). */
+function chatgptFrom(env: Env): FetchFunction {
+  return async (input, init) => {
+    const request = new Request(input, init);
+
+    if (request.url !== CHATGPT_RESPONSES) throw new Error(`The cloud machine only sends ChatGPT's ${CHATGPT_RESPONSES}`);
+
+    return env.CloudMachine.getByName(CLOUD).chatgpt(Object.fromEntries(request.headers), await request.arrayBuffer());
+  };
 }
 
 /** The user's one agent, one Durable Object. */
@@ -886,6 +898,7 @@ export class PiAgent extends DurableObject<Env> {
       fetch: (input, init) => fetch(input, init),
       mail: email && address ? { address: addressOf(address), send: (message) => email.send(message) } : undefined,
       vibeProxy: vibeProxyFrom(env),
+      chatgptCloud: env.KY_CLOUD ? chatgptFrom(env) : undefined,
       browser: env.BROWSER,
       extensions: [],
       seeds: true
