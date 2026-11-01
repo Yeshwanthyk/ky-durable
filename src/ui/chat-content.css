@@ -1984,14 +1984,24 @@
   white-space: nowrap;
 }
 
-/* Where the day changes, centered between turns. */
+/* Where the day changes: its name on a hairline across the thread. */
 .day-stamp {
-  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   /* Closer to the turn it heads than the thread's gap. */
   margin-bottom: -16px;
   color: var(--quiet);
   font-size: 12px;
   font-weight: 500;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
 }
 
 /* Above the first turn that landed since the user last looked: a hairline, quiet as the day stamp. */
@@ -2069,8 +2079,10 @@
   width: 100%;
 }
 
+/* A machine's report starts at ky's edge, where its answer will, not centered like a turn's events. */
 .report-line {
   width: 100%;
+  justify-content: flex-start;
   transition: color 150ms var(--ease-out);
 
   &:not(:disabled):hover {

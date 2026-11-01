@@ -297,7 +297,7 @@ kbd {
   padding: 20px 20px 60px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 32px;
 }
 .turn {
   display: flex;
@@ -326,7 +326,7 @@ kbd {
   border-radius: 20px;
   background: var(--user-bubble);
   color: var(--user-ink);
-  font-size: calc(14px * var(--text-scale));
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -649,7 +649,7 @@ kbd {
 
 .answer {
   position: relative;
-  font-size: calc(14px * var(--text-scale));
+  font-size: calc(15px * var(--text-scale));
 }
 
 .answer-actions {
