@@ -30,6 +30,7 @@ import {
   tarPadding
 } from "./archive";
 import { decode, decodeOr, parseAs } from "./core/decode";
+import { MIGRATION_TABLE, type Migration, migrateStorage } from "./core/migrate";
 import { saveKey } from "./runners/contract";
 import { restores } from "./tables";
 import { fromBase64, toBase64 } from "./machines/contract";
@@ -68,9 +69,9 @@ const SKIPPED: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /** The tables of an archive a restore leaves out, as what it reports: none, unless ky stopped naming one. */
-const strays = (tables: readonly TableDump[]): LeftOut[] =>
+const strays = (tables: readonly TableDump[], migrations: readonly Migration[]): LeftOut[] =>
   tables.flatMap((table) =>
-    restores(table.name) ? [] : [{ what: `Table ${table.name}`, why: "this ky doesn't name it", next: "nothing: an old version's table, or one added by hand" }]
+    restores(table.name, migrations) ? [] : [{ what: `Table ${table.name}`, why: "this ky doesn't name it", next: "nothing: an old version's table, or one added by hand" }]
   );
 
 /** SQLite's and the runtime's own tables, which nothing copies. */
@@ -216,14 +217,16 @@ function rowCells(values: readonly SqlStorageValue[]): Cell[] {
 
 const staging = (table: string) => `ky_restore__${table}`;
 
-/** The agent's half: the dump, and the staged restore. */
+/** The agent's half: the dump, and the staged restore, which brings an older archive's data to `migrations`' level. */
 export class Backups {
   readonly #storage: DurableObjectStorage;
   readonly #sql: SqlStorage;
+  readonly #migrations: readonly Migration[];
 
-  constructor(storage: DurableObjectStorage) {
+  constructor(storage: DurableObjectStorage, migrations: readonly Migration[]) {
     this.#storage = storage;
     this.#sql = storage.sql;
+    this.#migrations = migrations;
   }
 
   #scalar(query: string, ...bindings: SqlStorageValue[]): number | null {
@@ -296,7 +299,7 @@ export class Backups {
     return {
       tables: tables.map(({ key: _key, ...table }) => table),
       skipped: left,
-      schemas: this.#schemas(),
+      schemas: { ...this.#schemas(), data: this.#scalar(`SELECT count(*) FROM ${MIGRATION_TABLE}`) ?? 0 },
       unfinished: count("SELECT count(*) FROM pi_tasks WHERE status != 'terminal'"),
       summary: {
         chats: chats.length + 1,
@@ -373,7 +376,7 @@ export class Backups {
     this.#checkSchemas(manifest.schemas);
     const existing = new Map(this.#tables().map((table) => [table.name, table]));
     // A table ky doesn't name is left out: stage counts its rows and drops them.
-    const tables = manifest.tables.filter((table) => restores(table.name));
+    const tables = manifest.tables.filter((table) => restores(table.name, this.#migrations));
 
     for (const table of tables) this.#checkTable(table, existing.get(table.name));
 
@@ -395,13 +398,17 @@ export class Backups {
       "INSERT INTO ky_restore (id, tables, rows, left_out) VALUES (1, ?, ?, ?)",
       JSON.stringify(tables),
       JSON.stringify(end.rows),
-      JSON.stringify([...manifest.leftOut, ...strays(manifest.tables)])
+      JSON.stringify([...manifest.leftOut, ...strays(manifest.tables, this.#migrations)])
     );
   }
 
-  /** Refuse a backup whose pi or workspace tables are another version than this ky's. */
+  /** Refuse a backup whose pi or workspace tables are another version than this ky's, or whose data is from a newer release. */
   #checkSchemas(theirs: Schemas): void {
     const here = this.#schemas();
+
+    if ((theirs.data ?? 0) > this.#migrations.length) {
+      throw new Error(`The backup's data is at migration ${theirs.data}, from a newer release; this ky's release knows ${this.#migrations.length}. Upgrade this ky, then restore.`);
+    }
 
     for (const library of ["pi", "workspace"] as const) {
       if (theirs[library] !== null && here[library] !== null && theirs[library] !== here[library]) {
@@ -497,7 +504,7 @@ export class Backups {
     const dump = this.#started().tables.find((each) => each.name === table);
 
     // A table begin left out: its rows are counted, as the CLI sends them, and dropped.
-    if (!dump && !restores(table)) return text.split("\n").filter((line) => line !== "").length;
+    if (!dump && !restores(table, this.#migrations)) return text.split("\n").filter((line) => line !== "").length;
 
     if (!dump) throw new Error(`The backup has no table ${table}.`);
     const width = dump.columns.length + (dump.rowid ? 1 : 0);
@@ -521,8 +528,10 @@ export class Backups {
   }
 
   /**
-   * Swap the staged rows in, every table at once, then `after` in the same
-   * transaction; returns how many rows. Refuses unless every row arrived.
+   * Swap the staged rows in, every table at once, bring them to this release's
+   * data level, then `after` in the same transaction; returns how many rows.
+   * Refuses unless every row arrived, or when a migration fails, and then
+   * nothing changed.
    */
   finish(force: boolean, after: () => void): Finished {
     const { tables, rows: expected, leftOut } = this.#started();
@@ -539,7 +548,10 @@ export class Backups {
     const existing = new Set(this.#tables().map((table) => table.name));
 
     this.#storage.transactionSync(() => {
+      // The archive's level replaces this ky's: one from before migrations has none, and is at level 0.
+      this.#sql.exec(`DELETE FROM ${MIGRATION_TABLE}`);
       this.#swap(tables, existing);
+      migrateStorage(this.#storage, this.#migrations);
       this.#drop();
       after();
     });

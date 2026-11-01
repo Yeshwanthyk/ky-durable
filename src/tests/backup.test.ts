@@ -5,6 +5,7 @@ import { backupRoute } from "../backup";
 import { ASSERTION } from "../access/contract";
 import { CLOUD } from "../machines/contract";
 import { saveKey } from "../runners/contract";
+import { MIGRATIONS } from "../migrations";
 import { restores } from "../tables";
 import { agent, call, connect, connectExecutor, inside, pairing, prompt, said, until } from "./drive";
 
@@ -130,7 +131,7 @@ describe("backup and restore", () => {
     expect(Object.keys(manifest.skipped)).toEqual(expect.arrayContaining(["ky_machines", "ky_providers", "ky_history", "cf_agents_jobs"]));
     expect(manifest.tables.map((table) => table.name)).toEqual(expect.arrayContaining(["pi_entries", "memo_log", "ky_skill_versions", "vfs_nodes", "ky_sandboxes"]));
     // Every table a lived-in ky backs up is one a restore puts back: none is dropped on the way.
-    expect(manifest.tables.map((table) => table.name).filter((table) => !restores(table))).toEqual([]);
+    expect(manifest.tables.map((table) => table.name).filter((table) => !restores(table, MIGRATIONS))).toEqual([]);
 
     // A new deploy's bucket: the upload isn't there until the restore puts it back.
     await env.FILES.delete(upload);
