@@ -612,6 +612,12 @@ const RECENT = 10;
 /** How many more each Show earlier adds. */
 const EARLIER = 20;
 
+/** How many past days show at first. */
+const RECENT_DAYS = 7;
+
+/** How many more past days each Show earlier adds. */
+const EARLIER_DAYS = 7;
+
 /** Finished tasks under their day: Today, Yesterday, Monday, Sep 28. */
 function byDay(tasks: readonly TaskRow[], now: number): Map<string, TaskRow[]> {
   const groups = new Map<string, TaskRow[]>();
@@ -624,36 +630,67 @@ function byDay(tasks: readonly TaskRow[], now: number): Map<string, TaskRow[]> {
   return groups;
 }
 
-// The most recent finished tasks by day; Show earlier adds older ones until none are left.
-function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
+// One past day as today folds: failed tasks as their own rows, since they need the user, and the rest in one quieter
+// row of how many that opens to them. A day with one other task shows it, since a fold would hide no more than it.
+function PastDay({ label, rows, earlier, feed }: { label: string; rows: readonly TaskRow[]; earlier: boolean; feed: FeedProps }) {
+  const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(RECENT);
-  // Only rows Show earlier revealed play an entry; the first screen and new tasks just appear.
-  const earlier = new Set(past.slice(RECENT, shown).map((task) => task.id));
-  const hidden = past.length - shown;
+  const failed = rows.filter((task) => task.status === "failed");
+  const rest = rows.filter((task) => task.status !== "failed");
+  const folds = rest.length > 1;
+  const listed = folds ? failed : rows;
+
+  return (
+    <section className="feed-group" aria-label={label} data-earlier={earlier} data-arrive={`day:${label}`}>
+      <h3 className="feed-head">{label}</h3>
+      <ul className="feed">
+        {listed.map((task, index) => (
+          <TaskItem
+            key={task.id}
+            task={task}
+            earlier={earlier}
+            arriveKey={`past:${task.id}`}
+            sameTime={sameTimeAs(listed, index)}
+            {...feed}
+          />
+        ))}
+        {folds ? (
+          <li className="today-fold" data-open={open || undefined}>
+            <button type="button" className="today-row disclosure" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <span className="today-time tabular" aria-hidden>
+                {failed.length > 0 ? null : clockAt(rest[0]!.updated_at)}
+              </span>
+              <span className="today-title">{foldLabel(rest, failed.length)}</span>
+              <span className="today-note" />
+              <Icon name="chevronRight" size={12} className="chevron" />
+            </button>
+            {open ? <FoldedTasks rest={rest} shown={shown} onMore={() => setShown((count) => count + EARLIER)} feed={feed} /> : null}
+          </li>
+        ) : null}
+      </ul>
+    </section>
+  );
+}
+
+// The most recent past days, each folded; Show earlier adds older days until none are left. Paged by day, not by
+// task, so a day's fold always counts all of that day's tasks.
+function History({ past, ...feed }: FeedProps & { past: readonly TaskRow[] }) {
+  const [shown, setShown] = useState(RECENT_DAYS);
+  const days = [...byDay(past, feed.now)];
+  const hidden = days.length - shown;
 
   return (
     <>
-      {[...byDay(past.slice(0, shown), feed.now)].map(([label, rows]) => (
-        <section key={label} className="feed-group" data-earlier={earlier.has(rows[0]!.id)} data-arrive={`day:${label}`}>
-          <h3 className="feed-head">{label}</h3>
-          <ul className="feed">
-            {rows.map((task, index) => (
-              <TaskItem
-                key={task.id}
-                task={task}
-                earlier={earlier.has(task.id)}
-                arriveKey={`past:${task.id}`}
-                sameTime={sameTimeAs(rows, index)}
-                {...feed}
-              />
-            ))}
-          </ul>
-        </section>
+      {days.slice(0, shown).map(([label, rows], index) => (
+        // Only days Show earlier revealed play an entry; the first screen and new tasks just appear.
+        <PastDay key={label} label={label} rows={rows} earlier={index >= RECENT_DAYS} feed={feed} />
       ))}
       {hidden > 0 ? (
-        <button type="button" className="feed-more pressable" onClick={() => setShown((count) => count + EARLIER)}>
+        <button type="button" className="feed-more pressable" onClick={() => setShown((count) => count + EARLIER_DAYS)}>
           Show earlier
-          <span className="feed-more-count tabular">{hidden} more</span>
+          <span className="feed-more-count tabular">
+            {hidden} more {hidden === 1 ? "day" : "days"}
+          </span>
         </button>
       ) : null}
     </>
