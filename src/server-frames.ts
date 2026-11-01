@@ -8,7 +8,7 @@
  * Only typebox and types, so Node loads it as it is, as the harness does.
  */
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { AgentEvent } from "@earendil-works/pi-durable";
+import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
 import Type, { type Static, type TSchema } from "typebox";
 import { ApprovalKindSchema, type ApprovalView, ToolPolicySchema, type ToolPolicyView } from "./approvals/contract.ts";
 import { BloubSpecSchema } from "./avatars/contract.ts";
@@ -46,6 +46,8 @@ const Text = Type.String();
 const Texts = Type.Array(Text);
 
 const Event = Type.Unsafe<AgentEvent>(Type.Object({ type: Text }));
+
+const Entry = Type.Unsafe<EntryRecord>(Type.Object({ id: Type.Number(), kind: Text }));
 
 const Task = Type.Unsafe<TaskRow>(Type.Object({ id: Text, kind: Text, worker: Text, status: Text }));
 
@@ -203,6 +205,7 @@ const PostVerdictsSchema = Type.Unsafe<PostVerdicts>(
 /** What the server answers each ask with, by the ask's message type. */
 export const ANSWERS = {
   withdraw: Type.Boolean(),
+  earlier: Type.Object({ entries: Type.Array(Entry), more: Type.Boolean() }),
   "set-repo": Refusable,
   "add-key": Refusable,
   "set-claude": Refusable,

@@ -45,6 +45,15 @@ export type PiSessionView = {
   readonly error: string | null;
   /** What the user answered on ky's cards, by the ui call's id (src/ui/card-answers.ts). */
   readonly answers: Readonly<Record<string, CardAnswer>>;
+  /**
+   * The chat before the model's context starts, oldest first: what a compaction or reset cut from `messages`, and
+   * what the user paged back to with the `earlier` ask. The model no longer reads it; the user still can.
+   */
+  readonly earlier: readonly PiMessage[];
+  /** The entry id the next `earlier` page ends before, or null when the chat's start is already here. */
+  readonly before: number | null;
+  /** Where the model's context starts (the newest compaction's or reset's head), or null when it starts at the beginning. */
+  readonly boundary: number | null;
 };
 
 /**
@@ -61,7 +70,10 @@ export const EMPTY_VIEW: PiSessionView = {
   retry: null,
   model: null,
   error: null,
-  answers: {}
+  answers: {},
+  earlier: [],
+  before: null,
+  boundary: null
 };
 
 const LIVE_ID = "live";
@@ -80,18 +92,51 @@ function withAnswers(answers: PiSessionView["answers"], entries: readonly EntryR
   return found.length === 0 ? answers : { ...answers, ...Object.fromEntries(found) };
 }
 
+/**
+ * A compaction or reset that lands live: the messages before its head move to `earlier`, as the next snapshot would
+ * leave them out, and the marker leads what the model reads now. Older markers ahead of the head go with them.
+ */
+function advance(view: PiSessionView, marker: PiMessage, head: number): PiSessionView {
+  const kept = view.messages.findIndex((message) => message.boundary === undefined && Number(message.id) >= head);
+  const cut = kept < 0 ? view.messages.length : kept;
+
+  return {
+    ...view,
+    earlier: [...view.earlier, ...view.messages.slice(0, cut)],
+    messages: [marker, ...view.messages.slice(cut)],
+    boundary: head
+  };
+}
+
 function append(view: PiSessionView, entry: EntryRecord): PiSessionView {
   if (entry.kind === CARD_ANSWER) return { ...view, answers: withAnswers(view.answers, [entry]) };
   const message = projectEntry(entry);
 
   if (!message) return view;
 
-  // A reset starts a new context; the snapshot shows only the active one.
-  if (entry.kind === "pi.reset") return { ...view, messages: [message] };
-
   if (view.messages.some((known) => known.id === message.id)) return view;
 
+  if (entry.head !== undefined && message.boundary !== undefined) return advance(view, message, Number(entry.head));
+
   return { ...view, messages: [...view.messages, message] };
+}
+
+/**
+ * `view` with a page of the chat before it added: the `earlier` ask's answer for `before`. A page for a cursor the
+ * view has moved past (a new compaction, another chat) is dropped.
+ */
+export function withEarlier<View extends PiSessionView>(view: View, before: number, page: { readonly entries: readonly EntryRecord[]; readonly more: boolean }): View {
+  if (view.before !== before) return view;
+  const known = new Set([...view.earlier, ...view.messages].map((message) => message.id));
+  const added = projectEntries(page.entries).filter((message) => !known.has(message.id));
+  const oldest = page.entries[0];
+
+  return {
+    ...view,
+    earlier: [...added, ...view.earlier],
+    before: page.more && oldest !== undefined ? Number(oldest.id) : null,
+    answers: withAnswers(view.answers, page.entries)
+  };
 }
 
 function blockPart(block: AssistantMessage["content"][number]): PiMessagePart {
@@ -195,6 +240,10 @@ function reduceView(
   switch (event.type) {
     case "snapshot": {
       const partial = event.generation?.message;
+      const head = event.entries[0]?.head;
+      const boundary = head === undefined ? null : Number(head);
+      // The same context as before (a reconnect) keeps what the user paged back to; a new one starts paging at its head.
+      const same = boundary === view.boundary && view.messages[0]?.id === (event.entries[0] === undefined ? undefined : String(event.entries[0].id));
 
       return {
         messages: projectEntries(event.entries),
@@ -211,7 +260,10 @@ function reduceView(
         retry: event.generation?.retry ?? null,
         model: event.agent.model ?? null,
         error: null,
-        answers: withAnswers({}, event.entries)
+        answers: withAnswers({}, event.entries),
+        earlier: same ? view.earlier : [],
+        before: same ? view.before : boundary,
+        boundary
       };
     }
 

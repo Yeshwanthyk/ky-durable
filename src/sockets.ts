@@ -44,6 +44,7 @@ import type { Verdicts } from "./dreaming/wiring";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { deleteSpecialist, type Leftovers } from "./skills/wiring";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { earlierAnswer, earlierPage } from "./earlier";
 import type { PiClientMessage, PiServerMessage, PiToolInfo } from "./protocol";
 import type { FileStore } from "./files/wiring";
 import type { Models } from "./providers/wiring";
@@ -992,6 +993,7 @@ export class PiSessionSockets {
     submit: (message, _connection, session) => this.#submit(session, message),
     abort: (_message, _connection, session) => this.#harness.session(session).abort(),
     withdraw: (message, _connection, session) => this.#withdraw(session, message.operationId),
+    earlier: async (message, _connection, session) => earlierAnswer(await earlierPage(await this.#harness.conversation(session), message.before, BACKGROUND_CONTEXT)),
     "steer-now": (_message, _connection, session) => this.#steerNow(session),
     reset: async (message, _connection, session) => {
       await this.#harness.session(session).reset(message.handoff);

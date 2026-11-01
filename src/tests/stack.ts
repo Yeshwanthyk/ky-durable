@@ -4,6 +4,9 @@ import type { DreamLedgerRow } from "../dreaming/contract";
 import { CLOUD, type TaskTokens } from "../machines/contract";
 import { Access } from "../access/wiring";
 import { parseOr } from "../core/decode";
+import { COMPACTION } from "../core/transcript";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { type Boundary, PiAgent as ProductionAgent, worker } from "../server";
 import { peerRoute } from "../peers/peers";
 import { type AiCall, chatCompletions, fakeAI, type Reply, type WireMessage, wireText } from "../../test/fakes/ai";
@@ -1068,6 +1071,25 @@ export class PiAgent extends ProductionAgent {
   }
 
   /**
+   * A chat (the main one unless `session` names another) compacted as pi does it, without a model to summarize: a summary marker whose head is the user's
+   * `keep`th message from the end, so the chat before it leaves the model's context and the snapshot.
+   */
+  async compact(keep: number, session: string = ROOT_SESSION): Promise<void> {
+    const conversation = await this.harness.conversation(session);
+    const { items } = await conversation.entries({}, 500, undefined, BACKGROUND_CONTEXT);
+    const head = items.filter((entry) => entry.kind === "pi.user")[keep - 1];
+
+    if (head === undefined) throw new Error(`No ${keep}th message from the end to keep from.`);
+    const text = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n## Goal\nThe user sent numbered test messages.\n</summary>";
+
+    await conversation.submit(
+      { type: "write", entry: { kind: COMPACTION, head: head.id, model: [{ role: "user", content: [{ type: "text", text }], timestamp: Date.now() }] }, requestId: `compact-${head.id}` },
+      BACKGROUND_CONTEXT
+    );
+    await conversation.waitForIdle(BACKGROUND_CONTEXT);
+  }
+
+  /**
    * A night's dream, as Activity › Last night lists it, through the real skill library, memory and ledger: two
    * skills the agent wrote, then a dream that forgets a memory summary, edits one skill, merges the other into
    * it and makes a third. Each name ends in `tag`. Answers with the dream's ledger rows.
@@ -1156,6 +1178,14 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
     "POST /test/dream",
     async (me) => {
       await me.dream();
+
+      return new Response(null, { status: 204 });
+    }
+  ],
+  [
+    "POST /test/compact",
+    async (me, url) => {
+      await me.compact(Number(url.searchParams.get("keep") ?? "1"), url.searchParams.get("session") ?? undefined);
 
       return new Response(null, { status: 204 });
     }

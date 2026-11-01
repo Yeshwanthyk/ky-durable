@@ -227,6 +227,13 @@ const iso = (time: number) => (time > 0 ? new Date(time).toISOString() : null);
  * each user message and holds the assistant's text, thinking and tool calls
  * that follow, with each call's result folded into its row.
  */
+/** What a turn opened under a compaction or reset carries of it. */
+function under(boundary: PiMessage | undefined): Pick<Turn, "divider" | "summary"> {
+  if (boundary?.boundary === undefined) return {};
+
+  return boundary.boundary === "summary" ? { divider: "summary", summary: userText(boundary) } : { divider: boundary.boundary };
+}
+
 export function buildTurns(
   messages: readonly PiMessage[],
   live: PiMessage | null,
@@ -237,14 +244,18 @@ export function buildTurns(
   const calls = new Map<string, Tool>();
   const started = new Map<string, number>();
   let current: Turn | undefined;
+  /** A compaction or reset the next turn opens under. */
+  let boundary: PiMessage | undefined;
 
-  const open = (message: PiMessage | null): Turn => {
+  /** A new turn, from the user's `message`; with none, one ky started, named after the message `at` it opens on. */
+  const open = (message: PiMessage | null, at: string): Turn => {
     const { clips, text: raw } = readMedia(message ? userText(message) : "");
     const report = REPORT.exec(raw);
     const images = message ? message.parts.flatMap((part) => (part.type === "image" ? [keptImageSrc(part)] : [])) : [];
 
     const turn: Turn = {
-      id: message?.id ?? `t${turns.length}`,
+      // Named by a message, not a position, so a page of the chat before it leaves every turn's id as it was.
+      id: message?.id ?? `${at}:turn`,
       state: "completed",
       user: report ? raw.slice(report[0].length) || (/ failed: (.*)\]\s*$/.exec(report[0])?.[1] ?? "") : raw,
       // A video's frames are for the model; its player shows the video.
@@ -255,16 +266,18 @@ export function buildTurns(
       to: message?.to ?? [],
       items: [],
       startedAt: message ? iso(message.timestamp) : null,
-      endedAt: null
+      endedAt: null,
+      ...under(boundary)
     };
 
+    boundary = undefined;
     turns.push(turn);
 
     return turn;
   };
 
   const addAssistant = (message: PiMessage, streaming: boolean) => {
-    const turn = current ?? (current = open(null));
+    const turn = current ?? (current = open(null, message.id));
     turn.startedAt ??= iso(message.timestamp);
 
     message.parts.forEach((part, index) => {
@@ -325,12 +338,12 @@ export function buildTurns(
   for (const message of messages) {
     switch (message.role) {
       case "user":
-        current = open(message);
+        current = open(message, message.id);
         break;
       case "assistant":
         // A post starts no turn, so it is one of its own, and what a run going on writes after it opens another.
         if (message.posted) {
-          current = open(null);
+          current = open(null, message.id);
           current.id = message.id;
 
           if (message.post !== undefined) current.post = message.post;
@@ -356,7 +369,7 @@ export function buildTurns(
         if (current) current.endedAt = iso(message.timestamp);
         break;
       case "specialist":
-        (current ?? (current = open(null))).items.push({
+        (current ?? (current = open(null, message.id))).items.push({
           kind: "specialist",
           id: message.id,
           from: message.from ?? "specialist",
@@ -365,13 +378,25 @@ export function buildTurns(
         });
         break;
       case "notice": {
+        // The model's context starts again here: what follows is a new turn, under a divider.
+        if (message.boundary !== undefined) {
+          // Two in a row: the first gets a turn of its own.
+          if (boundary !== undefined) open(null, boundary.id);
+          boundary = message;
+          current = undefined;
+          break;
+        }
+
         const note = userText(message);
 
-        if (note) (current ?? (current = open(null))).items.push({ kind: "notice", id: message.id, text: note, tone: "info" });
+        if (note) (current ?? (current = open(null, message.id))).items.push({ kind: "notice", id: message.id, text: note, tone: "info" });
         break;
       }
     }
   }
+
+  // A compaction with nothing after it yet still shows, as a turn of its own.
+  if (boundary !== undefined && live === null) open(null, boundary.id);
 
   if (live) addAssistant(live, true);
 

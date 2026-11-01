@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PiSessionView } from "../view";
+import type { PiMessage } from "../core/transcript";
 import { Icon } from "./Icon";
 import { ApprovalCards } from "./Approvals";
 import { InboundCards } from "./InboundCards";
@@ -13,9 +14,11 @@ import { turnTimeline } from "./timeline-steps";
 import type { Turn } from "./conversation";
 import { buildTurns } from "./turns";
 
-type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools" | "answers">;
+type ThreadView = Pick<PiSessionView, "messages" | "live" | "running" | "tools" | "answers"> & Partial<Pick<PiSessionView, "earlier" | "before">>;
 
 const NONE_RECALLED: Readonly<Record<string, readonly string[]>> = {};
+
+const NONE_EARLIER: readonly PiMessage[] = [];
 
 const isEmpty = ({ messages, live, running }: ThreadView) => messages.length === 0 && !live && !running;
 
@@ -36,21 +39,27 @@ export function ChatThread({
   session,
   welcome,
   visit,
+  onEarlier,
   ...contexts
 }: Contexts & {
   /** Which chat this is: another one starts its thread afresh, with earlier turns folded again. */
   chat: string;
   session: ThreadView;
+  /** Fetch the page of the chat before `session.earlier`, which a compaction left out of the snapshot. */
+  onEarlier?: () => Promise<void>;
   welcome: ReactNode;
   /** When the user last saw this chat, for the New divider. */
   visit: Visit;
 }) {
-  const { messages, live, running, tools } = session;
+  const { messages, live, running, tools, earlier = NONE_EARLIER, before = null } = session;
   const threadRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
-  const turns = useMemo(() => buildTurns(messages, live, running, tools), [messages, live, running, tools]);
+  // What a compaction cut from the model's context still reads here, above the summary that replaced it.
+  const all = useMemo(() => (earlier.length === 0 ? messages : [...earlier, ...messages]), [earlier, messages]);
+  const turns = useMemo(() => buildTurns(all, live, running, tools), [all, live, running, tools]);
+  const older = useMemo(() => (onEarlier === undefined ? undefined : { more: before !== null, load: onEarlier }), [before, onEarlier]);
 
-  const { away, toLatest } = useFollow(threadRef, innerRef, messages[0]?.id ?? null, turns);
+  const { away, toLatest } = useFollow(threadRef, innerRef, chat, turns);
   const [steps, setSteps] = useState(false);
   const openSteps = useCallback(() => setSteps(true), []);
 
@@ -59,7 +68,7 @@ export function ChatThread({
       <div ref={innerRef} className="thread-inner">
         <ThreadContexts {...contexts} openSteps={openSteps}>
           <AnswersContext.Provider value={session.answers}>
-            {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} />}
+            {isEmpty(session) ? welcome : <Thread key={chat} turns={turns} mode={running ? "live" : "dormant"} visit={visit} older={older} />}
           </AnswersContext.Provider>
           <ApprovalCards chat={chat} />
           <InboundCards session={chat} changed={turns} />
@@ -120,7 +129,7 @@ type Follow = {
   /** A glide to the end is under way; when it started, so a stale timer knows it is stale. */
   glide: number | null;
   touching: boolean;
-  /** The open chat's first message, to tell a new chat from new turns. Undefined before the first render. */
+  /** The open chat, to tell a new chat from new turns, or from a page of earlier ones. Undefined before the first render. */
   history: string | null | undefined;
   lastTurn: string | null;
 };
@@ -333,7 +342,8 @@ function anchorsIn(thread: HTMLElement, inner: HTMLElement): Anchor[] {
   let level: Element = inner;
 
   for (let depth = 0; depth < 8; depth++) {
-    const child = Array.from(level.children).find((each) => each.getBoundingClientRect().bottom > edge);
+    // The fold isn't one: turns land below it, and what the user reads must stay put, not the fold.
+    const child = Array.from(level.children).find((each) => !each.classList.contains("earlier") && each.getBoundingClientRect().bottom > edge);
 
     if (!child) break;
 

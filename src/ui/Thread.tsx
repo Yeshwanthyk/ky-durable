@@ -1,4 +1,4 @@
-import { createContext, Fragment, memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, memo, type ReactNode, type RefObject, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SENDING } from "../outbox";
 import { flushSync } from "react-dom";
 import { Attachments } from "./Attachments";
@@ -43,6 +43,18 @@ export const SpeakerContext = createContext<Speaker>({ name: "ky" });
 // The last few turns stay open; older ones fold behind one button, as in pecan.
 const openTurns = 3;
 
+/** What the user does to scroll, as opposed to the thread scrolling itself. */
+const USER_SCROLL = ["wheel", "touchmove", "keydown"] as const;
+
+/** Turns each tap of the fold, or each scroll up to it, brings back. */
+const revealStep = 10;
+
+/**
+ * The chat before the turns a thread holds, which a compaction left out of the snapshot: whether there is more, and
+ * how to fetch the next page of it, which lands in the thread's turns.
+ */
+export type Older = { readonly more: boolean; readonly load: () => Promise<void> };
+
 // How the last turn shows while it streams. "live": the agent is working on it. "booting": the
 // session is still starting, so it shows only its prompt. "dormant": nothing is working on it, so
 // it was cut off. Any earlier streaming turn was cut off by a crash or a stop, whatever the mode.
@@ -52,14 +64,19 @@ export function Thread({
   turns,
   mode = "live",
   visit = null,
+  older = START,
 }: {
   turns: ReadonlyArray<Turn>;
   mode?: ThreadMode;
   /** When the user last saw this chat, for the New divider above what landed since. */
   visit?: Visit;
+  /** The chat before `turns`, paged in from the server. */
+  older?: Older;
 }) {
-  const [showAll, setShowAll] = useState(false);
-  const hidden = showAll ? 0 : folded(turns.length, openTurns, firstNew(turns, visit));
+  // How many turns, counted from the end, the user has unfolded; a page landing above them leaves them as they are.
+  const [reach, setReach] = useState(0);
+  const shown = Math.max(turns.length - folded(turns.length, openTurns, firstNew(turns, visit)), reach);
+  const hidden = Math.max(0, turns.length - shown);
   const shownTurns = turns.slice(hidden);
   const above = marks(shownTurns, visit, Date.now());
   // The first message of a new chat rises in where the welcome screen was, rather than swapping
@@ -72,26 +89,138 @@ export function Thread({
 
   return (
     <CardsContext.Provider value={cards}>
-      {hidden > 0 ? (
-        <button type="button" className="earlier pressable" onClick={() => setShowAll(true)}>
-          <Icon name="chevronDown" size={14} />
-          <span>
-            {hidden} earlier {hidden === 1 ? "turn" : "turns"}
-          </span>
-        </button>
-      ) : null}
+      {hidden > 0 || older.more ? <Earlier hidden={hidden} older={older} onReveal={() => setReach(shown + revealStep)} /> : null}
       {shownTurns.map((turn, index, shown) => (
         <Fragment key={turn.id}>
           <TurnMark mark={above[index]} />
-          <TurnView
+          <Boundary turn={turn} />
+          {bare(turn) ? null : <TurnView
             turn={turn}
             mode={index === shown.length - 1 ? mode : "dormant"}
             arrived={arrived}
             next={wrote(shown[index + 1])}
-          />
+          />}
         </Fragment>
       ))}
     </CardsContext.Provider>
+  );
+}
+
+/** A turn that only carries a divider: a compaction with nothing after it yet. */
+const bare = (turn: Turn) => turn.divider !== undefined && turn.from === null && [turn.user, turn.items, turn.images, turn.clips].every((each) => each.length === 0);
+
+/** `turns` start at the chat's start. */
+const START: Older = { more: false, load: async () => {} };
+
+type Fold = "idle" | "loading" | "failed";
+
+const FOLD_LABELS: Partial<Record<Fold, string>> = { loading: "Loading earlier turns…", failed: "Couldn't load earlier turns. Tap to try again" };
+
+const foldLabel = (state: Fold, hidden: number) => FOLD_LABELS[state] ?? (hidden > 0 ? `${hidden} earlier ${hidden === 1 ? "turn" : "turns"}` : "Earlier turns");
+
+/**
+ * The fold above the thread: a tap, or scrolling up to it, unfolds the next turns, and once none are folded here,
+ * fetches the page of the chat before them. It stays while there is more, so the user can keep going back.
+ */
+function Earlier({ hidden, older, onReveal }: { hidden: number; older: Older; onReveal: () => void }) {
+  const [state, setState] = useState<Fold>("idle");
+  const button = useRef<HTMLButtonElement>(null);
+  const step = useRef<() => void>(() => {});
+
+  step.current = () => {
+    if (state === "loading") return;
+
+    onReveal();
+
+    if (hidden > 0 || !older.more) return;
+
+    setState("loading");
+    older.load().then(
+      () => setState("idle"),
+      () => setState("failed")
+    );
+  };
+
+  useScrollStep(button, step);
+
+  return (
+    <button ref={button} type="button" className="earlier pressable" aria-busy={state === "loading"} onClick={() => step.current()}>
+      <Icon name="chevronDown" size={14} />
+      <span>{foldLabel(state, hidden)}</span>
+    </button>
+  );
+}
+
+/**
+ * Scrolling up to the fold goes on back, as a tap would. Only the user's own scroll does, so a short chat that shows
+ * the fold at once doesn't page through its whole history by itself; the thread holds what they read in place while
+ * turns land above it, so the fold can stay in view, and each further scroll goes on.
+ */
+function useScrollStep(button: RefObject<HTMLButtonElement | null>, step: RefObject<() => void>) {
+  useEffect(() => {
+    const element = button.current;
+    const thread = element?.closest(".thread");
+
+    if (!element || !thread) return;
+    let near = false;
+    let last = 0;
+
+    const go = () => {
+      if (!near || Date.now() - last < 400) return;
+      last = Date.now();
+      step.current();
+    };
+
+    const watch = new IntersectionObserver(
+      ([entry]) => {
+        near = entry?.isIntersecting ?? false;
+      },
+      { root: thread, rootMargin: "240px 0px 0px 0px" }
+    );
+
+    watch.observe(element);
+
+    for (const event of USER_SCROLL) thread.addEventListener(event, go, { passive: true });
+
+    return () => {
+      watch.disconnect();
+
+      for (const event of USER_SCROLL) thread.removeEventListener(event, go);
+    };
+  }, [button, step]);
+}
+
+const SEPARATOR = { summary: "ky summarized the chat above", reset: "Context reset" };
+
+/** Where the model's context starts again, above the turn that opens there; nothing above any other turn. */
+function Boundary({ turn }: { turn: Turn }) {
+  if (turn.divider === undefined) return null;
+
+  return turn.summary ? (
+    <Summary summary={turn.summary} />
+  ) : (
+    <div className="context-divider" role="separator">
+      <span>{SEPARATOR[turn.divider]}</span>
+    </div>
+  );
+}
+
+/** A hairline that opens to the summary ky reads in place of the chat above. */
+function Summary({ summary }: { summary: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="context-boundary">
+      <button type="button" className="context-divider pressable" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span>{SEPARATOR.summary}</span>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open ? (
+        <div className="context-summary">
+          <Markdown source={summary} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

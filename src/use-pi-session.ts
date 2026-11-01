@@ -9,7 +9,7 @@ import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, sett
 import { actStore, messageStore, type StoredAct, type StoredMessage } from "./outbox-store";
 import { outgoingOf, Pending } from "./pending";
 import { uploadClip, UploadOffline } from "./ui/pick-media";
-import { EMPTY_VIEW, reduceEvents } from "./view";
+import { EMPTY_VIEW, reduceEvents, withEarlier } from "./view";
 import { useConnection } from "./connection";
 import type { CardAnswer } from "./cards/contract";
 import { cachedShared, cachedView, saveView } from "./view-cache";
@@ -615,10 +615,12 @@ export function usePiSession(session: string) {
   );
 
   const verdictActions = useVerdicts(ask, open);
+  const loadEarlier = useLoadEarlier(ask, session, state.before, setState);
 
   return {
     ...state,
     connection,
+    loadEarlier,
     submit,
     withdraw,
     takeReturned,
@@ -1142,4 +1144,22 @@ function useVerdicts(ask: AskFn, open: boolean) {
     }),
     [ask, kept]
   );
+}
+
+/**
+ * Fetch the page of the chat before what the view holds, which a compaction left out of the snapshot, and add it;
+ * one that lands after the view moved on (another chat, a new compaction) is dropped.
+ */
+function useLoadEarlier(ask: AskFn, session: string, before: number | null, setState: (change: (state: State) => State) => void) {
+  const at = useRef({ session, before });
+  at.current = { session, before };
+
+  return useCallback(async () => {
+    const { session: asked, before: from } = at.current;
+
+    if (from === null) return;
+    const page = await ask("earlier", { before: from });
+
+    setState((current) => (at.current.session === asked ? withEarlier(current, from, page) : current));
+  }, [ask, setState]);
 }
