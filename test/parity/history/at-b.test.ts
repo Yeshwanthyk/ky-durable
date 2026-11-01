@@ -2,9 +2,12 @@ import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { migrateStorage } from "../../../src/core/migrate";
+import { MIGRATIONS } from "../../../src/migrations";
 import { StoredRow } from "../skills/storage";
 import { readAll } from "./reads";
 import { nextSide } from "./next";
+import { sqlOf, transactionOf } from "./world";
 
 const AtB = Schema.Struct({ now: Schema.Number, schema: Schema.Array(Schema.String), tables: Schema.Record(Schema.String, Schema.Array(StoredRow)), reads: Schema.Unknown });
 
@@ -15,7 +18,7 @@ afterEach(() => {
 });
 
 describe("history rows written at B", () => {
-  it("open under the port, catch up from B's mark and read as B read them", () => {
+  it("open under the port after the data migrations, catch up from B's mark and read as B read them", () => {
     vi.spyOn(Date, "now").mockImplementation(() => atB.now);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const db = new DatabaseSync(":memory:");
@@ -29,6 +32,10 @@ describe("history rows written at B", () => {
         db.prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`).run(...values);
       }
     }
+
+    // B wrote them before any data migration: the agent brings them to this release's level before it reads them.
+    // SAFETY: the migrations reach sql.exec (toArray) and transactionSync; nothing else of the storage.
+    migrateStorage({ sql: { ...sqlOf(db), databaseSize: 0 }, transactionSync: transactionOf(db) } as DurableObjectStorage, MIGRATIONS);
 
     const ids = (atB.tables.pi_entries ?? []).map((row) => Number(row.id));
 

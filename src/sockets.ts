@@ -33,7 +33,7 @@ import {
   runnerTag
 } from "./machines/contract";
 import type { RunnerPipe } from "./machines/wiring";
-import { checkInput, imagesOf, spokenText } from "./files/media";
+import { checkInput, imagesOf, spokenText, withCurrentMediaTags } from "./files/media";
 import { withLateNote } from "./core/late";
 import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
@@ -864,7 +864,7 @@ export class PiSessionSockets {
     if (chat) this.#chats.touch(session, spokenText(textOf(message.input)));
 
     // A message the page kept offline for long reaches the model with a note saying so; the thread drops the note.
-    const input = withLateNote(message.input, message.waited);
+    const input = withLateNote(withCurrentMediaTags(message.input), message.waited);
 
     // A leading @id is for that specialist, and a group chat's specialists may take up the rest: they reply
     // in the chat themselves. Only here, a user's message from the socket, is a message ever routed.

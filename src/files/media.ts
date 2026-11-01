@@ -79,10 +79,10 @@ export function mediaTag(clip: MediaClip): string {
           ? "(no transcript; its frames follow as images)"
           : "(no transcript)";
 
-  return `<ky-media ${attributes.join(" ")}>${body}</ky-media>`;
+  return `<media-clip ${attributes.join(" ")}>${body}</media-clip>`;
 }
 
-const TAG = /<ky-media((?:\s+[a-z]+="[^"]*")*)\s*>([\s\S]*?)<\/ky-media>\n?/g;
+const TAG = /<media-clip((?:\s+[a-z]+="[^"]*")*)\s*>([\s\S]*?)<\/media-clip>\n?/g;
 
 const ATTRIBUTE = /([a-z]+)="([^"]*)"/g;
 
@@ -120,6 +120,18 @@ function clipOf(attributes: string, body: string): MediaClip | undefined {
     transcript: transcriptOf(unescape(body)),
     frames: framesIn(read.get("frames"))
   };
+}
+
+/**
+ * The message with any media tag a page from before its rename wrote (a tab open across the deploy, or a message
+ * its outbox kept) renamed to the current one, so stored text holds only the current tag.
+ */
+export function withCurrentMediaTags(input: UserInput): UserInput {
+  const rename = (text: string) => text.replace(/<(\/?)ky-media\b/g, "<$1media-clip");
+
+  if (!Array.isArray(input)) return rename(String(input));
+
+  return input.map((part) => (part.type === "text" ? { ...part, text: rename(part.text) } : part));
 }
 
 export function readMedia(text: string) {
