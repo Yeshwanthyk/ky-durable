@@ -401,6 +401,24 @@ test("streams the answer to a message", async ({ page }) => {
   await expect(page.getByText("echo: hello from the browser")).toBeVisible();
 });
 
+test("opens the composer into a card as typed text wraps, and back to the pill once it fits, without looping", async ({ page }) => {
+  const errors: string[] = [];
+
+  page.on("pageerror", (error) => errors.push(error.message));
+  await open(page);
+  const box = composer(page);
+  const card = page.locator(".composer");
+
+  // Typed a key at a time, as a person does: the line crosses the pill's edge on some keystroke, where pill and card
+  // once measured the text against different padding and flipped each other until React gave up.
+  await box.click();
+  await page.keyboard.type("a message long enough to wrap the pill on every width this test runs at, and a little more", { delay: 5 });
+  await expect(card).toHaveAttribute("data-open", "true");
+  await box.fill("short");
+  await expect(card).toHaveAttribute("data-open", "false");
+  expect(errors).toEqual([]);
+});
+
 test("pages back past a compaction to the chat's first message, under a divider that opens to the summary", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
