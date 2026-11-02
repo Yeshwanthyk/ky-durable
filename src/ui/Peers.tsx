@@ -2,7 +2,7 @@ import { createContext, type FormEvent, useCallback, useContext, useEffect, useS
 import type { PeerInvite, PeerView } from "../protocol";
 import { EmptyState } from "./Controls";
 import { CopyLine } from "./CopyButton";
-import { Icon } from "../chat-kit/Icon";
+import { PageAdd } from "./PageAdd";
 import { Problem } from "./Subscriptions";
 import { clock } from "./time";
 import { useNow } from "./use-now";
@@ -27,6 +27,9 @@ export const PeerContext = createContext<PeerActions>({
 const INVITE_TTL_MS = 10 * 60_000;
 
 const STATES: Record<PeerView["state"], string> = { on: "Paired", revoked: "They unpaired", unreachable: "Not answering" };
+
+/** The tone each state's word takes: only the ones that need the user show in a colour. */
+const TONES: Record<PeerView["state"], string> = { on: "online", revoked: "failed", unreachable: "waking" };
 
 /** Which way the user is adding a peer: making an invite, or pasting one. */
 type Adding = "invite" | "pair" | null;
@@ -61,28 +64,27 @@ export function Peers() {
     return reason;
   };
 
-  const choose = (next: Adding) => setAdding((current) => (current === next ? null : next));
+  const cancel = () => setAdding(null);
 
   return (
     <>
+      <PageAdd
+        label="Add a peer"
+        choices={[
+          { label: "Invite someone", onChoose: () => setAdding("invite") },
+          { label: "I have an invite", onChoose: () => setAdding("pair") },
+        ]}
+      />
       <section className="group" id="settings-peers">
         <h3 className="group-label">Paired</h3>
         <PeerList peers={peers} onRemove={remove} />
       </section>
-      <section className="group">
-        <h3 className="group-label">Add a peer</h3>
-        <div className="group-actions">
-          <button type="button" className="pill pressable" aria-pressed={adding === "invite"} onClick={() => choose("invite")}>
-            <Icon name="plus" size={14} />
-            Invite someone
-          </button>
-          <button type="button" className="pill pressable" aria-pressed={adding === "pair"} onClick={() => choose("pair")}>
-            <Icon name="nodes" size={14} />I have an invite
-          </button>
-        </div>
-        {adding === "invite" ? <InviteForm onInvite={actions.onInvite} /> : null}
-        {adding === "pair" ? <PairForm onPair={pair} /> : null}
-      </section>
+      {adding === null ? null : (
+        <section className="group">
+          <h3 className="group-label">{adding === "invite" ? "Invite someone" : "I have an invite"}</h3>
+          {adding === "invite" ? <InviteForm key="invite" onInvite={actions.onInvite} onCancel={cancel} /> : <PairForm key="pair" onPair={pair} onCancel={cancel} />}
+        </section>
+      )}
     </>
   );
 }
@@ -128,17 +130,14 @@ function PeerRow({ peer, onRemove }: { peer: PeerView; onRemove: (name: string) 
   return (
     <div className="peer" data-peer={peer.name}>
       <div className="row">
-        <span className="row-tile">
-          <Icon name="nodes" size={15} />
-        </span>
         <span className="row-text">
           <span className="row-label">{peer.name}</span>
-          <span className="row-sub peer-sub">
-            <span className="peer-state" data-state={peer.state} />
-            <span className="row-sub-text" title={peer.detail}>
-              {STATES[peer.state]} · {hostOf(peer.address)}
-            </span>
+          <span className="row-sub row-sub-text" title={peer.detail}>
+            {hostOf(peer.address)}
           </span>
+        </span>
+        <span className="state" data-tone={TONES[peer.state]}>
+          {STATES[peer.state]}
         </span>
         {confirming ? null : (
           <button type="button" className="automation-text pressable" aria-label={`Unpair ${peer.name}`} onClick={() => setConfirming(true)}>
@@ -202,7 +201,7 @@ function NameField({ value, onChange, placeholder }: { value: string; onChange: 
   );
 }
 
-function InviteForm({ onInvite }: { onInvite: PeerActions["onInvite"] }) {
+function InviteForm({ onInvite, onCancel }: { onInvite: PeerActions["onInvite"]; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [made, setMade] = useState<{ invite: PeerInvite; expiresAt: number }>();
   const [making, setMaking] = useState(false);
@@ -225,6 +224,9 @@ function InviteForm({ onInvite }: { onInvite: PeerActions["onInvite"] }) {
         <Problem text={refused} />
         {made ? <Invite invite={made.invite} expiresAt={made.expiresAt} /> : null}
         <div className="card-foot">
+          <button type="button" className="automation-text pressable" onClick={onCancel}>
+            Cancel
+          </button>
           <button type="submit" className="pill primary pressable" disabled={making || name.trim() === ""}>
             {made ? "New invite" : "Make invite"}
           </button>
@@ -255,7 +257,7 @@ function parse(invite: string) {
   return { address, code };
 }
 
-function PairForm({ onPair }: { onPair: PeerActions["onPair"] }) {
+function PairForm({ onPair, onCancel }: { onPair: PeerActions["onPair"]; onCancel: () => void }) {
   const [invite, setInvite] = useState("");
   const [name, setName] = useState("");
   // Until the user names it, the name follows the invite's address.
@@ -306,6 +308,9 @@ function PairForm({ onPair }: { onPair: PeerActions["onPair"] }) {
         />
         <Problem text={refused} />
         <div className="card-foot">
+          <button type="button" className="automation-text pressable" onClick={onCancel}>
+            Cancel
+          </button>
           <button type="submit" className="pill primary pressable" disabled={pairing || [name, address, code].some((each) => each.trim() === "")}>
             {pairing ? "Pairing…" : "Pair"}
           </button>

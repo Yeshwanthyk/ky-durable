@@ -108,6 +108,12 @@ async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
 }
 
 /** Pick a purpose's model in Settings, by the purpose's label and the model's radio. */
+/** Chooses what to add from the "+" in a Settings page's head. */
+async function addFrom(page: Page, plus: string, choice: string): Promise<void> {
+  await panel(page).getByRole("button", { name: plus, exact: true }).click();
+  await panel(page).getByRole("menu", { name: plus }).getByRole("menuitem", { name: choice }).click();
+}
+
 async function pick(page: Page, purpose: string, model: RegExp): Promise<void> {
   await settings(page, "Models", purpose);
   const radio = panel(page).getByRole("radiogroup", { name: `${purpose} model` }).getByRole("radio", { name: model });
@@ -1052,7 +1058,9 @@ test("marks a side chat that ky answered while the user was in another chat, unt
 test("picks a purpose's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
   await open(page);
   await settings(page, "Models");
-  await expect(panel(page).getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash · Workers AI");
+  // The row names the model only; its provider is on the purpose's own page.
+  await expect(panel(page).getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash");
+  await expect(panel(page).getByRole("button", { name: /^Main agent/ })).not.toContainText("Workers AI");
   await panel(page).getByRole("button", { name: /^Background/ }).click();
   await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^GPT OSS 120B/ }).click();
   await settings(page, "Models");
@@ -1157,13 +1165,13 @@ test("adds an Anthropic key in Settings once its test call passes, runs on Claud
     await claude.click();
     await expect(claude).toHaveAttribute("aria-checked", "true");
     await settings(page, "Models");
-    await expect(main).toContainText("· Anthropic");
+    await expect(main).toContainText("Claude");
   } finally {
     await settings(page, "Providers");
     await providers.getByRole("button", { name: "Remove the Anthropic key" }).click();
     await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
     await settings(page, "Models");
-    await expect(main).toContainText("Glm 5.3 Flash · Workers AI");
+    await expect(main).toContainText("Glm 5.3 Flash");
     await pick(page, "Main agent", /^Glm 5.3 Flash/);
   }
 });
@@ -1303,7 +1311,7 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
 
   // One way of adding a peer at a time.
   await expect(panel(page).getByRole("form", { name: "Invite a peer" })).toBeHidden();
-  await panel(page).getByRole("button", { name: "Invite someone" }).click();
+  await addFrom(page, "Add a peer", "Invite someone");
   const invite = panel(page).getByRole("form", { name: "Invite a peer" });
   await invite.getByLabel("Name for their ky").fill("Not A Name");
   await invite.getByRole("button", { name: "Make invite" }).click();
@@ -1318,7 +1326,7 @@ test("makes a peer invite in Settings › Peers, and refuses pairing with ky's o
   await expect(invite.getByRole("button", { name: "New invite" })).toBeVisible();
   const sent = (await line.textContent())!;
 
-  await panel(page).getByRole("button", { name: "I have an invite" }).click();
+  await addFrom(page, "Add a peer", "I have an invite");
   await expect(invite).toBeHidden();
   const pair = panel(page).getByRole("form", { name: "Pair with a peer" });
   await expect(pair.getByRole("button", { name: "Pair" })).toBeDisabled();
@@ -2123,7 +2131,13 @@ test("pauses a machine and notes what it is for in Settings, and the agent is re
 test("adds a machine with a pairing code, then removes it", async ({ page }) => {
   await open(page);
   await settings(page, "Machines");
-  await panel(page).getByRole("button", { name: "Add a machine" }).click();
+  // Escape closes the "+"'s menu and stays on the page.
+  await panel(page).getByRole("button", { name: "Add", exact: true }).click();
+  await expect(panel(page).getByRole("menuitem", { name: "Add a machine" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel(page).getByRole("menu", { name: "Add" })).toBeHidden();
+  await expect(panel(page).locator("#settings-machines")).toBeVisible();
+  await addFrom(page, "Add", "Add a machine");
   const command = panel(page).getByLabel("Pairing command", { exact: true });
   await expect(command).toContainText(`ky runner add ${process.env.KY_STACK_URL}`);
   await expect(panel(page).getByText(/Run this on the computer before \d/)).toBeVisible();

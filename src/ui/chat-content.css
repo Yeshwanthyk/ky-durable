@@ -2886,9 +2886,9 @@
   gap: 8px;
 }
 
-.inbound-add {
-  align-self: flex-start;
-  margin-top: 8px;
+#settings-inbound > .card ~ .form-card,
+#settings-inbound > .empty-state ~ .form-card {
+  margin-top: 10px;
 }
 
 /* A hand-off's live view of ky's browser (Approvals.tsx). */

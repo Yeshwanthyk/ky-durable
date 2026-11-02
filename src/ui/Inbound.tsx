@@ -5,7 +5,7 @@ import { type Hook, type HooksView, HooksViewSchema, MadeHookSchema, RotatedSche
 import { KY, ownerName, SHARED } from "../skills/contract";
 import { CopyLine } from "./CopyButton";
 import { EmptyState, Switch, VaultBadge } from "./Controls";
-import { Icon } from "../chat-kit/Icon";
+import { PageAdd } from "./PageAdd";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
@@ -158,9 +158,6 @@ function HookRow({ hook, chat, onRotate, onRemove }: { hook: Hook; chat: string;
 
   return (
     <div className="row" data-hook={hook.id}>
-      <span className="row-tile">
-        <Icon name="plug" size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label">{hook.label}</span>
         <span className="row-sub row-sub-text">
@@ -185,12 +182,9 @@ function AddHook({ chats, onAdded }: { chats: HooksView["chats"]; onAdded: (show
   const [signed, setSigned] = useState(true);
   const [refused, setRefused] = useState<string>();
 
-  if (!open)
-    return (
-      <button type="button" className="pill pressable inbound-add" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={13} /> New webhook
-      </button>
-    );
+  const plus = <PageAdd label="Add a webhook" choices={[{ label: "New webhook", onChoose: () => setOpen(true) }]} />;
+
+  if (!open) return plus;
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
@@ -209,36 +203,39 @@ function AddHook({ chats, onAdded }: { chats: HooksView["chats"]; onAdded: (show
   };
 
   return (
-    <form className="card form-card" aria-label="Add a webhook" onSubmit={(event) => void add(event)}>
-      <p className="field-hint">What it posts reaches the chat as outside data: ky reads it, and asks you before it changes anything.</p>
-      <label className="field" data-stack>
-        <span className="field-label">Name</span>
-        <input className="field-input" value={label} placeholder="e.g. GitHub pushes" maxLength={80} onChange={(event) => setLabel(event.currentTarget.value)} />
-      </label>
-      <label className="field">
-        <span className="field-label">Chat</span>
-        <select className="field-select" value={session} onChange={(event) => setSession(event.currentTarget.value)}>
-          {chats.map((chat) => (
-            <option key={chat.session} value={chat.session}>
-              {chat.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="field">
-        <span className="field-label">Signed</span>
-        <Switch on={signed} label="Signed with a secret" onFlip={() => setSigned(!signed)} />
-      </div>
-      <Problem text={refused} />
-      <div className="card-foot">
-        <button type="button" className="automation-text pressable" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-        <button type="submit" className="pill primary pressable" disabled={session === ""}>
-          Add
-        </button>
-      </div>
-    </form>
+    <>
+      {plus}
+      <form className="card form-card" aria-label="Add a webhook" onSubmit={(event) => void add(event)}>
+        <p className="field-hint">What it posts reaches the chat as outside data: ky reads it, and asks you before it changes anything.</p>
+        <label className="field" data-stack>
+          <span className="field-label">Name</span>
+          <input className="field-input" value={label} placeholder="e.g. GitHub pushes" maxLength={80} onChange={(event) => setLabel(event.currentTarget.value)} />
+        </label>
+        <label className="field">
+          <span className="field-label">Chat</span>
+          <select className="field-select" value={session} onChange={(event) => setSession(event.currentTarget.value)}>
+            {chats.map((chat) => (
+              <option key={chat.session} value={chat.session}>
+                {chat.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="field">
+          <span className="field-label">Signed</span>
+          <Switch on={signed} label="Signed with a secret" onFlip={() => setSigned(!signed)} />
+        </div>
+        <Problem text={refused} />
+        <div className="card-foot">
+          <button type="button" className="automation-text pressable" onClick={() => setOpen(false)}>
+            Cancel
+          </button>
+          <button type="submit" className="pill primary pressable" disabled={session === ""}>
+            Add
+          </button>
+        </div>
+      </form>
+    </>
   );
 }
 
@@ -256,9 +253,6 @@ function SecretRow({ secret, owners, onForget, onMove }: SecretRowProps) {
 
   return (
     <div className="row login-row" data-secret={secret.name}>
-      <span className="row-tile">
-        <Icon name="lock" size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label">{secret.name}</span>
         <span className="row-sub row-sub-text">

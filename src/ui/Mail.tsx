@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import type { MailItem, MailView } from "../protocol";
 import { CopyLine } from "./CopyButton";
 import { EmptyState } from "./Controls";
-import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
@@ -99,14 +98,10 @@ function NotSetUp() {
       <h3 className="group-label">Address</h3>
       <div className="card">
         <div className="row">
-          <span className="row-tile">
-            <Icon name="mail" size={15} />
-          </span>
           <span className="row-text">
             <span className="row-label">Not set up</span>
             <span className="row-sub">ky needs a domain on Cloudflare</span>
           </span>
-          <span className="status-dot" />
         </div>
         <ol className="card-note mail-steps">
           <li>
@@ -135,9 +130,6 @@ function HeldMail({ mail, onSend, onDiscard }: { mail: MailItem; onSend: (id: st
   return (
     <div className="mail-held" data-mail={mail.id}>
       <div className="row">
-        <span className="row-tile">
-          <Icon name="send" size={15} />
-        </span>
         <span className="row-text">
           <span className="row-label">{mail.subject}</span>
           <span className="row-sub row-sub-text">To {mail.party}</span>
@@ -157,8 +149,6 @@ function HeldMail({ mail, onSend, onDiscard }: { mail: MailItem; onSend: (id: st
   );
 }
 
-const DIRECTION_ICON = { in: "mail", out: "send" } as const;
-
 /** Who a mail is from, or who it went to. */
 const who = (mail: MailItem) => (mail.direction === "in" ? mail.partyName || mail.party : `To ${mail.party}`);
 
@@ -166,9 +156,6 @@ const who = (mail: MailItem) => (mail.direction === "in" ? mail.partyName || mai
 function MailLine({ mail, now }: { mail: MailItem; now: number }) {
   return (
     <div className="row mail-row" data-direction={mail.direction}>
-      <span className="row-tile">
-        <Icon name={DIRECTION_ICON[mail.direction]} size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label row-sub-text">{mail.subject || "(no subject)"}</span>
         <span className="row-sub peer-sub">
@@ -206,9 +193,6 @@ function Allowed({ allowed, onRemove }: { allowed: readonly string[]; onRemove: 
     <div className="card">
       {allowed.map((address) => (
         <div key={address} className="row">
-          <span className="row-tile">
-            <Icon name="mail" size={15} />
-          </span>
           <span className="row-label row-sub-text">{address}</span>
           <button type="button" className="automation-text pressable" aria-label={`Stop allowing ${address}`} onClick={async () => setRefused(await onRemove(address))}>
             Remove
