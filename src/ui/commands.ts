@@ -33,7 +33,6 @@ function chatCommands(sources: CommandSources): Command[] {
       id: "new",
       group: "Chats",
       label: "New side chat",
-      icon: "plus",
       keywords: "create start",
       run: startChat
     },
@@ -41,7 +40,6 @@ function chatCommands(sources: CommandSources): Command[] {
       id: "main",
       group: "Chats",
       label: "Main chat",
-      icon: "chat",
       hint: main ? "Open" : undefined,
       run: () => openSession(MAIN_SESSION)
     },
@@ -49,7 +47,6 @@ function chatCommands(sources: CommandSources): Command[] {
       id: `chat-${each.session}`,
       group: "Chats",
       label: each.title || "New chat",
-      icon: "chat" as const,
       hint: each.session === session ? "Open" : ago(each.updated_at, now),
       keywords: "side",
       run: () => openSession(each.session)
@@ -64,7 +61,6 @@ function themeCommand(theme: Theme, setTheme: (theme: Theme) => void): Command {
     id: "theme",
     group: "ky",
     label: dark ? "Light appearance" : "Dark appearance",
-    icon: dark ? "sun" : "moon",
     keywords: "theme mode toggle",
     run: () => setTheme(dark ? "light" : "dark")
   };
@@ -75,7 +71,6 @@ function sidebarCommand(shown: boolean, toggle: () => void): Command {
     id: "sidebar",
     group: "ky",
     label: shown ? "Hide sidebar" : "Show sidebar",
-    icon: "menu",
     keywords: "close open toggle collapse chats drawer",
     run: toggle
   };
@@ -89,7 +84,6 @@ function stopAllCommands(working: number, stopAll: () => void): Command[] {
       id: "stop-all",
       group: "ky",
       label: `Stop ${working} working`,
-      icon: "stop",
       keywords: "cancel tasks",
       run: stopAll
     }
@@ -104,7 +98,6 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "activity",
       group: "ky",
       label: "Activity",
-      icon: "panel",
       keywords: "tasks tools subagents feed",
       run: () => openPanel("activity")
     },
@@ -112,7 +105,6 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "skills",
       group: "ky",
       label: "Skills",
-      icon: "list",
       keywords: "procedures how-to library kits",
       run: openSkills
     },
@@ -120,7 +112,6 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "soul",
       group: "ky",
       label: "Soul",
-      icon: "fingerprint",
       keywords: "persona voice personality soul.md memory remember",
       run: () => openPanel("soul")
     },
@@ -128,7 +119,6 @@ function kyCommands(sources: CommandSources): Command[] {
       id: "settings",
       group: "ky",
       label: "Settings",
-      icon: "settings",
       keywords: "models providers preferences",
       run: () => openPanel("settings")
     },
@@ -146,7 +136,6 @@ function subagentCommands(tasks: readonly TaskRow[], openSession: (session: stri
       id: `task-${task.id}`,
       group: "Subagents",
       label: task.title,
-      icon: "nodes" as const,
       hint: task.worker,
       keywords: `${task.worker} ${task.status}`,
       run: () => openSession(task.session!)

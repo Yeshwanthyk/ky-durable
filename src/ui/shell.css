@@ -2794,11 +2794,13 @@
   justify-content: center;
   align-items: flex-start;
   padding: 14vh 16px 16px;
-  background: var(--overlay);
+  background: color-mix(in srgb, var(--overlay) 55%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
 .palette {
-  width: min(560px, 100%);
+  width: min(640px, 100%);
   max-height: min(440px, 70dvh);
   display: flex;
   flex-direction: column;
@@ -2811,8 +2813,8 @@
 .palette-search {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 16px;
+  gap: 12px;
+  padding: 0 16px 0 20px;
   border-bottom: 1px solid var(--line);
   color: var(--quiet);
 }
@@ -2820,13 +2822,13 @@
 .palette-search input {
   flex: 1;
   min-width: 0;
-  height: 52px;
+  height: 60px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: calc(15px * var(--text-scale));
+  font-size: calc(17px * var(--text-scale));
 }
 
 /* The caret shows where typing goes; the app's focus ring would only box the field in. */
@@ -2858,18 +2860,32 @@
   overscroll-behavior: contain;
 }
 
+/* Groups are told apart by a rule, not a name; none above the first. */
 .palette-group {
-  padding: 10px 10px 4px;
-  font-size: calc(12px * var(--text-scale));
-  font-weight: 550;
-  color: var(--quiet);
+  height: 1px;
+  margin: 6px 10px;
+  background: var(--line);
+}
+
+.palette-group[data-first="true"] {
+  height: 0;
+  margin: 0;
+}
+
+.palette-group-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .palette-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 40px;
+  min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
   color: var(--muted);
