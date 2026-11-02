@@ -6,6 +6,7 @@ import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
+import { NAME } from "./open-chat";
 
 type MailActions = {
   readonly onView: () => Promise<MailView>;
@@ -85,7 +86,7 @@ export function Mail() {
         <RecentMail mail={view.recent} />
       </section>
       <section className="group">
-        <h3 className="group-label">ky may write to</h3>
+        <h3 className="group-label">{NAME} may write to</h3>
         <Allowed allowed={view.allowed} onRemove={act(actions.onDisallow)} />
       </section>
     </>
@@ -104,7 +105,7 @@ function NotSetUp() {
           </span>
           <span className="row-text">
             <span className="row-label">Not set up</span>
-            <span className="row-sub">ky needs a domain on Cloudflare</span>
+            <span className="row-sub">{NAME} needs a domain on Cloudflare</span>
           </span>
           <span className="status-dot" />
         </div>

@@ -1,4 +1,5 @@
 import { createContext } from "react";
+import { NAME } from "./open-chat";
 
 /**
  * Whether ky's socket is open. What can't wait for it, like stopping a task (a stop that landed later would stop
@@ -7,4 +8,4 @@ import { createContext } from "react";
 export const OnlineContext = createContext(true);
 
 /** What a control that needs the connection says while there is none. */
-export const OFFLINE_TITLE = "Offline · works once ky reconnects";
+export const OFFLINE_TITLE = `Offline · works once ${NAME} reconnects`;

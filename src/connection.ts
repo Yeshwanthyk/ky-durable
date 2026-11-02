@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { PING } from "./protocol";
+import { NAME } from "./ui/open-chat";
 
 /**
  * How the page's socket to ky is doing, as the user needs to hear it:
@@ -381,7 +382,7 @@ export const CONNECTION_LABEL: Record<ConnectionKind, string> = {
   open: "Connected",
   reconnecting: "Reconnecting",
   offline: "Offline",
-  unreachable: "Can't reach ky",
+  unreachable: `Can't reach ${NAME}`,
   "signed-out": "Signed out"
 };
 
@@ -391,7 +392,7 @@ export const CONNECTION_LINE: Record<ConnectionKind, string | null> = {
   open: null,
   reconnecting: "Reconnecting…",
   offline: "Offline",
-  unreachable: "Can't reach ky · retrying",
+  unreachable: `Can't reach ${NAME} · retrying`,
   "signed-out": "Signed out"
 };
 

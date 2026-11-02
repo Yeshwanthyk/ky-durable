@@ -6,6 +6,7 @@ import { InputBlock } from "./Blocks";
 import { VaultBadge } from "./Controls";
 import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
+import { NAME } from "./open-chat";
 
 /**
  * The credentials ky is asking a chat for, under its thread: a masked field for each. The field posts straight to
@@ -104,7 +105,7 @@ function SecretCard({ ask, onDone }: { ask: SecretAsk; onDone: () => Promise<voi
         <Problem text={refused} />
       </section>
       <p className="ui-note">
-        <VaultBadge /> · ky calls the API with it, and never sees it.
+        <VaultBadge /> · {NAME} calls the API with it, and never sees it.
       </p>
     </div>
   );

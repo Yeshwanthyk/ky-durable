@@ -6,6 +6,7 @@ import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { clock } from "./time";
 import { useNow } from "./use-now";
+import { NAME } from "./open-chat";
 
 type PeerActions = {
   readonly onList: () => Promise<PeerView[]>;
@@ -149,7 +150,9 @@ function PeerRow({ peer, onRemove }: { peer: PeerView; onRemove: (name: string) 
       {peer.state === "unreachable" && peer.detail ? <p className="card-note peer-detail">{peer.detail}</p> : null}
       {confirming ? (
         <div className="machine-confirm peer-confirm" role="alertdialog" aria-label={`Unpair ${peer.name}`}>
-          <p>Unpair {peer.name}? Neither ky can ask the other anything until you pair again.</p>
+          <p>
+            Unpair {peer.name}? Neither {NAME} nor {peer.name} can ask the other anything until you pair again.
+          </p>
           <div className="machine-confirm-actions">
             <button type="button" className="automation-text pressable" onClick={() => setConfirming(false)}>
               Cancel
@@ -186,7 +189,7 @@ function NameField({ value, onChange, placeholder }: { value: string; onChange: 
     <label className="row">
       <span className="row-text">
         <span className="row-label">Name</span>
-        <span className="row-sub">What ky calls theirs</span>
+        <span className="row-sub">What {NAME} calls their agent</span>
       </span>
       <input
         className="key-input peer-name"

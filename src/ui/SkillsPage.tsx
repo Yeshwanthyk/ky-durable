@@ -4,6 +4,7 @@ import { kitsOf } from "../skills/contract";
 import { Icon } from "../chat-kit/Icon";
 import { EMPTY, grouped, KitMembers, openNeeds, origin, SkillReader, since, times, toAnswerCount } from "./Skills";
 import type { SkillFilter } from "./use-session-route";
+import { NAME } from "./open-chat";
 
 const TABS: ReadonlyArray<readonly [SkillFilter, string]> = [
   ["all", "All"],
@@ -133,7 +134,7 @@ export function SkillsPage({
               <p className="skills-reader-meta">
                 Used {times(selected.uses)} · changed {since(selected.updated_at, now)}
                 {(kits.get(selected.name) ?? []).length > 0 ? ` · in ${(kits.get(selected.name) ?? []).join(", ")}` : null}
-                {selected.pinned ? " · pinned, so ky's dreams and reviews leave it as it is" : null}
+                {selected.pinned ? ` · pinned, so ${NAME}'s dreams and reviews leave it as it is` : null}
               </p>
             </header>
             {selected.kind === "kit" ? (

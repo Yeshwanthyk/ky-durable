@@ -3,7 +3,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
 import { Icon, type IconName } from "../chat-kit/Icon";
-import type { ChatKind } from "./open-chat";
+import { type ChatKind, NAME } from "./open-chat";
 
 /** What is set up, which decides the first-run cards and the pills. */
 export type SetUp = {
@@ -72,7 +72,7 @@ const CARDS: readonly Card[] = [
   {
     target: "soul",
     icon: "fingerprint",
-    label: "Tell ky who you are",
+    label: `Tell ${NAME} who you are`,
     sub: "A short interview that writes SOUL.md",
     doneSub: "SOUL.md is written",
     done: (setUp) => setUp.soul
@@ -145,7 +145,7 @@ const COPY: Record<ChatKind, { title: string; text: string }> = {
  */
 const OFFLINE_COPY = {
   title: "Offline",
-  text: "This chat's messages show when ky is back online. What you send now goes then."
+  text: `This chat's messages show when ${NAME} is back online. What you send now goes then.`
 };
 
 const welcomeCopy = (kind: ChatKind, first: boolean, provider: string | null) =>
@@ -174,7 +174,7 @@ const useOffline = () => useSyncExternalStore(subscribeOnline, () => !navigator.
 
 const FIRST_COPY = (provider: string) => ({
   title: `You're on ${provider}.`,
-  text: "ky works now. Each step below adds more: your own keys, your subscriptions for machines, a machine, your apps."
+  text: `${NAME} works now. Each step below adds more: your own keys, your subscriptions for machines, a machine, your apps.`
 });
 
 function Suggestions({ setUp, disabled, onPick }: { setUp: SetUp; disabled: boolean; onPick: (value: string) => void }) {
@@ -207,7 +207,7 @@ function FirstRun({ setUp, disabled, onGo }: { setUp: SetUp; disabled: boolean; 
   const ordered = [...cards.filter((each) => !each.done), ...cards.filter((each) => each.done)];
 
   return (
-    <ul className="card first-run" aria-label="Set up ky">
+    <ul className="card first-run" aria-label={`Set up ${NAME}`}>
       {ordered.map(({ card, done }) => (
         <li key={card.label}>
           <button

@@ -3,6 +3,7 @@ import { BotAvatar } from "./BotAvatar";
 import type { Mentionable } from "../chat-kit/Composer";
 import { Icon } from "../chat-kit/Icon";
 import { useDismiss } from "./use-dismiss";
+import { NAME } from "./open-chat";
 
 /** A chat's specialists, and the user's way to change them. */
 export type Group = {
@@ -76,7 +77,7 @@ export function GroupMembers({ members, specialists, onChange }: Group) {
             );
           })}
           <p className="group-menu-note">
-            Specialists here answer on their own when a message is in their line, up to three at a time; ky takes the
+            Specialists here answer on their own when a message is in their line, up to three at a time; {NAME} takes the
             rest. Start with @ to ask one directly.
           </p>
         </div>

@@ -175,7 +175,7 @@ describe("pushes", () => {
     // Three posts in the chat, two pushes: the third went past the day's two. A post's push goes out after it lands, so wait for it.
     await until(async () => sent.length >= 2, "two pushes");
     expect(sent).toHaveLength(2);
-    expect(await open(sent[0]!.body, keys, auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nKai's school is closed tomorrow.`);
+    expect(await open(sent[0]!.body, keys, auth)).toBe(`orbit\n/?session=${ROOT_SESSION}\nKai's school is closed tomorrow.`);
     expect(sent[0]!.headers.get("content-encoding")).toBe("aes128gcm");
     expect(sent[0]!.headers.get("authorization")).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]{87}$/);
 
@@ -185,7 +185,7 @@ describe("pushes", () => {
     const midnight = now - (now % 60_000) + (1440 - localNow("Pacific/Auckland", now).minutes) * 60_000;
     await notifyAt(name, "Still today there.", midnight - 30 * 60_000);
     await notifyAt(name, "A new day there.", midnight + 30 * 60_000);
-    expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual([`ky\n/?session=${ROOT_SESSION}\nA new day there.`]);
+    expect(await Promise.all(sent.slice(2).map((each) => open(each.body, keys, auth)))).toEqual([`orbit\n/?session=${ROOT_SESSION}\nA new day there.`]);
 
     // A long post is cut to 120 characters, never through the middle of one.
     await notifyAt(name, "🙂".repeat(200), Date.parse("2026-10-18T12:00:00Z"));
@@ -219,7 +219,7 @@ describe("pushes", () => {
       await instance.pushes.notify(ROOT_SESSION, "Third.");
     });
     expect(took).toHaveLength(1);
-    expect(await open(took[0]!.body, kept.keys, kept.auth)).toBe(`ky\n/?session=${ROOT_SESSION}\nSecond.`);
+    expect(await open(took[0]!.body, kept.keys, kept.auth)).toBe(`orbit\n/?session=${ROOT_SESSION}\nSecond.`);
 
     // Unsubscribed, the device gets nothing.
     expect(await page.send({ type: "push-unsubscribe", endpoint: kept.device.endpoint })).toMatchObject({ type: "result" });
@@ -247,7 +247,7 @@ describe("pushes", () => {
     await settle();
     const answer = kySaid(page).at(-1) ?? "";
     expect(answer).not.toBe("");
-    expect(await pushed()).toEqual([`ky\n/?session=${ROOT_SESSION}\n${answer.replaceAll(/\s+/g, " ").trim().slice(0, 120)}`]);
+    expect(await pushed()).toEqual([`orbit\n/?session=${ROOT_SESSION}\n${answer.replaceAll(/\s+/g, " ").trim().slice(0, 120)}`]);
     expect(sent[0]!.headers.get("urgency")).toBe("high");
     expect(sent[0]!.headers.get("ttl")).toBe("86400");
 

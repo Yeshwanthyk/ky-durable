@@ -1,4 +1,5 @@
 import { evictDurableObject } from "cloudflare:test";
+import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
 import {
@@ -608,6 +609,17 @@ describe("API keys in Settings", () => {
 });
 
 describe("a deploy's own setup", () => {
+  it("goes by the name its owner gave the Worker, in its prompt and as its main chat's title", async () => {
+    // Its Durable Object goes by an id; the Worker's name, orbit in these tests, is KY_NAME.
+    const id = crypto.randomUUID();
+
+    await prompt(id, "hello");
+    const [main] = await inside(id, (instance) => instance.boundary.calls.map((each) => each.system));
+    expect(main).toContain("You are orbit, the user's personal agent. You run on ky: where a tool or notice says ky, it means you.");
+    expect(main).toContain("In the card it wears orbit's theme");
+    expect((await inside(id, (instance) => instance.inboundHooks())).chats[0]).toEqual({ session: ROOT_SESSION, title: "orbit" });
+  });
+
   it("shows VibeProxy as not set up on a deploy without it, and runs on Workers AI without Executor until Settings connects it", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);

@@ -1,5 +1,6 @@
 import { type CardAnswer, cardOf, type UiBlock, type UiCard } from "../cards/contract";
 import type { Tool } from "./conversation";
+import { NAME } from "./open-chat";
 
 /**
  * A ui card's questions and the message that answers them (src/ui/Blocks.tsx).
@@ -68,7 +69,7 @@ export const needsSend = (questions: readonly Question[]) => {
 };
 
 /** What a card is called: its title, else its first question. */
-export const cardName = (ui: UiCard) => ui.title ?? ui.blocks.find(isQuestion)?.label ?? "Card from ky";
+export const cardName = (ui: UiCard) => ui.title ?? ui.blocks.find(isQuestion)?.label ?? `Card from ${NAME}`;
 
 /**
  * How an option shows: pressed for a multiple choice, or once the card is

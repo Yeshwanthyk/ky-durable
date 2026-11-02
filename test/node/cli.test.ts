@@ -387,6 +387,13 @@ describe("ky init and deploy", () => {
     expect([...account.buckets.keys()]).toEqual(["ky-files", "ky-runner-files"]);
   });
 
+  it("tells the Worker the name the owner gave it, which its agent goes by", async () => {
+    const ky = await fresh();
+
+    await initCommand(ky, { account: "Test", name: "squarey", email: EMAIL });
+    expect(script("squarey")?.metadata.bindings).toContainEqual({ type: "plain_text", name: "KY_NAME", text: "squarey" });
+  });
+
   it("gives ky <name>@<domain> with --mail, routes it to the Worker once, and sends from that address only", async () => {
     const zone = fakeZone("example.com");
 
@@ -439,6 +446,12 @@ describe("ky init and deploy", () => {
     expect(zone.rules).toHaveLength(1);
   });
 
+  it("refuses a name too long for another ky to pair with it under", async () => {
+    const name = "k".repeat(33);
+
+    await expect(initCommand(await fresh(), { account: "Test", name, email: EMAIL })).rejects.toThrow(`${name}: Lowercase letters, digits and dashes, at most 32`);
+  });
+
   it("refuses a --mail that isn't a domain", async () => {
     await expect(initCommand(await fresh(), { account: "Test", name: "ky", email: EMAIL, mail: "not a domain" })).rejects.toThrow("--mail not a domain: a domain");
   });
@@ -453,11 +466,13 @@ describe("ky init and deploy", () => {
   it("refuses a name whose bucket R2 wouldn't take, before anything is written", async () => {
     const config = release("r1").config;
     const ky = await fresh();
-    const name = "k".repeat(57);
+    const name = "k".repeat(32);
+    // The longest name ky init takes, with a binding long enough to push its bucket past 63.
+    const binding = "RUNNER_FILES_".padEnd(31, "X");
 
-    current = release("r1", { ...config, r2_buckets: [...(config.r2_buckets ?? []), { binding: "RUNNER_FILES", bucket_name: "ky-runner-files" }] });
+    current = release("r1", { ...config, r2_buckets: [...(config.r2_buckets ?? []), { binding, bucket_name: "ky-runner-files" }] });
     await expect(initCommand(ky, { account: "acc", name, email: EMAIL })).rejects.toThrow(
-      `The RUNNER_FILES binding's bucket would be ${name}-runner-files, and R2 takes only 3 to 63 lowercase letters, digits and dashes: pick a shorter name`
+      `The ${binding} binding's bucket would be ${name}-${binding.toLowerCase().replaceAll("_", "-")}, and R2 takes only 3 to 63 lowercase letters, digits and dashes: pick a shorter name`
     );
     expect(existsSync(ky.overlay)).toBe(false);
     expect(account.buckets.size).toBe(0);

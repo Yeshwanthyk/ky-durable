@@ -8,6 +8,7 @@ import type { MachineChange } from "./machines/contract";
 import { dropReturned, isStranded, markTaking, type Outgoing, reduceOutbox, settleOutgoing, type Upload, withFiles } from "./outbox";
 import { actStore, messageStore, type StoredAct, type StoredMessage } from "./outbox-store";
 import { outgoingOf, Pending } from "./pending";
+import { NAME } from "./ui/open-chat";
 import { uploadClip, UploadOffline } from "./ui/pick-media";
 import { EMPTY_VIEW, reduceEvents, withEarlier } from "./view";
 import { useConnection } from "./connection";
@@ -324,7 +325,7 @@ export function usePiSession(session: string) {
     (message: ClientMessage) => {
       if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify(message));
       else if (WAITS_OFFLINE.has(message.type)) acts.queue(message);
-      else setState((current) => ({ ...current, error: "ky is offline, so that didn't go. Try again once it reconnects." }));
+      else setState((current) => ({ ...current, error: `${NAME} is offline, so that didn't go. Try again once it reconnects.` }));
     },
     [agent, acts]
   );
@@ -336,7 +337,7 @@ export function usePiSession(session: string) {
       const answer = asks.wait(type, id);
 
       if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify({ ...fields, type, id }));
-      else asks.fail(id, "ky isn't connected.");
+      else asks.fail(id, `${NAME} isn't connected.`);
 
       return answer;
     },
