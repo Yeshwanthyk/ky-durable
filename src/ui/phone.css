@@ -150,8 +150,8 @@
     font-size: calc(13px * var(--text-scale));
   }
 
-  /* The round button takes the place of the head's plus. */
-  .sidebar-head > .icon-button {
+  /* The round button takes the place of the New chat button under the search. */
+  .sidebar-new {
     display: none;
   }
 

@@ -34,3 +34,18 @@ export function day(time: number, now: number): string {
 
   return new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+/** Items under the day `at` puts each on, in the order given: a list sorted newest first stays so. */
+export function byDay<T>(items: readonly T[], at: (item: T) => number, now: number): [label: string, items: T[]][] {
+  const groups = new Map<string, T[]>();
+
+  for (const item of items) {
+    const label = day(at(item), now);
+    const group = groups.get(label);
+
+    if (group === undefined) groups.set(label, [item]);
+    else group.push(item);
+  }
+
+  return [...groups];
+}
