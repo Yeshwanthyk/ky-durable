@@ -429,7 +429,7 @@ export function ProactivityValue() {
     if (actions.open) actions.onView().then((view) => setLevel(view.level), () => undefined);
   }, [actions]);
 
-  return level === null ? null : <RowValue tone={level === "on" ? "online" : "off"}>{LEVELS.find((each) => each.level === level)?.label}</RowValue>;
+  return level === null ? null : <RowValue>{LEVELS.find((each) => each.level === level)?.label}</RowValue>;
 }
 
 // How proactive ky is: on or off, when it looks, and what notifies this device.

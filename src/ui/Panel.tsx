@@ -37,7 +37,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
 import { Icon, Spinner, type IconName } from "../chat-kit/Icon";
-import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
+import { EmptyState, RowValue, Segmented, SegmentedOption, type Tone, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
@@ -2561,6 +2561,7 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
         return (
           <li key={line.label}>
             <button type="button" className="glance-alert" data-goes={keyOf(line.to)} onClick={() => go(line.to)}>
+              <span className="row-dot" data-tone="offline" aria-hidden="true" />
               <span className="glance-alert-text">
                 <span className="glance-alert-title">{title}</span>
                 <span className="glance-alert-sub">{sub}</span>
@@ -2576,19 +2577,31 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
   );
 }
 
-/** How many machines are online out of how many, after a dot that is green while any is. */
-function machinesValue(machines: readonly MachineInfo[]): ReactNode {
+/** How many machines are online out of how many, after a red dot when the machine the status line watches is down. */
+function machinesValue(machines: readonly MachineInfo[], now: number): ReactNode {
   const online = machines.filter((machine) => machine.online).length;
 
   if (machines.length === 0) return <RowValue>None</RowValue>;
 
-  return <RowValue tone={online > 0 ? "online" : "off"}>{`${online}/${machines.length}`}</RowValue>;
+  return <RowValue tone={problemTone(machineGlance(machines, now).tone)}>{`${online}/${machines.length}`}</RowValue>;
 }
 
-/** How many are connected, after a dot that is green while any is; None when none is. */
-function connectedValue(connected: number): ReactNode {
-  return connected === 0 ? <RowValue tone="off">None</RowValue> : <RowValue tone="online">{connected}</RowValue>;
+/** How many providers are connected, after a red dot when one that is set up isn't; None when none is. */
+function providersValue(settings: SettingsView | null, setup: SetupView | null): ReactNode {
+  const configured = (settings?.providers ?? []).filter((provider) => !isMissing(setup, provider.id));
+  const connected = configured.filter((provider) => provider.connected).length;
+  const tone = connected < configured.length ? "offline" : undefined;
+
+  return <RowValue tone={tone}>{connected === 0 ? "None" : connected}</RowValue>;
 }
+
+/** How many are connected; None when none is. */
+function connectedValue(connected: number): ReactNode {
+  return <RowValue>{connected === 0 ? "None" : connected}</RowValue>;
+}
+
+/** Settings' first page marks only what is wrong: a tone that says so, and nothing for one that is fine. */
+const problemTone = (tone: Tone | undefined): Tone | undefined => (tone === "offline" || tone === "failed" ? tone : undefined);
 
 /** A row on Settings' first page: the page it opens, its icon and name, and what it is set to, if that says anything. */
 type GroupRow = { to: SettingsPage; icon: IconName; label: string; value?: (props: SettingsProps) => ReactNode };
@@ -2601,13 +2614,13 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
       to: { kind: "providers" },
       icon: "plug",
       label: "Providers",
-      value: ({ settings }) => connectedValue(settings?.providers.filter((provider) => provider.connected).length ?? 0),
+      value: ({ settings, setup }) => providersValue(settings, setup),
     },
     { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => <RowValue>{catalog.length}</RowValue> },
     { to: { kind: "spend" }, icon: "layers", label: "Spend", value: () => <SpendValue /> },
   ],
   [
-    { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
+    { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines, now }) => machinesValue(machines, now) },
     {
       to: { kind: "subscriptions" },
       icon: "globe",
@@ -2617,7 +2630,7 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
   ],
   [
     { to: { kind: "proactivity" }, icon: "sparkle", label: "Proactivity", value: () => <ProactivityValue /> },
-    { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => <AppearanceValue theme={theme} /> },
+    { to: { kind: "appearance" }, icon: "sun", label: "Appearance", value: ({ theme }) => <RowValue>{theme === "dark" ? "Dark" : "Light"}</RowValue> },
   ],
 ];
 
@@ -2632,17 +2645,6 @@ const MORE: readonly GroupRow[] = [
 /** The pages behind More, so coming back from one finds More open. */
 const MORE_PAGES: ReadonlySet<SettingsPage["kind"]> = new Set(MORE.map((row) => row.to.kind));
 
-/** The theme, with the accent's swatch before it. */
-function AppearanceValue({ theme }: { theme: Theme }) {
-  const accent = useAccent();
-
-  return (
-    <span className="row-value">
-      <span className="row-swatch" data-swatch={accent} aria-hidden="true" />
-      <span className="row-value-text">{theme === "dark" ? "Dark" : "Light"}</span>
-    </span>
-  );
-}
 
 function GroupLinks({ rows, props }: { rows: readonly GroupRow[]; props: SettingsProps }) {
   return rows.map((row) => (
@@ -2669,7 +2671,6 @@ function SettingsHome(props: PageProps) {
           <li>
             <button type="button" className="row page-link more-row" aria-expanded={more} onClick={() => onMore(!more)}>
               <span className="row-label">More</span>
-              {more ? null : <span className="row-value-text more-sub">{MORE.map((row) => row.label).join(", ")}</span>}
               <Icon name="chevronRight" size={14} className="row-chevron" />
             </button>
           </li>
