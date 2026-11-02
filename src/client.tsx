@@ -58,6 +58,7 @@ import "./styles.css";
 import "./chat-kit/chat.css";
 import "./ui/chat-content.css";
 import "./ui/shell.css";
+import "./ui/phone.css";
 
 /** ky's own blob, ink on light and cream on dark; subagents get one from their name. */
 const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "squircle-creme" };
@@ -348,6 +349,8 @@ function StageTop({ ky, view, status, panel, shell }: Parts) {
       updated={ky.updated}
       group={group}
       crew={crew}
+      onNewChat={shell.startChat}
+      creating={shell.creating}
     />
   );
 }

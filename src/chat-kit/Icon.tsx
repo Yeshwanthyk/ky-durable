@@ -1,6 +1,8 @@
 // One small hand-drawn set on a 16px grid, 1.5 stroke, round joins. Paths stay simple on purpose.
 const paths = {
   plus: "M8 3.25v9.5M3.25 8h9.5",
+  compose: "M7.25 2.75h-4.5v10.5h10.5v-4.5M11.5 2.25l2.25 2.25-5.5 5.5H6v-2.25z",
+  pulse: "M1.75 8h2.5l1.75-4.25 3.5 8.5 1.75-4.25h2.995",
   minus: "M3.25 8h9.5",
   search: "M7 11.75a4.75 4.75 0 1 0 0-9.5 4.75 4.75 0 0 0 0 9.5ZM10.5 10.5l3.25 3.25",
   sidebar: "M2.75 3.25h10.5v9.5H2.75zM6.25 3.25v9.5",

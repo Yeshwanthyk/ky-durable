@@ -292,6 +292,10 @@ export function Sidebar({
         </ul>
       )}
       <ArchivedChats chats={archived} row={row} />
+      {/* On a phone, where the drawer is the whole screen, a new chat is one round button over the foot. */}
+      <button type="button" className="sidebar-fab pressable" aria-label="New chat" title="New chat" disabled={creating} onClick={onNew}>
+        <Icon name="compose" size={20} />
+      </button>
       {/* What ky made sits apart from the chats, at the foot, so the list starts with the main chat. */}
       <div className="sidebar-foot">
         <button type="button" className="sidebar-foot-button pressable" aria-label="Skills" title="Skills" aria-current={skills ? "page" : undefined} onClick={onSkills}>
