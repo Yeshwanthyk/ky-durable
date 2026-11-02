@@ -2317,6 +2317,15 @@
   background: var(--success);
 }
 
+/* A routine's switch is lit in ink, its knob the page's colour. */
+:root .rt-actions .switch[aria-checked="true"] {
+  background: var(--ink);
+}
+
+:root .rt-actions .switch[aria-checked="true"] .switch-knob {
+  background: var(--bg);
+}
+
 .switch:disabled {
   opacity: 0.45;
 }
@@ -3122,7 +3131,7 @@ p.kit-members {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 40px 0;
+  padding: 14px 40px 0;
 }
 
 .skills-toolbar .artifacts-tabs {
@@ -3131,19 +3140,13 @@ p.kit-members {
   padding: 0;
 }
 
-.skills-toolbar .artifacts-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .skills-tab-count {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--selected);
+  color: var(--ink);
   font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   line-height: 18px;
@@ -3367,9 +3370,38 @@ article.skills-reader > * {
   line-height: 1.6;
 }
 
+/* The reader's actions: one quiet row of text buttons, each led by its icon, Archive at the far end. */
 .skills-reader-body > .skill-actions {
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin-left: -8px;
+}
+
+.skills-reader-body > .skill-actions > .pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: calc(13px * var(--text-scale));
+}
+
+.skills-reader-body > .skill-actions > .pill:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.skills-reader-body > .skill-actions > .pill svg {
+  color: var(--muted);
+}
+
+.skills-reader-body > .skill-actions > .skill-action-end {
+  margin-left: auto;
 }
 
 /* What the skill asks before it runs: a quiet card above the steps, its title set like theirs. */
@@ -5640,16 +5672,15 @@ article.skills-reader > * {
 }
 
 .rt-page-title p {
-  margin: 4px 0 0;
+  margin: 1px 0 0;
   color: var(--muted);
-  font-size: calc(13.5px * var(--text-scale));
+  font-size: calc(13px * var(--text-scale));
 }
 
 .rt-new {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
   padding: 7px 14px 7px 11px;
   border-radius: 999px;
   color: var(--ink);
@@ -5662,7 +5693,7 @@ article.skills-reader > * {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 16px 64px;
+  padding: 14px 16px 64px;
 }
 
 .rt-list {
@@ -5876,8 +5907,9 @@ article.skills-reader > * {
   opacity: 0.7;
 }
 
-/* One bar a run, oldest first; empties and stopped ones are grey. */
+/* One bar a run, oldest first; empties and stopped ones are grey. It keeps the row's last column, places shown or not. */
 .rt-strip {
+  grid-column: -2 / -1;
   display: flex;
   justify-self: end;
   gap: 3px;

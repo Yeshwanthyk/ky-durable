@@ -2490,14 +2490,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 36px 40px 0;
+  padding: 22px 40px 0;
 }
 
 .artifacts-head h1 {
   margin: 0;
-  font-size: calc(28px * var(--text-scale));
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-size: calc(17px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
   color: var(--ink);
 }
 
@@ -2514,25 +2515,37 @@
 
 .artifacts-tabs {
   display: flex;
-  gap: 6px;
-  padding: 16px 40px 4px;
+  gap: 20px;
+  padding: 14px 40px 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
+/* Text tabs; the picked one is ink, underlined. */
 .artifacts-tabs button {
   flex: none;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: var(--sunken);
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--quiet);
   font-size: calc(13px * var(--text-scale));
+  box-shadow: inset 0 -2px 0 transparent;
+  transition:
+    color var(--fast) var(--ease-out),
+    box-shadow var(--fast) var(--ease-out);
+}
+
+.artifacts-tabs button:hover {
+  color: var(--ink);
 }
 
 .artifacts-tabs button[aria-selected="true"] {
-  background: var(--ink);
-  color: var(--bg);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
 }
 
 .artifacts-body {
@@ -2552,35 +2565,13 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 18px;
-}
-
-.artifact {
-  --press-scale: 0.98;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
-  color: var(--ink);
-  text-align: left;
-  text-decoration: none;
 }
 
-/* After .pressable, so the card's shadow eases with its press. */
-.artifact.pressable {
-  transition:
-    transform var(--fast) var(--ease-out),
-    box-shadow 200ms ease;
-}
-
-/* Cards rise in as the page opens, a beat apart; past the first row they all arrive together. */
+/* A row each: a hairline under it, its preview, its title and meta, then whatever it ends with. */
 .artifact-grid > li {
+  border-bottom: 1px solid var(--line);
   animation: artifact-in 260ms var(--ease-enter) both;
 }
 
@@ -2596,7 +2587,31 @@
   }
 }
 
-/* A preview fades in once drawn (data-loaded, set in Artifacts.tsx), over the card's grey. */
+.artifact {
+  --press-scale: 0.99;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 0;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+}
+
+/* A site's row: the link holds its preview and words; the "…" sits beside it. */
+.artifact-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* A preview fades in once drawn (data-loaded, set in Artifacts.tsx), over the thumbnail's grey. */
 .artifact-preview > :is(img, video, iframe) {
   opacity: 0;
   transition: opacity 240ms var(--ease-out);
@@ -2618,20 +2633,28 @@
   }
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .artifact:is(a, button):hover {
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 6px 18px rgb(0 0 0 / 0.08);
-  }
-}
-
 .artifact-preview {
   position: relative;
-  aspect-ratio: 16 / 10;
+  flex: none;
+  width: 104px;
+  height: 64px;
   overflow: hidden;
+  border-radius: 8px;
   background: var(--hover);
-  border-bottom: 1px solid var(--line);
+  box-shadow: 0 0 0 1px var(--line);
+  transition: box-shadow 200ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(a, button):hover > .artifact-preview {
+    box-shadow: 0 0 0 1px var(--line-hover);
+  }
+
+  :is(a, button):hover .artifact-title {
+    text-decoration: underline;
+    text-decoration-color: var(--line-hover);
+    text-underline-offset: 3px;
+  }
 }
 
 .artifact-preview img,
@@ -2642,7 +2665,7 @@
   object-fit: cover;
 }
 
-/* A site's page, drawn at four times the card's size and shrunk to fit, so it reads as a thumbnail. */
+/* A site's page, drawn at four times the thumbnail's size and shrunk to fit, so it reads as one. */
 .artifact-site iframe {
   width: 400%;
   height: 400%;
@@ -2657,8 +2680,8 @@
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 40px;
-  height: 40px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -2669,28 +2692,68 @@
 .artifact-sound {
   display: grid;
   place-items: center;
-  padding: 0 14px;
+  color: var(--muted);
 }
 
-.artifact-sound .voice-note {
-  width: 100%;
+/* A sound's row ends in its player. */
+.artifact > .voice-note {
+  flex: none;
+  width: min(300px, 45%);
   background: var(--surface);
 }
 
-/* A site's card: the page it opens, then its share links. */
-.artifact-open {
-  display: flex;
-  flex-direction: column;
-  color: inherit;
-  text-decoration: none;
+.artifact-more {
+  position: relative;
+  flex: none;
 }
 
+/* The row with its menu open rises over the rows after it. */
+.artifact-grid > li:has(.artifact-more > [aria-expanded="true"]) {
+  position: relative;
+  z-index: 2;
+}
+
+.artifact-more > .icon-button {
+  color: var(--quiet);
+}
+
+.artifact-menu {
+  width: auto;
+  min-width: 180px;
+}
+
+.artifact-menu .group-option {
+  font-size: calc(13px * var(--text-scale));
+  color: var(--ink);
+}
+
+.artifact-menu .group-option svg {
+  color: var(--muted);
+}
+
+/* A site's share links, opened from its menu, under its row. */
 .artifact-links {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  padding: 0 12px 12px;
+  padding: 2px 0 14px 120px;
+}
+
+.artifact-links-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.artifact-links-head h3 {
+  margin: 0;
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
 }
 
 .artifact-link-list {
@@ -2727,37 +2790,25 @@
 }
 
 .artifact-foot {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px 12px;
   min-width: 0;
-}
-
-.artifact-icon {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--sunken);
-  color: var(--muted);
 }
 
 .artifact-text {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .artifact-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(14px * var(--text-scale));
-  font-weight: 600;
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2786,26 +2837,35 @@
     padding: 14px 16px 0;
   }
 
-  .artifacts-head h1 {
-    font-size: calc(22px * var(--text-scale));
-  }
-
   .artifacts-tabs {
-    padding: 12px 16px 4px;
+    padding: 12px 16px 0;
   }
 
   .artifacts-body {
     padding: 12px 16px 32px;
   }
 
-  .artifact-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  .artifact-preview {
+    width: 80px;
+    height: 50px;
+  }
+
+  .artifact,
+  .artifact-open {
     gap: 12px;
   }
 
-  /* Two cards abreast leave the title no room to share with an icon. */
-  .artifact-icon {
-    display: none;
+  /* Narrow, a sound's player takes its own line under the row's words. */
+  .artifact:has(> .voice-note) {
+    flex-wrap: wrap;
+  }
+
+  .artifact > .voice-note {
+    width: 100%;
+  }
+
+  .artifact-links {
+    padding-left: 0;
   }
 }
 

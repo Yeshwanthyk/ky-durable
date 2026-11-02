@@ -36,7 +36,7 @@ function PinButton({ skill, onChange }: { skill: SkillRow; onChange: (change: Sk
       title={skill.pinned ? "Let ky's dreams and reviews tend it again" : "Keep ky's dreams and reviews from changing it"}
       onClick={() => onChange({ action: skill.pinned ? "unpin" : "pin", name: skill.name })}
     >
-      <Icon name="pin" size={13} />
+      <Icon name="pin" size={14} />
       {skill.pinned ? "Unpin" : "Pin"}
     </button>
   );
@@ -159,23 +159,34 @@ function SkillActions({
     <div className="skill-actions">
       {mode === "history" ? (
         <button type="button" className="pill" onClick={() => onMode("read")}>
+          <Icon name="arrowLeft" size={14} />
           Back
         </button>
       ) : (
         <>
           <button type="button" className="pill" onClick={() => onMode("edit")}>
+            <Icon name="pencil" size={14} />
             Edit
           </button>
           <button type="button" className="pill" onClick={onHistory}>
+            <Icon name="clock" size={14} />
             History
           </button>
         </>
       )}
       {pin}
-      <button type="button" className="pill" onClick={onArchive}>
-        {archived ? "Restore" : "Archive"}
-      </button>
+      <ArchiveButton archived={archived} onArchive={onArchive} />
     </div>
+  );
+}
+
+// Archive, or Restore for an archived skill; the reader sets it at the row's far end.
+function ArchiveButton({ archived, onArchive }: { archived: boolean; onArchive: () => void }) {
+  return (
+    <button type="button" className="pill skill-action-end" onClick={onArchive}>
+      <Icon name={archived ? "unarchive" : "archive"} size={14} />
+      {archived ? "Restore" : "Archive"}
+    </button>
   );
 }
 

@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { BotAvatar } from "./BotAvatar";
 import type { Mentionable } from "../chat-kit/Composer";
 import { Icon } from "../chat-kit/Icon";
+import { useDismiss } from "./use-dismiss";
 
 /** A chat's specialists, and the user's way to change them. */
 export type Group = {
@@ -20,25 +21,9 @@ export function GroupMembers({ members, specialists, onChange }: Group) {
   const menuId = useId();
   const root = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
+  const close = useCallback(() => setOpen(false), []);
 
-    const close = (event: PointerEvent) => {
-      if (!(event.target instanceof Node) || !root.current?.contains(event.target)) setOpen(false);
-    };
-
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", escape);
-
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(open, root, close);
 
   const toggle = (id: string) => onChange(members.includes(id) ? members.filter((each) => each !== id) : [...members, id]);
   const label = members.length === 0 ? "Add specialists to this chat" : `Group chat with ${members.map((id) => `@${id}`).join(", ")}`;

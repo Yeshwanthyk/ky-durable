@@ -2240,7 +2240,16 @@ test("Artifacts gathers what ky made: the sites it published and the screenshots
   await expect(page).toHaveURL(/\?artifacts=all/);
   const artifacts = page.getByRole("region", { name: "Artifacts" });
   await expect(artifacts.getByRole("link", { name: "Open Quarterly report" })).toHaveAttribute("href", /^\/s\/[0-9a-f]{32}\/$/);
-  await expect(artifacts.getByRole("button", { name: "Open a fake screenshot" })).toBeVisible();
+  await expect(artifacts.getByRole("button", { name: "Open a fake screenshot" }).first()).toBeVisible();
+
+  // A site's share links open from its row's "…" menu, under the row, and close again.
+  await expect(artifacts.getByRole("form", { name: "Share Quarterly report" })).toBeHidden();
+  await artifacts.getByRole("button", { name: "More for Quarterly report" }).click();
+  await artifacts.getByRole("menuitemcheckbox", { name: "Share links" }).click();
+  await expect(artifacts.getByRole("menu")).toBeHidden();
+  await expect(artifacts.getByRole("form", { name: "Share Quarterly report" })).toBeVisible();
+  await artifacts.getByRole("button", { name: "Close share links" }).click();
+  await expect(artifacts.getByRole("form", { name: "Share Quarterly report" })).toBeHidden();
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/artifacts.png` });
 
@@ -2251,7 +2260,7 @@ test("Artifacts gathers what ky made: the sites it published and the screenshots
 
   await artifacts.getByRole("tab", { name: "Images" }).click();
   await expect(artifacts.getByRole("link", { name: "Open Quarterly report" })).toBeHidden();
-  await artifacts.getByRole("button", { name: "Open a fake screenshot" }).click();
+  await artifacts.getByRole("button", { name: "Open a fake screenshot" }).first().click();
   await expect(page.getByRole("dialog", { name: "a fake screenshot" })).toBeVisible();
   await page.getByRole("dialog", { name: "a fake screenshot" }).getByRole("button", { name: "Close" }).click();
 

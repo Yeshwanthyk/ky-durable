@@ -142,7 +142,7 @@ function Strip({
   );
 }
 
-/** Where a run happens and where it reports: "☁ The cloud → 💬 Main chat". */
+/** Where a run happens and where it reports: "☁ The cloud → 💬 Main chat". Shown on an open row only. */
 function Places({ automation }: { automation: AutomationInfo }) {
   const chat = automation.chat === MAIN_SESSION ? "Main chat" : plain(automation.chat_label);
 
@@ -261,7 +261,7 @@ function RoutineRow({ automation, open, tasks, now, onOpen }: RowProps) {
         </div>
         <p className="rt-meta">{[scheduleOf(automation), ...stateOf(automation, taskOf(automation.runs[0]), now)].join(" · ")}</p>
         <LastLine automation={automation} now={now} />
-        <Places automation={automation} />
+        {open ? <Places automation={automation} /> : null}
         {automation.runs.length > 0 ? <Strip runs={automation.runs} picked={open ? run?.id : undefined} now={now} onPick={open ? setPicked : null} /> : null}
       </div>
       <div className="rt-progress" aria-hidden />
