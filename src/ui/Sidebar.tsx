@@ -294,17 +294,14 @@ export function Sidebar({
       <ArchivedChats chats={archived} row={row} />
       {/* What ky made sits apart from the chats, at the foot, so the list starts with the main chat. */}
       <div className="sidebar-foot">
-        <button type="button" className="chat-item pressable pressable-row" aria-current={skills ? "page" : undefined} onClick={onSkills}>
-          <Icon name="list" size={14} />
-          <span className="chat-title">Skills</span>
+        <button type="button" className="sidebar-foot-button pressable" aria-label="Skills" title="Skills" aria-current={skills ? "page" : undefined} onClick={onSkills}>
+          <Icon name="list" size={16} />
         </button>
-        <button type="button" className="chat-item pressable pressable-row" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
-          <Icon name="grid" size={14} />
-          <span className="chat-title">Artifacts</span>
+        <button type="button" className="sidebar-foot-button pressable" aria-label="Artifacts" title="Artifacts" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
+          <Icon name="grid" size={16} />
         </button>
-        <button type="button" className="chat-item pressable pressable-row" aria-current={routine ? "page" : undefined} onClick={onRoutine}>
-          <Icon name="clock" size={14} />
-          <span className="chat-title">Routines</span>
+        <button type="button" className="sidebar-foot-button pressable" aria-label="Routines" title="Routines" aria-current={routine ? "page" : undefined} onClick={onRoutine}>
+          <Icon name="clock" size={16} />
           {automations.some((automation) => automation.runs[0]?.status === "working" || automation.runs[0]?.status === "queued") ? (
             <span className="sidebar-live" role="status" aria-label="A routine is running" />
           ) : null}

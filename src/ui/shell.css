@@ -6168,13 +6168,15 @@ button.rt-bar:focus-visible {
   font-weight: 600;
 }
 
-/* The sidebar's Routines: a small pulse while one runs. */
+/* The sidebar's Routines: a small pulse in the clock's corner while one runs, ringed in the sidebar's ground. */
 .sidebar-live {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  margin-left: auto;
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--sidebar);
   background: var(--working);
   animation: rt-breathe 1.4s var(--ease-in-out) infinite alternate;
 }
