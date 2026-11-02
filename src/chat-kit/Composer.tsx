@@ -180,6 +180,9 @@ function useWrapped(area: RefObject<HTMLTextAreaElement | null>, value: string, 
   const [open, setOpen] = useState(false);
   const pillWidth = useRef(0);
   const metrics = useRef<Metrics | null>(null);
+  // The pill's own metrics: the card's textarea has no side padding, so measured there it would call text that
+  // wrapped the pill a fit, close, wrap again and loop.
+  const pillMetrics = useRef<Metrics | null>(null);
   const showing = open || card;
   const shown = useRef(showing);
 
@@ -214,8 +217,10 @@ function useWrapped(area: RefObject<HTMLTextAreaElement | null>, value: string, 
     grow(element);
     metrics.current ??= measure(element);
 
+    if (!showing) pillMetrics.current = metrics.current;
+
     if (pillWidth.current === 0 && !showing) pillWidth.current = element.clientWidth;
-    const next = wraps(value, open, metrics.current, pillWidth.current, element);
+    const next = wraps(value, open, pillMetrics.current ?? metrics.current, pillWidth.current, element);
 
     if (next !== open) setOpen(next);
   }, [area, value, open, showing]);
