@@ -1,11 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Icon, type IconName } from "../chat-kit/Icon";
+import { Icon } from "../chat-kit/Icon";
 
 export type Command = {
   readonly id: string;
   readonly label: string;
   readonly group: string;
-  readonly icon: IconName;
   /** Shown at the right, like a time or a shortcut. */
   readonly hint?: string;
   /** Extra words it answers to. */
@@ -61,7 +60,7 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
     <div className="palette-backdrop" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="palette" role="dialog" aria-modal="true" aria-label="Commands">
         <label className="palette-search">
-          <Icon name="search" size={16} />
+          <Icon name="search" size={18} />
           <input
             autoFocus
             role="combobox"
@@ -94,7 +93,6 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
               }
             }}
           />
-          <kbd className="palette-kbd">esc</kbd>
         </label>
         {shown.length === 0 ? (
           <p className="palette-empty">Nothing matches “{query}”.</p>
@@ -111,9 +109,10 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
             ) : null}
             {shown.map((command, at) => (
               <li key={command.id} role="presentation">
+                {/* A rule between groups; the name stays for screen readers only. */}
                 {at === 0 || shown[at - 1]!.group !== command.group ? (
-                  <div className="palette-group" role="presentation">
-                    {command.group}
+                  <div className="palette-group" role="presentation" data-first={at === 0}>
+                    <span className="palette-group-name">{command.group}</span>
                   </div>
                 ) : null}
                 <div
@@ -129,7 +128,6 @@ export function CommandPalette({ commands, onClose }: { commands: readonly Comma
                   }}
                   onClick={() => run(command)}
                 >
-                  <Icon name={command.icon} size={16} />
                   <span className="palette-label">{command.label}</span>
                   {command.hint ? <span className="palette-hint tabular">{command.hint}</span> : null}
                 </div>
