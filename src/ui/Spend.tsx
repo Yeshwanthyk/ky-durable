@@ -48,11 +48,11 @@ function useSpend() {
   return { actions, view, setView, problem, setProblem, fail };
 }
 
-/** Today's spend, on Settings' first page; amber once the cap is reached. */
+/** Today's spend, on Settings' first page. */
 export function SpendValue() {
   const { view } = useSpend();
 
-  return view === null ? null : <RowValue tone={view.capped ? "paused" : undefined}>{dollars(view.today.costUsd)}</RowValue>;
+  return view === null ? null : <RowValue>{dollars(view.today.costUsd)}</RowValue>;
 }
 
 function Cap({ view, onSet }: { readonly view: SpendView; readonly onSet: (usd: number | null) => void }) {
