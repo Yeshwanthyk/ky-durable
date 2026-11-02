@@ -7,6 +7,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { System } from "./system.ts";
+import { toEnv } from "../../src/machines/contract.ts";
 
 export type Service = {
   /** Its plist or unit file. */
@@ -33,13 +34,13 @@ export function serviceDirs(system: System) {
 
   return {
     ...(system.config !== path.join(system.home, ".config") && { XDG_CONFIG_HOME: system.config }),
-    ...(state !== path.join(system.home, ".ky") && { KY_STATE_DIR: state })
+    ...(state !== path.join(system.home, ".ky") && toEnv({ STATE_DIR: state }))
   };
 }
 
 /** What the service runs with besides its own environment: this shell's PATH, so it finds `claude` and `codex`, where ky keeps things, and which runner it is. */
 function environment(system: System) {
-  return { PATH: system.path, HOME: system.home, KY_RUNNER_SERVICE: "1", ...serviceDirs(system), ...(system.instance && { KY_RUNNER_AS: system.instance }) };
+  return { PATH: system.path, HOME: system.home, ...toEnv({ RUNNER_SERVICE: "1" }), ...serviceDirs(system), ...(system.instance && toEnv({ RUNNER_AS: system.instance })) };
 }
 
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");

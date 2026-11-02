@@ -7,7 +7,7 @@ import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import {
   decodeObjectFrame,
   type MachineFacts,
-  PAIRING_HEADER,
+  HEADERS,
   PROTOCOL,
   RUNNER_PATH,
   type RunCommand,
@@ -97,10 +97,10 @@ export function pairing(name: string, machine: string): Promise<string> {
 /**
  * A runner's WebSocket to the agent `name`, as the machine `machine`, past
  * the Worker's route to "me": with the header the Worker adds, naming the
- * machine's pairing, or `as`.
+ * machine's pairing, or `as`; under `header`, the Worker's name for it by default.
  */
-export async function connectRunner(name: string, machine: string, as?: string): Promise<WebSocket> {
-  const headers = { Upgrade: "websocket", [PAIRING_HEADER]: as ?? (await pairing(name, machine)) };
+export async function connectRunner(name: string, machine: string, as?: string, header: string = HEADERS.pairing): Promise<WebSocket> {
+  const headers = { Upgrade: "websocket", [header]: as ?? (await pairing(name, machine)) };
 
   return accepted(await agent(name).fetch(new Request(`${ORIGIN}${RUNNER_PATH}${machine}`, { headers })));
 }

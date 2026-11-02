@@ -22,6 +22,7 @@ import {
 } from "./contract";
 import { baseType, MAX_MEDIA_BYTES, mediaKind, soundTypeOf } from "./media";
 import { hasPicture, inMemory, type ReadRange } from "./tracks";
+import { readHeader } from "../machines/contract";
 
 const TABLE = FILE_TABLES.files;
 
@@ -130,11 +131,11 @@ const sizeOf = (request: Request, type: string) => {
 
 const labels = (request: Request) =>
   Effect.gen(function* () {
-    const named = request.headers.get("X-Ky-Name");
+    const named = readHeader(request.headers, "name");
 
     if (named === null) return yield* new BadLabel();
     const name = yield* label(named, 255);
-    const captioned = request.headers.get("X-Ky-Caption");
+    const captioned = readHeader(request.headers, "caption");
 
     return { name, caption: captioned === null ? null : yield* label(captioned, 2000) };
   });
