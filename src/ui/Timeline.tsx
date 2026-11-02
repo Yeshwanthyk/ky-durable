@@ -4,11 +4,11 @@ import { Icon } from "../chat-kit/Icon";
 import { Markdown } from "./Markdown";
 import { plain } from "./plain";
 import { isLive, spendParts } from "./task-progress";
-import { type TimelineState, type TimelineStep, taskTimeline, titleParts } from "./timeline-steps";
+import { type TimelineEntry, type TimelineState, type TimelineStep, taskTimeline, titleParts } from "./timeline-steps";
 import { Reveal } from "../chat-kit/Reveal";
 
-// A task's steps as a live vertical timeline in a sheet: a glyph per step on a dotted line, its
-// title with the key result, a dim line of what came back, and the raw call behind a chevron.
+// A task's steps as a live vertical timeline in a sheet: a quiet glyph per step, its title with the
+// key result, the raw call behind a chevron, and the agent's own words between them as plain text.
 
 /** Asks the server for a task's full log; a page with no connection gets none. */
 export const TaskStepsContext = createContext<(task: string) => Promise<readonly TaskLogStep[]>>(() => Promise.resolve([]));
@@ -35,7 +35,7 @@ function useTaskLog(task: TaskRow): readonly TaskLogStep[] | null {
   return log;
 }
 
-// Outlined circles: a check when done, empty and amber while running, a cross when it failed.
+// Outlined circles: a check when done, empty and pulsing while running, a cross when it failed.
 function Glyph({ state }: { state: TimelineState }) {
   return (
     <svg className="timeline-glyph" data-state={state} width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -66,17 +66,12 @@ function Title({ title }: { title: string }) {
   );
 }
 
-const DETAIL: Partial<Record<TimelineState, string>> = { running: "In progress", stopped: "Stopped before it finished" };
-
-/** A step's title and dim line, as a button that opens its raw call when it has one; without one, it has no chevron. */
+/** A step's title, as a button that opens its raw call when it has one; without one, it has no chevron. The glyph says how it stands. */
 function StepRow({ step, opens, open, onToggle }: { step: TimelineStep; opens: boolean; open: boolean; onToggle: () => void }) {
-  const detail = step.detail || DETAIL[step.state];
-
   return (
     <button type="button" className="timeline-row" aria-expanded={opens ? open : undefined} disabled={!opens} onClick={onToggle}>
       <span className="timeline-text">
         <Title title={step.title} />
-        {detail ? <span className="timeline-detail">{detail}</span> : null}
       </span>
       <Icon name="chevronRight" size={14} className="timeline-chevron" />
     </button>
@@ -109,17 +104,25 @@ function Step({ step }: { step: TimelineStep }) {
   );
 }
 
-/** Steps as a timeline, newest last; while the work goes on and no step is running, a Thinking line under them. */
-export function Timeline({ steps, working, empty = "No steps yet" }: { steps: readonly TimelineStep[]; working: boolean; empty?: string }) {
-  const thinking = working && steps.at(-1)?.state !== "running";
+/** The agent's words between its steps: plain text, lined up with the step titles. */
+function Note({ text }: { text: string }) {
+  return (
+    <li className="timeline-note">
+      {titleParts(text).map((piece, index) => (piece.code ? <code key={index}>{piece.text}</code> : <span key={index}>{piece.text}</span>))}
+    </li>
+  );
+}
+
+/** Steps and notes as a timeline, newest last; while the work goes on and no step is running, a Thinking line under them. */
+export function Timeline({ steps, working, empty = "No steps yet" }: { steps: readonly TimelineEntry[]; working: boolean; empty?: string }) {
+  const newest = steps.at(-1);
+  const thinking = working && !(newest?.kind === "step" && newest.state === "running");
 
   return (
     <>
       {steps.length > 0 ? (
         <ol className="timeline" aria-label="Steps">
-          {steps.map((step) => (
-            <Step key={step.id} step={step} />
-          ))}
+          {steps.map((entry) => (entry.kind === "note" ? <Note key={entry.id} text={entry.text} /> : <Step key={entry.id} step={entry} />))}
         </ol>
       ) : working ? null : (
         <p className="timeline-empty">{empty}</p>

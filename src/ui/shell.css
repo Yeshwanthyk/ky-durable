@@ -5240,11 +5240,12 @@ article.skills-reader > * {
   }
 }
 
-/* A task's steps as a timeline, after Muse: a sheet in ky's theme, a glyph per step on a dotted line,
-   bold titles with a dim line under each, the raw call behind a chevron. No cards: spacing does it.
-   The glyphs are green, amber and red: ky's own on a light sheet, Apple's system tints on a dark one. */
+/* A task's steps as a timeline, after Muse: a sheet in ky's theme, a quiet glyph per step, regular
+   titles with the command in plain mono, the raw call behind a chevron, and the agent's own words between
+   steps as plain text. No cards, no line: spacing does it. The glyphs are gray, ink while running, and
+   red only when a step failed: ky's red on a light sheet, Apple's on a dark one. The Thinking flower
+   keeps its amber. */
 .timeline-sheet {
-  --timeline-done: var(--success);
   --timeline-running: var(--warning);
   --timeline-failed: var(--danger);
   height: auto;
@@ -5254,7 +5255,6 @@ article.skills-reader > * {
 }
 
 :root[data-mode="dark"] .timeline-sheet {
-  --timeline-done: #30d158;
   --timeline-running: #ff9f0a;
   --timeline-failed: #ff453a;
 }
@@ -5338,25 +5338,22 @@ article.skills-reader > * {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   column-gap: 14px;
-  padding-bottom: 22px;
+  padding-bottom: 14px;
 }
 
-/* The dotted line joins each glyph to the next, and the last to Working while the work goes on. */
-.timeline-step::before {
-  content: "";
-  position: absolute;
-  top: 25px;
-  bottom: 3px;
-  left: 9.25px;
-  border-left: 1.5px dotted var(--line-hover);
+/* The agent's words between steps: plain text where the titles start (20px glyph + 14px gap). */
+.timeline-note {
+  margin: 0 0 14px 34px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
-.timeline-step:last-child::before {
-  display: none;
-}
-
-.timeline:has(+ .timeline-working) .timeline-step:last-child::before {
-  display: block;
+.timeline-note code {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
 }
 
 .timeline-glyph {
@@ -5364,12 +5361,8 @@ article.skills-reader > * {
   color: var(--quiet);
 }
 
-.timeline-glyph[data-state="done"] {
-  color: var(--timeline-done);
-}
-
 .timeline-glyph[data-state="running"] {
-  color: var(--timeline-running);
+  color: var(--ink);
   animation: timeline-pulse 1.6s ease-in-out infinite;
 }
 
@@ -5410,31 +5403,22 @@ article.skills-reader > * {
 }
 
 .timeline-title {
-  font-size: 15.5px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 500;
   line-height: 1.35;
   color: var(--ink);
   overflow-wrap: anywhere;
 }
 
-.timeline-title code {
-  padding: 0 3px;
-  border-radius: 4px;
-  background: var(--selected);
-  font-family: var(--font-mono);
-  font-size: 0.86em;
-  font-weight: 500;
+.timeline-step[data-state="failed"] .timeline-title {
+  color: var(--timeline-failed);
 }
 
-.timeline-detail {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-size: 14px;
-  line-height: 1.4;
+.timeline-title code {
   color: var(--muted);
-  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 400;
 }
 
 .timeline-chevron {
