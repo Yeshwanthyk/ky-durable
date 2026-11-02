@@ -150,6 +150,10 @@ export function Panel({
           </p>
         </div>
         <PanelTabs tab={tab} onTab={onTab} />
+        {/* On a phone the tabs move to the foot, so the head names the one that is open. */}
+        <p className="panel-title" aria-hidden="true">
+          {TAB_LABEL[tab]}
+        </p>
       </header>
       {tab === "activity" ? (
         <Activity
@@ -194,6 +198,7 @@ export function Panel({
           keyActions={keyActions}
         />
       ) : null}
+      <PanelTabBar tab={tab} onTab={onTab} />
     </aside>
   );
 }
@@ -220,6 +225,24 @@ function PanelTabs({ tab, onTab }: { tab: PanelTab; onTab: (tab: PanelTab) => vo
         </button>
       ))}
     </Segmented>
+  );
+}
+
+const TAB_LABEL: Record<PanelTab, string> = { activity: "Activity", soul: "Soul", settings: "Settings" };
+
+const TAB_BAR_ICON: Record<PanelTab, IconName> = { activity: "pulse", soul: "fingerprint", settings: "gear" };
+
+// On a phone the same three tabs sit along the bottom edge, in reach of a thumb: an icon over its name.
+function PanelTabBar({ tab, onTab }: { tab: PanelTab; onTab: (tab: PanelTab) => void }) {
+  return (
+    <nav className="panel-tabbar" role="tablist" aria-label="Panel">
+      {PANEL_TABS.map(([id, label]) => (
+        <button key={id} type="button" role="tab" aria-selected={tab === id} className="panel-tabbar-tab" onClick={() => onTab(id)}>
+          <Icon name={TAB_BAR_ICON[id]} size={20} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 

@@ -1,0 +1,218 @@
+/* ky on a phone (≤767px): a centered pill under the status bar with a new-chat button beside it, a drawer
+   that is the whole screen with a round new-chat button, the panel's tabs along the bottom edge, and the
+   composer docked to the foot. Loaded after shell.css so these win at equal specificity; wider layouts
+   only see the first block, which hides the phone's own controls. */
+
+.topbar-new,
+.sidebar-fab,
+.panel-title,
+.panel-tabbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  /* ---------- Header: menu, the pill in the middle, new chat ---------- */
+
+  /* Centered at every width the rest of the app might pick, with 44px targets either side. */
+  .topbar {
+    grid-template-columns: minmax(44px, 1fr) auto minmax(44px, 1fr);
+    justify-items: stretch;
+    gap: 4px;
+    padding: calc(6px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 14px
+      max(8px, env(safe-area-inset-left));
+  }
+
+  .topbar > .who {
+    justify-self: center;
+  }
+
+  .topbar-new {
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+  }
+
+  .topbar .drawer-toggle {
+    color: var(--ink);
+  }
+
+  .who {
+    gap: 9px;
+    padding: 0 16px 0 8px;
+  }
+
+  .who-name {
+    font-size: calc(14px * var(--text-scale));
+  }
+
+  .who-sub {
+    font-size: calc(12px * var(--text-scale));
+  }
+
+  /* ---------- Drawer: the whole screen, nothing beside it ---------- */
+
+  .sidebar-slot {
+    width: 100vw;
+  }
+
+  .shell[data-drawer="true"] .sidebar-slot {
+    box-shadow: none;
+  }
+
+  .shell[data-drawer="true"] .scrim {
+    opacity: 0;
+  }
+
+  .sidebar {
+    position: relative;
+    gap: 2px;
+    padding: calc(10px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .sidebar-search {
+    height: 44px;
+    margin-bottom: 10px;
+    padding: 0 14px;
+    border-radius: 12px;
+    font-size: calc(16px * var(--text-scale));
+  }
+
+  .sidebar .chat-item {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: calc(16px * var(--text-scale));
+  }
+
+  .sidebar .chat-time {
+    font-size: calc(13px * var(--text-scale));
+  }
+
+  /* The round button takes the place of the head's plus. */
+  .sidebar-head > .icon-button {
+    display: none;
+  }
+
+  .sidebar-fab {
+    position: absolute;
+    right: max(18px, env(safe-area-inset-right));
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 1;
+    width: 52px;
+    height: 52px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--bg);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  }
+
+  .sidebar-fab:disabled {
+    opacity: 0.6;
+  }
+
+  .sidebar-foot {
+    gap: 14px;
+    padding: 8px 4px 0;
+  }
+
+  .sidebar-foot-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* ---------- Panel: the open tab's name and a close at the top, the tabs along the foot ---------- */
+
+  .profile {
+    min-height: 34px;
+    padding: calc(14px + env(safe-area-inset-top)) 64px 14px max(20px, env(safe-area-inset-left));
+  }
+
+  .profile > svg,
+  .profile > .segmented {
+    display: none;
+  }
+
+  .panel-title {
+    display: block;
+    margin: 0;
+    font-size: calc(20px * var(--text-scale));
+    font-weight: 600;
+    line-height: 34px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+
+  .panel-close {
+    top: calc(14px + env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+  }
+
+  .panel .panel-close {
+    width: 34px;
+    height: 34px;
+    background: var(--raised);
+    color: var(--muted);
+  }
+
+  .panel-body {
+    padding-bottom: 24px;
+  }
+
+  .panel-tabbar {
+    flex: none;
+    display: flex;
+    padding: 6px max(0px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom))
+      max(0px, env(safe-area-inset-left));
+    background: var(--sidebar);
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+
+  .panel-tabbar-tab {
+    flex: 1;
+    min-width: 0;
+    height: 50px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: var(--quiet);
+    font-size: calc(11px * var(--text-scale));
+    transition: color var(--fast) var(--ease-out);
+  }
+
+  .panel-tabbar-tab[aria-selected="true"] {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ---------- Composer: docked to the foot, edge to edge ---------- */
+
+  .composer-wrap {
+    padding: 0;
+    padding-bottom: var(--kb, env(safe-area-inset-bottom));
+    background: var(--bg);
+  }
+
+  .composer,
+  .composer[data-open="true"] {
+    max-width: none;
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+
+  .composer::after {
+    display: none;
+  }
+
+  .composer:focus-within {
+    box-shadow: inset 0 1px 0 var(--line-hover);
+  }
+
+  .composer > .composer-icon:first-child {
+    margin-left: calc(max(8px, env(safe-area-inset-left)) - var(--composer-hit));
+  }
+}

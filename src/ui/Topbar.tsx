@@ -124,9 +124,12 @@ export type TopbarProps = {
   group?: Group;
   /** The specialists working for the chat now, sat in the pill. */
   crew: Crew;
+  /** Starts a new chat: the topbar's own button on a phone. */
+  onNewChat: () => void;
+  creating: boolean;
 };
 
-export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group, crew }: TopbarProps) {
+export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group, crew, onNewChat, creating }: TopbarProps) {
   return (
     <header className="topbar">
       <div className="topbar-side">
@@ -145,6 +148,10 @@ export function Topbar({ open, variantId, running, status, sub, activity, drawer
           </button>
         ) : null}
         {group && group.specialists.length > 0 ? <GroupMembers {...group} /> : null}
+        {/* On a phone a new chat is one tap from the chat; wider, the sidebar has its own. */}
+        <button type="button" className="icon-button pressable topbar-new" aria-label="New chat" title="New chat" disabled={creating} onClick={onNewChat}>
+          <Icon name="compose" size={18} />
+        </button>
       </div>
     </header>
   );
