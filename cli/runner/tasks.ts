@@ -11,7 +11,7 @@ import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "n
 import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { Agent, CodexCreds, RunCreds } from "../../src/machines/contract.ts";
+import type { Agent, AgentModel, CodexCreds, RunCreds } from "../../src/machines/contract.ts";
 import { claudeArgs } from "./claude.ts";
 import { codexArgs } from "./codex.ts";
 import type { AgentProcess, Launch, ProcessEvents, SpawnAgent } from "./runner.ts";
@@ -185,13 +185,16 @@ export function tasks(config: TaskConfig) {
    * the environment. ky's Claude subscription goes into this one child's env only, as the Claude
    * Code CLI reads it.
    */
-  const launches: Record<Agent, (task: string, session: string | null, creds: RunCreds | undefined) => { command: string; args: string[]; env: Record<string, string> }> = {
-    claude: (_task, session, creds) => ({
+  const launches: Record<
+    Agent,
+    (task: string, session: string | null, creds: RunCreds | undefined, model: AgentModel | undefined) => { command: string; args: string[]; env: Record<string, string> }
+  > = {
+    claude: (_task, session, creds, model) => ({
       command: config.claude,
-      args: claudeArgs({ permissionMode: config.permissionMode, systemPrompt: prompt + (config.chrome ? CHROME_PROMPT : ""), chrome: config.chrome, session }),
+      args: claudeArgs({ permissionMode: config.permissionMode, systemPrompt: prompt + (config.chrome ? CHROME_PROMPT : ""), chrome: config.chrome, session, model }),
       env: { ...(creds?.claude && { CLAUDE_CODE_OAUTH_TOKEN: creds.claude.oauthToken }) }
     }),
-    codex: (task, session, creds) => ({ command: config.codex, args: codexArgs(session, prompt), env: { CODEX_HOME: codexHome(task, creds?.codex) } })
+    codex: (task, session, creds, model) => ({ command: config.codex, args: codexArgs(session, prompt, model), env: { CODEX_HOME: codexHome(task, creds?.codex) } })
   };
 
   /**
@@ -199,14 +202,14 @@ export function tasks(config: TaskConfig) {
    * ENOSPC), it exits at once with why, as a CLI that would not start does, and its turn ends
    * failed: the run was already acked.
    */
-  const spawnAgent: SpawnAgent = (agent: Agent, task: string, { taskToken, session, creds }: Launch, events: ProcessEvents): AgentProcess => {
+  const spawnAgent: SpawnAgent = (agent: Agent, task: string, { taskToken, session, creds, model }: Launch, events: ProcessEvents): AgentProcess => {
     let launch: ReturnType<(typeof launches)[Agent]>;
     // Only a home ky signed in has a login of ky's to delete; the link to the machine's stays.
     const handed = agent === "codex" && creds?.codex !== undefined;
 
     try {
       mkdirSync(config.workdir, { recursive: true });
-      launch = launches[agent](task, session, creds);
+      launch = launches[agent](task, session, creds, model);
     } catch (error) {
       if (handed) signOut(task);
       // After this returns: the runner records the process before it hears it exit.

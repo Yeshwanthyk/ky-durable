@@ -1817,6 +1817,57 @@ test.describe("automations in Activity", () => {
     await expect(sheet.getByRole("listitem", { name: title })).toBeHidden();
   });
 
+  test("pins an automation on a machine to its agent and the agent's model: the row says where, and the form opens on them again", async ({ page }) => {
+    await open(page);
+    const title = `Tidy the inbox ${crypto.randomUUID().slice(0, 8)}`;
+    const sheet = await routines(page);
+
+    await sheet.getByRole("button", { name: "New", exact: true }).click();
+    const form = panel(page).getByRole("form", { name: "New automation" });
+    await form.getByLabel("Title").fill(title);
+    await form.getByLabel("Prompt").fill("archive what's read");
+    await form.getByLabel("Runs on").selectOption("webmac");
+    await form.getByLabel("Agent").selectOption({ label: "Claude Code" });
+    await form.getByRole("button", { name: /More/ }).click();
+    await form.getByLabel("Model").selectOption("claude/opus");
+    await form.getByLabel("Effort").selectOption("high");
+
+    if (SHOTS) await form.screenshot({ path: `${SHOTS}/routine-agent-model.png` });
+
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(sheet.getByRole("listitem", { name: title })).toBeVisible();
+
+    // The Routines page names where it runs and as what, on the open row.
+    await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "Routines" }).click();
+    const page_ = page.getByRole("region", { name: "Routines" }).filter({ has: page.getByRole("heading", { name: "Routines", level: 1 }) });
+    const row = page_.getByRole("listitem", { name: title });
+    await row.getByRole("button", { name: title, exact: true }).click();
+    await expect(row).toContainText("webmac · Claude Code · opus high");
+    await expect(row).not.toContainText("Won't run as set");
+
+    if (SHOTS) await row.screenshot({ path: `${SHOTS}/routine-agent-row.png` });
+
+    const automation = sheet.getByRole("listitem", { name: title });
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    const edit = panel(page).getByRole("form", { name: "Edit automation" });
+    await expect(edit.getByLabel("Agent")).toHaveValue("claude");
+    await expect(edit.getByLabel("Model")).toHaveValue("claude/opus");
+    await expect(edit.getByLabel("Effort")).toHaveValue("high");
+
+    // Back to the cloud: the agent's model goes with the agent, and the cloud's picks come back.
+    await edit.getByLabel("Runs on").selectOption("");
+    await expect(edit.getByLabel("Agent")).toBeHidden();
+    await expect(edit.getByLabel("Model")).toHaveValue("");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(automation).not.toContainText("webmac");
+
+    await automation.getByRole("button", { name: `Edit ${title}` }).click();
+    await edit.getByRole("button", { name: "More actions" }).click();
+    await edit.getByRole("button", { name: "Delete" }).click();
+    await edit.getByRole("button", { name: "Delete for good" }).click();
+    await expect(sheet.getByRole("listitem", { name: title })).toBeHidden();
+  });
+
   test("gives an automation to a specialist with Owner: it saves as that specialist's and opens on it again", async ({ page }) => {
     await open(page);
     const id = `own-${crypto.randomUUID().slice(0, 8)}`;

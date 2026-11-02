@@ -160,7 +160,7 @@ export function dreamOf(world: Here): DreamWorld {
     create: (card) => {
       world.seen.cards.push(`${card.title} ${card.status}`);
 
-      return { source: "", summary: "", steps: [], agent: null, chat: null, created_at: 0, updated_at: 0, started_at: null, finished_at: null, turns: null, cost_usd: null, ...card };
+      return { source: "", summary: "", steps: [], agent: null, chat: null, created_at: 0, updated_at: 0, started_at: null, finished_at: null, turns: null, cost_usd: null, ...card, model: card.model ?? null };
     },
     update: (_id, change) => void world.seen.cards.push(change.status ?? ""),
     finishedSince: () => []

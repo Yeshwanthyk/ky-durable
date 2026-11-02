@@ -4165,6 +4165,11 @@ article.skills-reader > * {
   max-width: 40%;
 }
 
+/* A run that won't start as the routine says: its model is gone, or its machine can't run it so. */
+.automation-detail[data-detail="runner"] {
+  color: color-mix(in srgb, var(--danger) 80%, var(--ink));
+}
+
 .automation-detail[data-detail="chat"] {
   flex: 0 1 auto;
   max-width: none;
@@ -5978,6 +5983,13 @@ article.skills-reader > * {
   color: var(--quiet);
   font-size: calc(12.5px * var(--text-scale));
   white-space: nowrap;
+}
+
+.rt-warn {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: color-mix(in srgb, var(--danger) 80%, var(--ink));
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .rt-places svg:nth-of-type(2) {

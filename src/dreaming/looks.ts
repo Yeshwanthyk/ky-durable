@@ -258,6 +258,7 @@ class Looking extends Context.Service<
               at: null,
               model: null,
               machine: null,
+              agent: null,
               chat: ROOT_SESSION,
               gate: row.gate
             };

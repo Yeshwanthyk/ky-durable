@@ -91,7 +91,7 @@ describe("stored rows", () => {
   it.each(["{", "null", "[]", `{"provider":"p"}`, `{"provider":"p","modelId":"m","thinkingLevel":"loud"}`])(
     "reads the corrupt model column %j as the worker's",
     (model) => {
-      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", model: null, post: false }]);
+      expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", agent: null, model: null, post: false }]);
     }
   );
 
@@ -104,19 +104,32 @@ describe("stored rows", () => {
       fc.property(text, (model) => {
         const parsed = Option.getOrUndefined(parseJson(model));
 
-        const expected = Value.Check(ModelChoiceSchema, parsed) ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
+        // A machine agent's model in the cloud is no way to run: it reads as the worker's too.
+        const cloud = Value.Check(ModelChoiceSchema, parsed) && parsed.provider !== "claude" && parsed.provider !== "codex";
+        const expected = cloud ? { provider: parsed.provider, modelId: parsed.modelId, thinkingLevel: parsed.thinkingLevel } : null;
 
-        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", model: expected, post: false }]);
+        expect(automationRows([{ ...automation, model }])).toEqual([{ ...automation, zone: "UTC", owner: "ky", agent: null, model: expected, post: false }]);
       })
     );
   });
 
   it.each(["{", "null", `{"at":1}`, `[{"at":"x","text":"y"}]`])("reads the corrupt steps column %j as none", (steps) => {
-    expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [] }]);
+    expect(taskRows([{ ...task, steps }])).toEqual([{ ...task, steps: [], model: null }]);
+  });
+
+  it("reads a runner no run could use as unset: a model beside a machine with no agent, an agent in the cloud", () => {
+    const glm = JSON.stringify({ provider: "workers-ai", modelId: "glm", thinkingLevel: "off" });
+    const opus = JSON.stringify({ provider: "claude", modelId: "opus", thinkingLevel: "high" });
+    const read = (row: Record<string, string | null>) => automationRows([{ ...automation, ...row }])[0];
+
+    expect(read({ machine: "mac", model: glm })).toMatchObject({ machine: "mac", agent: null, model: null });
+    expect(read({ machine: null, agent: "claude", model: opus })).toMatchObject({ machine: null, agent: null, model: null });
+    expect(read({ machine: "mac", agent: "codex", model: opus })).toMatchObject({ machine: "mac", agent: "codex", model: null });
+    expect(read({ machine: "mac", agent: "claude", model: opus })).toMatchObject({ agent: "claude", model: { provider: "claude", modelId: "opus", thinkingLevel: "high" } });
   });
 
   it("keeps a row stored without its zone and owner columns, which read as the columns' defaults, UTC and ky", () => {
-    expect(automationRows([automation])).toEqual([{ ...automation, zone: "UTC", owner: "ky", post: false }]);
+    expect(automationRows([automation])).toEqual([{ ...automation, zone: "UTC", owner: "ky", agent: null, post: false }]);
   });
 
   it("leaves out a row damaged past reading, keeping the rest", () => {

@@ -2,6 +2,7 @@ import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-
 import type { FetchFunction } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
+import { CHATGPT_MODELS } from "../../machines/contract";
 import { Breaker } from "../breaker";
 import type { ProviderRecord } from "../contract";
 import type { Endpoint, Source, SourceHost } from "../endpoint";
@@ -18,7 +19,8 @@ const CHATGPT = "chatgpt";
 
 const NAME = "ChatGPT subscription";
 
-const OFFER: Offer = { featured: ["gpt-6.1-sol", "gpt-6-luna"], light: "gpt-6-luna" };
+/** The same models a Codex run on a machine may be pinned to. */
+const OFFER: Offer = { featured: CHATGPT_MODELS, light: "gpt-6-luna" };
 
 /** How long a look at whether the user is signed in is trusted. */
 const CHECK_TTL_MS = 30_000;

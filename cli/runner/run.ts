@@ -117,7 +117,7 @@ export async function runRunner({ settings, token, state, version, ky, service, 
       work.sweepCodexHomes();
     }
 
-    return { os: process.platform, chrome: settings.chrome, repos: repos.value, agents: { claude: shared("claude"), codex: shared("codex") }, ports: settings.ports, kind };
+    return { os: process.platform, chrome: settings.chrome, repos: repos.value, agents: { claude: shared("claude"), codex: shared("codex") }, ports: settings.ports, kind, models: true };
   };
 
   const runner = new Runner(

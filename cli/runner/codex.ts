@@ -13,6 +13,7 @@
 import Type from "typebox";
 import { type Adapter, type AgentEvent, JsonObjectSchema, TextSchema, type ToolUse } from "./agent.ts";
 import { decodeOr, parseOr } from "../../src/core/decode.ts";
+import { AGENT_EFFORTS, type AgentModel } from "../../src/machines/contract.ts";
 
 const Loose = Type.Optional(Type.Unknown());
 
@@ -72,13 +73,21 @@ function toml(text: string): string {
   return JSON.stringify(text).replaceAll("\x7f", "\\u007f");
 }
 
+/** The flags that pin `model`, and its reasoning effort when Codex takes it; none leaves Codex's own. Every turn passes them, since each is its own process. */
+function modelFlags(model: AgentModel | undefined): string[] {
+  if (!model) return [];
+  const effort = model.effort !== null && AGENT_EFFORTS.codex.includes(model.effort) ? ["-c", `model_reasoning_effort=${toml(model.effort)}`] : [];
+
+  return ["-m", model.id, ...effort];
+}
+
 /**
  * `codex`'s arguments for a turn: a new thread, or `thread` resumed, with
  * `instructions` added to its developer prompt, which a resume does not
  * keep. The prompt is read from stdin (`-`).
  */
-export function codexArgs(thread: string | null, instructions: string): string[] {
-  const flags = [...FLAGS, "-c", `developer_instructions=${toml(instructions)}`];
+export function codexArgs(thread: string | null, instructions: string, model?: AgentModel): string[] {
+  const flags = [...FLAGS, "-c", `developer_instructions=${toml(instructions)}`, ...modelFlags(model)];
 
   return thread ? ["exec", "resume", ...flags, thread, "-"] : ["exec", ...flags, "-"];
 }

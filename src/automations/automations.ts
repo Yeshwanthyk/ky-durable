@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import type { ChatList } from "../chats/chats";
 import { Sql } from "../core/sql";
 import { programOutcome } from "../executor/contract";
-import type { MachineHub } from "../machines/contract";
+import { cannotPin, cannotRun, type MachineHub } from "../machines/contract";
 import type { Models } from "../providers/wiring";
 import { KY, mayUse, type Profile, type Spawn } from "../skills/contract";
 import type { ModelChoice } from "../settings/contract";
@@ -28,6 +28,9 @@ import {
   CannotSchedule,
   type CheckIns,
   draftProblem,
+  type Runner,
+  runnerOfRow,
+  runnerProblem,
   type Delivery,
   type LastRun,
   ModelUnavailable,
@@ -242,8 +245,8 @@ function timingOf(patch: Partial<AutomationDraft>): Partial<AutomationDraft> {
   return patch.at === undefined ? {} : { cron: null, at: patch.at };
 }
 
-function draftOf({ title, prompt, cron, at, model, machine, chat, gate, post, owner }: AutomationDraft): AutomationDraft {
-  return { title, prompt, cron, at, model, machine, chat, gate, post, owner };
+function draftOf({ title, prompt, cron, at, model, machine, agent, chat, gate, post, owner }: AutomationDraft): AutomationDraft {
+  return { title, prompt, cron, at, model, machine, agent, chat, gate, post, owner };
 }
 
 function refusal(id: string, row: AutomationRow | undefined, wanted: string, next?: string) {
@@ -308,7 +311,8 @@ const make = Effect.gen(function* () {
     ["watch", "INTEGER"],
     ["post", "INTEGER NOT NULL DEFAULT 0"],
     ["zone", "TEXT DEFAULT 'UTC'"],
-    ["owner", "TEXT NOT NULL DEFAULT 'ky'"]
+    ["owner", "TEXT NOT NULL DEFAULT 'ky'"],
+    ["agent", "TEXT"]
   ]);
 
   const get = (id: string) => Effect.map(rows("SELECT * FROM ky_automations WHERE id = ?", id), (found) => found[0]);
@@ -320,7 +324,7 @@ const make = Effect.gen(function* () {
       if (!current || (when !== undefined && !when.includes(current.status))) return false;
       const next = { ...current, ...patch };
       yield* exec(
-        `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, zone = ?, at = ?, model = ?, machine = ?, chat = ?, gate = ?, post = ?, owner = ?,
+        `UPDATE ky_automations SET title = ?, prompt = ?, cron = ?, zone = ?, at = ?, model = ?, machine = ?, agent = ?, chat = ?, gate = ?, post = ?, owner = ?,
          gate_checked_at = ?, gate_note = ?, gate_errors = ?, status = ?, schedule_id = ?, updated_at = ? WHERE id = ?`,
         next.title,
         next.prompt,
@@ -329,6 +333,7 @@ const make = Effect.gen(function* () {
         next.at,
         next.model === null ? null : JSON.stringify(next.model),
         next.machine,
+        next.agent,
         next.chat,
         next.gate,
         next.post ? 1 : 0,
@@ -464,20 +469,59 @@ const make = Effect.gen(function* () {
     return Effect.fail(new NotItsMachine({ owner, machine, allowed: [...sandboxes.map((each) => each.name), ...macs] }));
   };
 
+  /** `draft`'s runner as it will run: a cloud model as ky offers it now; refused when its machine can't run it so. */
+  const runnerChecked = (draft: AutomationDraft) =>
+    Effect.gen(function* () {
+      const runner = runnerOfRow(draft);
+
+      if (runner.kind === "machine") {
+        const refused = machineRefuses(runner);
+
+        return refused === null ? draft : yield* new NotSaved({ problem: refused });
+      }
+
+      if (runner.model === null) return draft;
+      const model = models.valid(runner.model);
+
+      if (!model) return yield* new ModelUnavailable({ provider: runner.model.provider, modelId: runner.model.modelId, choices: models.choices() });
+
+      return { ...draft, model };
+    });
+
   const check = (draft: AutomationDraft) =>
     Effect.gen(function* () {
-      const problem = draftProblem(draft) ?? machineProblem(draft.machine, draft.post) ?? chatProblem(draft.chat);
+      const problem = draftProblem(draft) ?? runnerProblem(draft) ?? machineProblem(draft.machine, draft.post) ?? chatProblem(draft.chat);
 
       if (problem !== undefined) return yield* new NotSaved({ problem });
       yield* ownerOn(draft.owner ?? KY, draft.machine);
 
-      if (draft.model === null) return draft;
-      const model = models.valid(draft.model);
-
-      if (!model) return yield* new ModelUnavailable({ provider: draft.model.provider, modelId: draft.model.modelId, choices: models.choices() });
-
-      return { ...draft, model };
+      return yield* runnerChecked(draft);
     });
+
+  /**
+   * Why a run on a machine won't start as asked, or null: its agent isn't installed there, or its
+   * runner can't pin its model. Null for the machine's own agent and model, which it always has.
+   */
+  const machineRefuses = ({ machine, agent, model }: Extract<Runner, { kind: "machine" }>): string | null => {
+    if (agent === null && model === null) return null;
+    const there = machines.machine(machine);
+    const as = agent ?? machines.defaultAgent(machine);
+
+    return cannotRun(there, as) ?? cannotPin(there, as, model);
+  };
+
+  /** Why its runs won't start as the row says, as things are now; null when they will. */
+  const runnerNote = (row: AutomationRow): string | null => {
+    const runner = runnerOfRow(row);
+
+    if (runner.kind === "machine") {
+      return machines.machine(runner.machine) === undefined ? `no machine ${runner.machine} now` : machineRefuses(runner);
+    }
+
+    if (runner.model === null || models.valid(runner.model)) return null;
+
+    return `${runner.model.provider}/${runner.model.modelId} is no longer offered: runs use the subagents model`;
+  };
 
   const decodeCount = Schema.decodeUnknownOption(CountRow);
 
@@ -731,11 +775,11 @@ const make = Effect.gen(function* () {
       yield* Effect.promise(() => runtime.wake());
     });
 
-  const runOnMachine = (row: AutomationRow, machine: string, { task, chat }: Omit<Run, "slot">, owner: Owner | undefined) => {
+  const runOnMachine = (row: AutomationRow, { machine, agent, model }: Extract<Runner, { kind: "machine" }>, { task, chat }: Omit<Run, "slot">, owner: Owner | undefined) => {
     const state = machines.machine(machine)?.state ?? "on";
 
     if (state === "on") {
-      machines.start(machine, row.title, row.prompt, task, chat, sourceOf(row.id));
+      machines.start(machine, row.title, row.prompt, task, chat, sourceOf(row.id), agent ?? machines.defaultAgent(machine), model);
 
       if (owner !== undefined) host.pin(task, owner.profile);
 
@@ -751,7 +795,7 @@ const make = Effect.gen(function* () {
       status: "failed",
       summary: `${machine} is ${state}: the user is not letting it take new tasks.`,
       session: null,
-      agent: machines.defaultAgent(machine)
+      agent: agent ?? machines.defaultAgent(machine)
     });
   };
 
@@ -768,17 +812,23 @@ const make = Effect.gen(function* () {
 
   const start = (row: AutomationRow, slot: number, task: string) => {
     const chat = reportTo(row.chat);
-    const { machine } = row;
 
     return Effect.gen(function* () {
       // Checked for ky too: a sandbox ky's automation ran on may since have become a specialist's.
-      const found = yield* ownerOn(row.owner, machine);
+      const found = yield* ownerOn(row.owner, row.machine);
       // A specialist's run starts as its profile, read now and kept to the run's end; ky's runs as ky always has.
       const owner = row.owner === KY ? undefined : found;
 
-      if (machine === null) return yield* runInCloud(row, { slot, task, chat }, owner);
-      runOnMachine(row, machine, { task, chat }, owner);
+      const runner = runnerOfRow(row);
 
+      if (runner.kind === "cloud") return yield* runInCloud(row, { slot, task, chat }, owner);
+      // Never a run on the machine's own agent or model in place of the one asked for: it says why instead.
+      const refused = machineRefuses(runner);
+
+      if (refused !== null) return yield* notStarted(row, { task, chat }, refused);
+      runOnMachine(row, runner, { task, chat }, owner);
+
+      const { machine } = runner;
       const there = machines.machine(machine);
 
       if (owner !== undefined && there?.online === false && !there.sandbox) {
@@ -840,6 +890,7 @@ const make = Effect.gen(function* () {
       return {
         ...rest,
         zone: row.zone ?? (yield* checkIns).zone ?? "UTC",
+        runner_note: runnerNote(row),
         next_run: next ? next.time * 1000 : null,
         last_run: lastOf(runs[0]),
         runs: runs.map(runOf)
@@ -963,8 +1014,8 @@ const make = Effect.gen(function* () {
         const at = yield* now;
         yield* exec(
           `INSERT INTO ky_automations
-        (id, title, prompt, cron, zone, at, model, machine, chat, gate, watch, post, created_by, owner, status, schedule_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+        (id, title, prompt, cron, zone, at, model, machine, agent, chat, gate, watch, post, created_by, owner, status, schedule_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
           id,
           checked.title,
           checked.prompt,
@@ -972,6 +1023,7 @@ const make = Effect.gen(function* () {
           checked.at,
           checked.model === null ? null : JSON.stringify(checked.model),
           checked.machine,
+          checked.agent,
           checked.chat,
           checked.gate,
           watch,

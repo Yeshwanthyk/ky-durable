@@ -1,6 +1,6 @@
 import { decodeOr } from "../core/decode";
 import { must } from "../core/must";
-import type { Agent } from "../machines/contract";
+import type { Agent, AgentModel } from "../machines/contract";
 import type { StepEnd } from "../step-labels";
 import {
   ColumnInfo,
@@ -33,7 +33,8 @@ const ADDED = [
   ["turns", "INTEGER"],
   ["cost_usd", "REAL"],
   ["agent", "TEXT"],
-  ["chat", "TEXT"]
+  ["chat", "TEXT"],
+  ["model", "TEXT"]
 ] as const;
 
 function stretch(current: TaskRow, status: TaskStatus, now: number): Pick<TaskRow, "started_at" | "finished_at"> {
@@ -177,14 +178,15 @@ export class TaskFeed {
       summary?: string;
       source?: string;
       agent?: Agent;
+      model?: AgentModel | null;
       chat?: string | null;
     }
   ): TaskRow {
     const now = Date.now();
     this.#sql.exec(
       `INSERT OR IGNORE INTO ky_tasks
-        (id, kind, source, worker, title, status, summary, session, agent, chat, created_at, updated_at, started_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, kind, source, worker, title, status, summary, session, agent, model, chat, created_at, updated_at, started_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       task.id,
       task.kind,
       task.source ?? "chat",
@@ -194,6 +196,7 @@ export class TaskFeed {
       task.summary ?? "",
       task.session,
       task.agent ?? null,
+      task.model ? JSON.stringify(task.model) : null,
       task.chat ?? null,
       now,
       now,

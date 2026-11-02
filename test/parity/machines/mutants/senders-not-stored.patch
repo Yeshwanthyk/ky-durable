@@ -1,14 +1,13 @@
 diff --git a/src/machines/machines.ts b/src/machines/machines.ts
-index 4fae5b7..82c41e4 100644
 --- a/src/machines/machines.ts
 +++ b/src/machines/machines.ts
-@@ -686,8 +686,7 @@ const make = Effect.gen(function* () {
+@@ -679,8 +679,7 @@
          const turn = (yield* turnsOf(task.id)).turn + 1;
  
          yield* setTurns(task.id, { turn });
 -        yield* sentBy(task.id, turn, from);
 -        feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
 +                feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-         yield* queue(task.worker, runCommand(task.id, turn, message, task.session, agentOf(task)));
+         // Each turn names the task's model: Codex starts a process per turn, and a lost session starts afresh.
+         yield* queue(task.worker, runCommand(task.id, turn, message, task.session, agentOf(task), task.model));
        }),
- 

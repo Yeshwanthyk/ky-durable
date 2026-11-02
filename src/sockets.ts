@@ -511,10 +511,8 @@ export class PiSessionSockets {
 
   /** Create or change an automation as the user; `{ refused }` says why it was not saved. */
   async #saveAutomation(message: ClientMessages["automation-save"]): Promise<{ refused?: string }> {
-    const saved =
-      message.automation === undefined
-        ? await this.#automations.create(message.draft, "user")
-        : await this.#automations.update(message.automation, message.draft);
+    const draft = { ...message.draft, agent: message.draft.agent ?? null };
+    const saved = message.automation === undefined ? await this.#automations.create(draft, "user") : await this.#automations.update(message.automation, draft);
 
     return "refused" in saved ? { refused: saved.refused } : {};
   }

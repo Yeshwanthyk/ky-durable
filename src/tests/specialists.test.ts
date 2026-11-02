@@ -486,7 +486,7 @@ describe("a specialist's automations", () => {
     const [run] = await runsOf(name, id);
 
     expect(run).toMatchObject({ kind: "machine", worker: "mbp", status: "queued" });
-    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: "mbp", chat: "1", gate: null, owner: "eng" };
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: "mbp", agent: null, chat: "1", gate: null, owner: "eng" };
 
     expect(JSON.stringify(await command(socket, client, { type: "automation-save", automation: id, draft }))).toContain("@eng may not use mbp");
     expect(await command(socket, client, { type: "specialist-access", specialist: "eng", change: { mac: "mbp", grant: true } })).toMatchObject({ result: {} });
@@ -505,7 +505,7 @@ describe("a specialist's automations", () => {
     await runDurableObjectAlarm(agent(name));
     await until(async () => (await runsOf(name, id)).length > 0, "the run to start");
     const [run] = await runsOf(name, id);
-    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: null, chat: "1", gate: null, owner: "ky" };
+    const draft = { title: "Digest", prompt: "digest the news", cron: "0 9 * * *", at: null, model: null, machine: null, agent: null, chat: "1", gate: null, owner: "ky" };
 
     expect(run).toMatchObject({ kind: "machine", worker: "eng", status: "queued" });
     expect(await command(socket, client, { type: "automation-save", automation: id, draft })).toMatchObject({ result: {} });

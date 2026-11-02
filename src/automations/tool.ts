@@ -4,9 +4,11 @@ import { toolReply as reply } from "../core/reply";
 import { isRefusal } from "../core/refusal";
 import { parseModel } from "../providers/contract";
 import type { ModelChoice } from "../settings/contract";
+import { AGENT_NAMES, type Agent } from "../machines/contract";
 import { KY } from "../skills/contract";
 import {
   AUTOMATION_TOOL,
+  agentChoice,
   type AutomationDraft,
   type AutomationRow,
   AutomationToolInput,
@@ -15,6 +17,7 @@ import {
   type AutomationAction,
   CHECK_IN_TOOLS,
   EXTENSIONS,
+  runnerOfRow,
   type ToolAction
 } from "./contract";
 import type { Automations } from "./wiring";
@@ -26,11 +29,21 @@ const GATE_PREVIEW_MAX = 500;
 type Args = AutomationToolArgs;
 
 function modelArg(args: Args, base: ModelChoice): ModelChoice | null | undefined {
-  if (args.model === "worker") return null;
+  if (args.model === "worker" || args.model === "default") return null;
 
   if (args.model === undefined) return args.thinking === undefined ? undefined : { ...base, thinkingLevel: args.thinking };
+  const thinking = args.thinking ?? base.thinkingLevel;
+  const agent = args.agent === "default" ? undefined : args.agent;
 
-  return parseModel(args.model, args.thinking ?? base.thinkingLevel);
+  // A machine's agent names its model bare, as its CLI does: opus, not claude/opus.
+  return agent !== undefined && !args.model.includes("/") ? agentChoice(agent, { id: args.model.trim(), effort: null }, thinking) : parseModel(args.model, thinking);
+}
+
+function agentArg(args: Args): Agent | null | undefined {
+  if (args.agent !== undefined) return args.agent === "default" ? null : args.agent;
+
+  // A run moved to the cloud is a subagent's, no agent's.
+  return args.machine === "cloud" ? null : undefined;
 }
 
 function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
@@ -41,6 +54,7 @@ function patchOf(args: Args, fallback: ModelChoice): Partial<AutomationDraft> {
     at: args.at === undefined ? undefined : Date.parse(args.at),
     model: modelArg(args, fallback),
     machine: args.machine === "cloud" ? null : args.machine,
+    agent: agentArg(args),
     chat: args.chat === "main" ? ROOT_SESSION : args.chat,
     gate: args.gate === "none" || args.gate?.trim() === "" ? null : args.gate,
     post: args.post
@@ -69,9 +83,9 @@ async function create(automations: Automations, args: Args, call: Call): Promise
   if ("refused" in chosen) return chosen.refused;
   const { owner } = chosen;
   // A specialist answers in a conversation of its own, no chat the user has: its reports go to main unless it names a chat.
-  const unset = { cron: null, at: null, model: null, machine: null, chat: by === KY ? caller : ROOT_SESSION, gate: null, owner };
+  const unset = { cron: null, at: null, model: null, machine: null, agent: null, chat: by === KY ? caller : ROOT_SESSION, gate: null, owner };
   const asked = { ...unset, ...patchOf(args, fallback), title: args.title, prompt: args.prompt };
-  const draft = dream ? { ...asked, model: null, machine: null, chat: ROOT_SESSION, post: false } : asked;
+  const draft = dream ? { ...asked, model: null, machine: null, agent: null, chat: ROOT_SESSION, post: false } : asked;
   const created = await automations.create(draft, dream ? "dream" : (args.createdBy ?? "user"));
 
   if (isRefusal(created)) return created.refused;
@@ -96,14 +110,25 @@ function scheduleOf(row: Pick<AutomationRow, "cron" | "at">, zone: string | null
   return row.cron === null ? `once at ${new Date(row.at ?? 0).toISOString()}` : `cron ${row.cron} ${zone ?? "UTC"}`;
 }
 
+/** Where and how it runs, as one phrase: cloud · gpt-6.1-sol high, or mac · Codex · gpt-6-luna. */
+function runsOn(row: Pick<AutomationRow, "machine" | "agent" | "model">): string {
+  const runner = runnerOfRow(row);
+
+  if (runner.kind === "cloud") return `cloud · ${runner.model ? `${runner.model.provider}/${runner.model.modelId} ${runner.model.thinkingLevel}` : "subagents model"}`;
+  const agent = runner.agent === null ? "its agent" : AGENT_NAMES[runner.agent];
+  const model = runner.model === null ? [] : [[runner.model.id, runner.model.effort].filter(Boolean).join(" ")];
+
+  return [runner.machine, agent, ...model].join(" · ");
+}
+
 function lineOf(automations: Automations, view: AutomationView): string {
-  const model = view.model ? `${view.model.provider}/${view.model.modelId} ${view.model.thinkingLevel}` : "worker model";
+  const runs = runsOn(view);
   const next = view.next_run === null ? "none" : new Date(view.next_run).toISOString();
   const last = view.last_run ? `${view.last_run.status}${view.last_run.summary ? `: ${view.last_run.summary}` : ""}` : "never";
 
   return [
     `${view.id} "${view.title}" [${view.status}] ${scheduleOf(view, view.zone)}, by ${view.created_by}${runsAs(view.owner)}`,
-    `  model: ${model}; where: ${view.machine ?? "cloud"}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
+    `  runs on: ${runs}${view.runner_note === null ? "" : ` (${view.runner_note})`}; reports to: ${automations.chatLabel(view.chat)}${view.post ? ", posted as ky's message" : ""}`,
     `  next: ${next}; last run: ${last}`,
     ...(view.gate === null
       ? []
@@ -206,12 +231,12 @@ export function automationExtension(
           "Schedule work to run later or on repeat, for the user or for yourself (to check back on something). " +
           "Each run is a fresh subagent, or a task on a machine, that knows only the prompt; its result is reported to this conversation, for you to pass on. " +
           "Crons are in the user's time zone (list shows it), so 9 AM is 0 9 * * *; they keep to it across daylight saving. " +
-          "Actions: create (title, prompt, cron or at, model and thinking optional, machine optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
+          "Actions: create (title, prompt, cron or at, model and thinking optional, machine and agent optional, chat optional, createdBy: user when the user asked, ky when it is yours). " +
           "One a specialist creates is its own and runs as it, with its brief and its machines, and reports to main unless chat names another; ky makes one for a specialist with owner, only when the user asks for that. " +
           "Results go to this chat unless chat names another: main, or a side chat's session. " +
           "Every report goes to its chat in full, whether or not the user is around: a side chat archived by the time a run starts is brought back for it, and a deleted one's go to main. " +
           "A cloud run has the ui tool: a card it shows (a status, stats, a chart, facts, a table) is posted in its chat as ky's own, just before its report, once the run succeeds; " +
-          "ask for one in the prompt when the report reads better as a card, like a daily forecast. It may ask the user something (a choice, buttons): their answer comes to you here as their next message. A machine run has none. " +
+          "ask for one in the prompt when the report reads better as a card, like a daily forecast. It may ask the user something (a choice, buttons): their answer comes to you here as their next message. A machine run has neither; it runs as its agent (agent, or the machine's own), on that agent's model (model, like opus, with thinking as its effort). " +
           "update (id, any of the create fields). list (all optional): each one's schedule, status, next and last run. " +
           "pause, resume, archive, unarchive, run, stop, delete (id): id may be the exact title instead, as in \"run monthly close\"; run fires it now, stop ends the run going and keeps the schedule; delete only when the user asks. " +
           "Pause or archive your own once they are no longer needed. " +

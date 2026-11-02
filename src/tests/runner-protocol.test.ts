@@ -115,15 +115,18 @@ class FakeCodex implements AgentProcess {
   /** The ChatGPT login it started with, and each one it was handed since. */
   readonly creds: RunCreds | undefined;
   readonly renewed: CodexCreds[] = [];
+  /** The model its run pinned, if any. */
+  readonly model: Launch["model"];
   prompt = "";
   interrupted = false;
   #exited = false;
   readonly #events: ProcessEvents;
 
-  constructor({ session, taskToken, creds }: Launch, events: ProcessEvents) {
+  constructor({ session, taskToken, creds, model }: Launch, events: ProcessEvents) {
     this.resumed = session;
     this.taskToken = taskToken;
     this.creds = creds;
+    this.model = model;
     this.#events = events;
   }
 
@@ -695,6 +698,29 @@ describe("runner protocol", () => {
     await until("three reports", async () => (await reports(object, id)).length === 3);
     expect(await task(object, id)).toMatchObject({ status: "done", agent: "codex", turns: 3 });
     expect((await reports(object, id)).map((said) => said.split("\n").at(-1))).toEqual(["built", "tested", "shipped"]);
+  });
+
+  it("starts a Codex task's every turn on the model it was pinned to, each its own process", async () => {
+    const { object, mac } = await online({ ...WITH_CODEX, models: true });
+    const model = { id: "gpt-6.1-sol", effort: "high" as const };
+    const id = "m-pinned";
+    await inside(object, (agent) => void agent.machines.start("mac", "Build", "build it", id, ROOT_SESSION, "chat", "codex", model));
+    const first = await mac.codex(0);
+    first.start("t1");
+    first.answer("built");
+    await until("the first turn to end", async () => (await status(object, id)) === "done");
+    await sendTask(object, id, "and test it");
+    const second = await mac.codex(1);
+
+    expect([first.model, second.model, second.resumed]).toEqual([model, model, "t1"]);
+    expect(await task(object, id)).toMatchObject({ agent: "codex", model });
+  });
+
+  it("starts a task pinned to no model on its CLI's own", async () => {
+    const { object, mac } = await online({ ...WITH_CODEX, models: true });
+    await start(object, "codex");
+
+    expect((await mac.codex(0)).model).toBeUndefined();
   });
 
   it("stops a Codex turn with a message queued behind it, and says once that it was dropped", async () => {
