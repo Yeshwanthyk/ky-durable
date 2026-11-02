@@ -2019,7 +2019,7 @@
   --tone: var(--muted);
 }
 
-/* What matters first: one quiet line of what is fine, then a bordered row for each thing that is down. */
+/* What matters first: one bordered card of tiles for what is fine, then a bordered row for each thing that is down. */
 .glance {
   display: flex;
   flex-direction: column;
@@ -2029,29 +2029,42 @@
   list-style: none;
 }
 
-.glance-health {
+/* What is fine, side by side: a quiet label over its value, a rule between. Each tile starts at its own width and
+   shares what is left, so the main model's full name fits; a value too long for the card gives way last. */
+.glance-tiles {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+
+.glance-tile {
+  flex: 1 1 auto;
   min-width: 0;
-  padding: 0 14px;
-  font-size: calc(12.5px * var(--text-scale));
-  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  text-align: left;
+  transition: background-color var(--fast) var(--ease-out);
+}
+
+.glance-tile + .glance-tile {
+  border-left: 1px solid var(--line);
+}
+
+.glance-tile-label {
+  font-size: calc(11.5px * var(--text-scale));
+  color: var(--quiet);
+}
+
+.glance-tile-value {
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 500;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
-}
-
-.glance-health > .row-dot {
-  margin-right: 2px;
-}
-
-.glance-part {
-  min-width: 0;
-  overflow: hidden;
   text-overflow: ellipsis;
-  padding: 3px 0;
-  color: inherit;
-  border-radius: 4px;
 }
 
 /* A thing that is down: a red dot at the title's height, what is wrong in ink, what it stops, and Fix. */
@@ -2098,8 +2111,9 @@
   align-self: center;
   padding: 6px 12px;
   border-radius: 8px;
-  background: var(--ink);
-  color: var(--surface);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--ink);
   font-size: calc(12.5px * var(--text-scale));
   font-weight: 500;
 }
@@ -2131,10 +2145,7 @@
     background: var(--hover);
   }
 
-  .glance-part:hover {
-    color: var(--ink);
-  }
-
+  .glance-tile:hover,
   .glance-alert:hover {
     background: var(--hover);
   }

@@ -37,7 +37,7 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
 import { Icon, Spinner, type IconName } from "../chat-kit/Icon";
-import { EmptyState, RowValue, Segmented, SegmentedOption, type Tone, VaultBadge } from "./Controls";
+import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
@@ -2400,18 +2400,20 @@ function PageHead({ title, children }: { title: string; children?: ReactNode }) 
   );
 }
 
-// A row that opens a page: its icon if it has one, its name and a line under it, what it is set to, and a chevron.
+// A row that opens a page: its icon if it has one, its name and a line under it, what it is set to, and a chevron unless it goes without.
 function PageLink({
   to,
   icon,
   label,
   sub,
+  chevron = true,
   children,
 }: {
   to: SettingsPage;
   icon?: IconName | undefined;
   label: string;
   sub?: ReactNode;
+  chevron?: boolean;
   children?: ReactNode;
 }) {
   const { go } = useContext(SettingsNavContext);
@@ -2429,7 +2431,7 @@ function PageLink({
           {sub ? <span className="row-sub">{sub}</span> : null}
         </span>
         {children}
-        <Icon name="chevronRight" size={14} className="row-chevron" />
+        {chevron ? <Icon name="chevronRight" size={14} className="row-chevron" /> : null}
       </button>
     </li>
   );
@@ -2450,9 +2452,9 @@ function machineToName(pool: readonly MachineInfo[]): MachineInfo | undefined {
 function machineCount(pool: readonly MachineInfo[]): GlanceLine {
   const online = pool.filter((machine) => machine.online).length;
 
-  if (pool.length === 0) return { to: { kind: "machines" }, label: "Machines", text: "None paired", tone: "off" };
+  if (pool.length === 0) return { to: { kind: "machines" }, label: "Machines", text: "None", tone: "off" };
 
-  return { to: { kind: "machines" }, label: "Machines", text: `${online} of ${pool.length} online`, tone: online > 0 ? "online" : "offline" };
+  return { to: { kind: "machines" }, label: "Machines", text: `${online}/${pool.length}`, tone: online > 0 ? "online" : "offline" };
 }
 
 /** Your computer and whether it is up; sandboxes only when there is no computer. */
@@ -2508,17 +2510,6 @@ function vibeGlance(settings: SettingsView | null, setup: SetupView | null): Gla
 
 const VIBEPROXY = "vibeproxy";
 
-/** What a line says inside the health line, where its label is often the thing itself. */
-function healthText(line: GlanceLine): string {
-  if (line.label === "VibeProxy") return "VibeProxy";
-
-  if (line.label === "Main agent") return line.text === "Not set" ? "No main model" : line.text;
-
-  if (line.to.kind === "machines") return line.text === "None paired" ? "No machines" : `${line.text.replace(" online", "")} machines online`;
-
-  return `${line.label} ${line.text.toLowerCase()}`;
-}
-
 /** What a broken line says on its card: what is wrong, and what that stops. */
 type GlanceAlert = { title: string; sub: string };
 
@@ -2530,10 +2521,10 @@ function alertText(line: GlanceLine): GlanceAlert {
   return { title: `${line.label} is offline`, sub: "Work on it waits until it’s back" };
 }
 
-/** Whether a line belongs on the health line: VibeProxy only once it is connected, so one not set up says nothing. */
+/** Whether a line gets a tile: VibeProxy only once it is connected, so one not set up says nothing. */
 const shownHealthy = (line: GlanceLine): boolean => line.label !== "VibeProxy" || line.tone === "online";
 
-// What matters first, as one line of what is fine and a card for each thing that is down; each opens its page.
+// What matters first: a tile for each thing that is fine, side by side in one card, and a row for each thing that is down; each opens its page.
 function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machines" | "settings" | "setup" | "now">) {
   const { go } = useContext(SettingsNavContext);
   const lines = [machineGlance(machines, now), mainGlance(settings), vibeGlance(settings, setup)];
@@ -2543,15 +2534,19 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
   return (
     <ul className="glance" aria-label="Status">
       {fine.length > 0 ? (
-        <li className="glance-health">
-          <span className="row-dot" data-tone={fine.find((line) => line.tone !== undefined)?.tone ?? "off"} aria-hidden="true" />
-          {fine.map((line, index) => (
-            <Fragment key={line.label}>
-              {index > 0 ? <span aria-hidden="true">·</span> : null}
-              <button type="button" className="glance-part" data-goes={keyOf(line.to)} aria-label={`${line.label} ${line.text}`} onClick={() => go(line.to)}>
-                {healthText(line)}
-              </button>
-            </Fragment>
+        <li className="glance-tiles">
+          {fine.map((line) => (
+            <button
+              key={line.label}
+              type="button"
+              className="glance-tile"
+              data-goes={keyOf(line.to)}
+              aria-label={`${line.label} ${line.text}`}
+              onClick={() => go(line.to)}
+            >
+              <span className="glance-tile-label">{line.label}</span>
+              <span className="glance-tile-value">{line.text}</span>
+            </button>
           ))}
         </li>
       ) : null}
@@ -2577,31 +2572,24 @@ function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machine
   );
 }
 
-/** How many machines are online out of how many, after a red dot when the machine the status line watches is down. */
-function machinesValue(machines: readonly MachineInfo[], now: number): ReactNode {
+/** How many machines are online out of how many; the status line above says when one is down. */
+function machinesValue(machines: readonly MachineInfo[]): ReactNode {
   const online = machines.filter((machine) => machine.online).length;
 
-  if (machines.length === 0) return <RowValue>None</RowValue>;
-
-  return <RowValue tone={problemTone(machineGlance(machines, now).tone)}>{`${online}/${machines.length}`}</RowValue>;
+  return <RowValue>{machines.length === 0 ? "None" : `${online}/${machines.length}`}</RowValue>;
 }
 
-/** How many providers are connected, after a red dot when one that is set up isn't; None when none is. */
+/** How many providers that are set up are connected; None when none is. */
 function providersValue(settings: SettingsView | null, setup: SetupView | null): ReactNode {
-  const configured = (settings?.providers ?? []).filter((provider) => !isMissing(setup, provider.id));
-  const connected = configured.filter((provider) => provider.connected).length;
-  const tone = connected < configured.length ? "offline" : undefined;
+  const connected = (settings?.providers ?? []).filter((provider) => !isMissing(setup, provider.id) && provider.connected).length;
 
-  return <RowValue tone={tone}>{connected === 0 ? "None" : connected}</RowValue>;
+  return <RowValue>{connected === 0 ? "None" : connected}</RowValue>;
 }
 
 /** How many are connected; None when none is. */
 function connectedValue(connected: number): ReactNode {
   return <RowValue>{connected === 0 ? "None" : connected}</RowValue>;
 }
-
-/** Settings' first page marks only what is wrong: a tone that says so, and nothing for one that is fine. */
-const problemTone = (tone: Tone | undefined): Tone | undefined => (tone === "offline" || tone === "failed" ? tone : undefined);
 
 /** A row on Settings' first page: the page it opens, its icon and name, and what it is set to, if that says anything. */
 type GroupRow = { to: SettingsPage; icon: IconName; label: string; value?: (props: SettingsProps) => ReactNode };
@@ -2620,7 +2608,7 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
     { to: { kind: "spend" }, icon: "layers", label: "Spend", value: () => <SpendValue /> },
   ],
   [
-    { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines, now }) => machinesValue(machines, now) },
+    { to: { kind: "machines" }, icon: "monitor", label: "Machines", value: ({ machines }) => machinesValue(machines) },
     {
       to: { kind: "subscriptions" },
       icon: "globe",
@@ -2648,7 +2636,7 @@ const MORE_PAGES: ReadonlySet<SettingsPage["kind"]> = new Set(MORE.map((row) => 
 
 function GroupLinks({ rows, props }: { rows: readonly GroupRow[]; props: SettingsProps }) {
   return rows.map((row) => (
-    <PageLink key={row.label} to={row.to} label={row.label}>
+    <PageLink key={row.label} to={row.to} label={row.label} chevron={false}>
       {row.value?.(props)}
     </PageLink>
   ));
@@ -2671,7 +2659,6 @@ function SettingsHome(props: PageProps) {
           <li>
             <button type="button" className="row page-link more-row" aria-expanded={more} onClick={() => onMore(!more)}>
               <span className="row-label">More</span>
-              <Icon name="chevronRight" size={14} className="row-chevron" />
             </button>
           </li>
           {more ? <GroupLinks rows={MORE} props={props} /> : null}
