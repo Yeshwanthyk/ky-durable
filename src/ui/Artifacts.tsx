@@ -1,4 +1,4 @@
-import { type FormEvent, useContext, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Type from "typebox";
 import { parseOr } from "../core/decode";
 import type { FileRow } from "../files/contract";
@@ -8,12 +8,14 @@ import { Icon } from "../chat-kit/Icon";
 import { type Media, useLightbox } from "./Lightbox";
 import { VoiceNote } from "./Media";
 import { day } from "./time";
+import { useDismiss } from "./use-dismiss";
 import type { ArtifactKind } from "./use-session-route";
 
 /**
  * Everything ky made, in one place: the screenshots, videos and sounds tasks attached (src/files.ts), and the
- * sites it published (src/sites.ts), newest first. Pictures and videos open in the lightbox, a sound plays in
- * its card and saves to the device, and a site opens in a new tab.
+ * sites it published (src/sites.ts), newest first, a row each with a small preview. Pictures and videos open in
+ * the lightbox, a sound plays in its row and saves to the device, and a site opens in a new tab; a site's share
+ * links open from its "…" menu.
  */
 
 const Sites = Type.Array(Type.Object({ id: Type.String({ pattern: "^[0-9a-f]{32}$" }), title: Type.String(), created: Type.Number(), public: Type.Boolean() }));
@@ -158,21 +160,7 @@ function Card({
 }) {
   const meta = [NOUN[artifact.kind], day(artifact.at, now)].join(" · ");
 
-  if (artifact.kind === "sites") {
-    const { site } = artifact;
-
-    return (
-      <div className="artifact">
-        <a className="artifact-open pressable" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
-          <div className="artifact-preview artifact-site">
-            <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden onLoad={drawn} />
-          </div>
-          <Footer title={site.title} meta={meta} icon="globe" badge={site.public ? "Public" : undefined} />
-        </a>
-        <SiteLinks site={site} />
-      </div>
-    );
-  }
+  if (artifact.kind === "sites") return <SiteRow site={artifact.site} meta={meta} />;
 
   const { file } = artifact;
   const src = `/files/${file.id}`;
@@ -256,10 +244,63 @@ function LinkList({ links, base, onDone }: { links: readonly Link[] | null; base
   );
 }
 
-/** A site's share links: each opens it at /p/<token>/, a view link only reading its data, an edit link writing it too; made and revoked here. */
-function SiteLinks({ site }: { site: Site }) {
-  const [links, setLinks] = useState<readonly Link[] | null>(null);
+/** A site's row: the page it opens, its "…" menu, and under it the share links once the menu opens them. */
+function SiteRow({ site, meta }: { site: Site; meta: string }) {
+  const [sharing, setSharing] = useState(false);
+
+  return (
+    <>
+      <div className="artifact">
+        <a className="artifact-open pressable" href={`/s/${site.id}/`} target="_blank" rel="noreferrer" aria-label={`Open ${site.title}`}>
+          <div className="artifact-preview artifact-site">
+            <iframe src={`/s/${site.id}/`} title={site.title} loading="lazy" sandbox="" tabIndex={-1} aria-hidden onLoad={drawn} />
+          </div>
+          <Footer title={site.title} meta={meta} badge={site.public ? "Public" : undefined} />
+        </a>
+        <MoreMenu title={site.title} sharing={sharing} onShare={() => setSharing(!sharing)} />
+      </div>
+      {sharing ? <SiteLinks site={site} onClose={() => setSharing(false)} /> : null}
+    </>
+  );
+}
+
+/** A row's "…": a small menu, for now holding a site's share links. It closes on a click outside or Escape. */
+function MoreMenu({ title, sharing, onShare }: { title: string; sharing: boolean; onShare: () => void }) {
   const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => setOpen(false), []);
+
+  useDismiss(open, root, close);
+
+  return (
+    <div className="artifact-more" ref={root}>
+      <button type="button" className="icon-button pressable" aria-label={`More for ${title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="more" size={16} />
+      </button>
+      {open ? (
+        <div className="group-menu artifact-menu" role="menu" aria-label={`More for ${title}`}>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={sharing}
+            className="group-option pressable"
+            onClick={() => {
+              setOpen(false);
+              onShare();
+            }}
+          >
+            Share links
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A site's share links: each opens it at /p/<token>/, a view link only reading its data, an edit link writing it too; made and revoked here. */
+function SiteLinks({ site, onClose }: { site: Site; onClose: () => void }) {
+  const [links, setLinks] = useState<readonly Link[] | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const base = `/api/sites/${site.id}/links`;
 
@@ -275,34 +316,34 @@ function SiteLinks({ site }: { site: Site }) {
 
   const make = async (label: string, mode: "view" | "edit") => said(await fetch(base, { method: "POST", body: JSON.stringify({ label, mode }) }).catch(() => null));
 
-  const toggle = () => {
-    if (!open && links === null) void load();
-    setOpen(!open);
-  };
+  useEffect(() => {
+    void load();
+    // Loaded once, when the menu opens the links; changes reload them through said.
+  }, []);
 
   return (
-    <div className="artifact-links">
-      <button type="button" className="automation-text pressable" aria-expanded={open} onClick={toggle}>
-        Share links
-      </button>
-      {open ? (
-        <>
-          <LinkList links={links} base={base} onDone={(response) => void said(response)} />
-          <LinkForm title={site.title} onMake={make} />
-          {refused ? <p className="field-hint">{refused}</p> : null}
-        </>
-      ) : null}
-    </div>
+    <section className="artifact-links" aria-label={`Share links for ${site.title}`}>
+      <header className="artifact-links-head">
+        <h3>Share links</h3>
+        <button type="button" className="icon-button pressable" aria-label="Close share links" onClick={onClose}>
+          <Icon name="x" size={14} />
+        </button>
+      </header>
+      <LinkList links={links} base={base} onDone={(response) => void said(response)} />
+      <LinkForm title={site.title} onMake={make} />
+      {refused ? <p className="field-hint">{refused}</p> : null}
+    </section>
   );
 }
 
 function SoundCard({ src, title, name, meta }: { src: string; title: string; name: string; meta: string }) {
   return (
     <div className="artifact">
-      <div className="artifact-preview artifact-sound">
-        <VoiceNote src={src} seconds={null} peaks={null} label={title} name={name} />
+      <div className="artifact-preview artifact-sound" aria-hidden>
+        <Icon name="mic" size={18} />
       </div>
-      <Footer title={title} meta={meta} icon="mic" />
+      <Footer title={title} meta={meta} />
+      <VoiceNote src={src} seconds={null} peaks={null} label={title} name={name} />
     </div>
   );
 }
@@ -329,17 +370,14 @@ function VisualCard({ src, title, meta, video, onView }: { src: string; title: s
           <img src={src} alt="" loading="lazy" onLoad={drawn} onError={drawn} />
         )}
       </div>
-      <Footer title={title} meta={meta} icon={video ? "play" : "image"} />
+      <Footer title={title} meta={meta} />
     </button>
   );
 }
 
-function Footer({ title, meta, icon, badge }: { title: string; meta: string; icon: "globe" | "mic" | "play" | "image"; badge?: string | undefined }) {
+function Footer({ title, meta, badge }: { title: string; meta: string; badge?: string | undefined }) {
   return (
     <div className="artifact-foot">
-      <span className="artifact-icon" aria-hidden>
-        <Icon name={icon} size={14} />
-      </span>
       <span className="artifact-text">
         <span className="artifact-title">
           {title}
