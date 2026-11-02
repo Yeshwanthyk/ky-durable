@@ -2008,7 +2008,7 @@
   --tone: var(--muted);
 }
 
-/* What matters first: one quiet line of what is fine, then a card for each thing that is down. */
+/* What matters first: one quiet line of what is fine, then a bordered row for each thing that is down. */
 .glance {
   display: flex;
   flex-direction: column;
@@ -2043,17 +2043,24 @@
   border-radius: 4px;
 }
 
+/* A thing that is down: a red dot at the title's height, what is wrong in ink, what it stops, and Fix. */
 .glance-alert {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 12px;
   width: 100%;
   padding: 12px 12px 12px 14px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 18%, transparent);
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
   text-align: left;
   transition: background-color var(--fast) var(--ease-out);
+}
+
+.glance-alert > .row-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
 }
 
 .glance-alert-text {
@@ -2067,7 +2074,7 @@
 .glance-alert-title {
   font-size: calc(13.5px * var(--text-scale));
   font-weight: 500;
-  color: var(--danger);
+  color: var(--ink);
 }
 
 .glance-alert-sub {
@@ -2077,6 +2084,7 @@
 
 .glance-fix {
   flex: none;
+  align-self: center;
   padding: 6px 12px;
   border-radius: 8px;
   background: var(--ink);
@@ -2117,7 +2125,7 @@
   }
 
   .glance-alert:hover {
-    background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+    background: var(--hover);
   }
 
   .row:hover > .row-chevron,
@@ -2208,12 +2216,7 @@
   min-height: 45px;
 }
 
-/* More names what it holds while closed, and turns its chevron down while open. */
-.more-row .more-sub {
-  color: var(--quiet);
-  font-size: calc(12px * var(--text-scale));
-}
-
+/* More turns its chevron down while open. */
 .more-row > .row-label {
   flex: 1;
 }
@@ -2243,19 +2246,6 @@
 .glance-alert:active,
 .picker:active {
   background: var(--selected);
-}
-
-/* The accent's dot beside Appearance's value. */
-.row-swatch {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.row-swatch[data-swatch="ink"] {
-  background: var(--ink);
 }
 
 /* A URL under a label breaks where it must instead of running under the row's buttons. */
