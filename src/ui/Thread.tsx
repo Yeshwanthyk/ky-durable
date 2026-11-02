@@ -145,8 +145,7 @@ function Earlier({ hidden, older, onReveal }: { hidden: number; older: Older; on
   useScrollStep(button, step);
 
   return (
-    <button ref={button} type="button" className="earlier pressable" aria-busy={state === "loading"} onClick={() => step.current()}>
-      <Icon name="chevronDown" size={14} />
+    <button ref={button} type="button" className="earlier pressable pressable-row" aria-busy={state === "loading"} onClick={() => step.current()}>
       <span>{foldLabel(state, hidden)}</span>
     </button>
   );
