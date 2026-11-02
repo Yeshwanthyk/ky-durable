@@ -51,7 +51,7 @@ import { Spend, SpendValue } from "./Spend";
 import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
-import { currentStep, elapsed, isLive, quietNote, spendParts } from "./task-progress";
+import { currentStep, elapsed, isLive, quietNote } from "./task-progress";
 import { TaskTimeline } from "./Timeline";
 import { ago, clock, day } from "./time";
 import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-panel";
@@ -441,7 +441,7 @@ function Activity({
     );
 
   return (
-    <div ref={body} className="panel-body" data-scroll>
+    <div ref={body} className="panel-body activity" data-scroll>
       <NowSection live={live} running={running} onStopAll={onStopAll} {...feed} />
       <section className="feed-group today" aria-label="Today">
         <TodayHead now={feed.now} zone={zone} onView={show} />
@@ -1697,34 +1697,24 @@ function StatusGlyph({ status }: { status: TaskRow["status"] }) {
   );
 }
 
-/** How a finished task ended, in one word. */
-const STATUS_WORD: Record<TaskRow["status"], string> = {
-  queued: "Queued",
-  working: "Working",
-  done: "Done",
-  failed: "Failed",
-  stopped: "Stopped",
-};
-
-/** How long a live task has run; how long a finished one took, and what it cost. */
-const figuresOf = (task: TaskRow, now: number) => (isLive(task) ? [elapsed(task, now)] : spendParts(task, now));
-
-/** A figure that says nothing: no time, no money. */
-const NOTHING = /^(0s|\$0(\.0+)?)$/;
-
-/** Who did it, then its figures: "webmac · 34s · 1 turn · $0.01". The line breaks only between parts. */
+/** Who did it and how long it ran: "webmac · 34s"; a failed task says so first, in red. Turns and cost stay in its
+    sheet. The line breaks only between parts. */
 function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
-  // A routine's id names no one, and nothing spent says nothing.
+  // A routine's id names no one, and no time says nothing.
   const who = task.worker.startsWith("automation-") ? [] : [task.worker];
-  const parts = [...who, ...figuresOf(task, now).filter((part) => part !== null && !NOTHING.test(part))];
+  const took = elapsed(task, now);
+  const parts = took === null || took === "0s" ? who : [...who, took];
+  // A finished row has no word on its right, so one that didn't finish says so first.
+  const ended = task.status === "failed" ? "Failed" : task.status === "stopped" ? "Stopped" : null;
 
-  if (parts.length === 0) return null;
+  if (parts.length === 0 && ended === null) return null;
 
   return (
     <span className="row-sub" title={task.worker}>
+      {ended === null ? null : <span className="part ledger-ended">{ended}</span>}
       {parts.map((part, index) => (
         <Fragment key={`${index}-${part}`}>
-          {index === 0 ? null : " · "}
+          {index === 0 && ended === null ? null : " · "}
           <span className="part">{part}</span>
         </Fragment>
       ))}
@@ -1732,12 +1722,21 @@ function TaskMeta({ task, now }: { task: TaskRow; now: number }) {
   );
 }
 
-/** A row's first column: when a finished task ended (blank under a row that says the same time), or a live one's spinner. */
+/** A row's first columns: when a finished task ended (blank under a row that says the same time) and its dot, as a
+    routine's run has on the timeline; or a live one's spinner. */
 function TaskLead({ task, sameTime }: { task: TaskRow; sameTime: boolean }) {
+  if (isLive(task))
+    return (
+      <span className="ledger-lead">
+        <StatusGlyph status={task.status} />
+      </span>
+    );
+
   return (
-    <span className="ledger-lead tabular">
-      {isLive(task) ? <StatusGlyph status={task.status} /> : sameTime ? null : clockAt(task.updated_at)}
-    </span>
+    <>
+      <span className="ledger-lead tabular">{sameTime ? null : clockAt(task.updated_at)}</span>
+      <span className="today-dot ledger-dot" data-tone={task.status} />
+    </>
   );
 }
 
@@ -1747,17 +1746,6 @@ const sameTimeAs = (tasks: readonly TaskRow[], index: number) => {
 
   return task !== undefined && before !== undefined && !isLive(task) && clockAt(task.updated_at) === clockAt(before.updated_at);
 };
-
-/** A finished task's last column: Done, Failed or Stopped in its colour. Live ones have Stop there instead. */
-function TaskState({ task }: { task: TaskRow }) {
-  if (isLive(task)) return null;
-
-  return (
-    <span className="state" data-tone={task.status}>
-      {STATUS_WORD[task.status]}
-    </span>
-  );
-}
 
 /** An opened task's timeline; a cloud task with a chat can open it from there. */
 function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number; onClose: () => void; onOpen: (session: string) => void }) {
@@ -1796,7 +1784,7 @@ function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) =>
   );
 }
 
-// One line of the ledger: when, what, who and what it cost, how it went. Live, the spinner, the step and Stop instead.
+// One line of the ledger: when, how it went, what, who and how long. Live, the spinner, the step and Stop instead.
 function TaskItem({
   task,
   earlier,
@@ -1855,7 +1843,6 @@ function TaskItem({
           <TaskNow task={task} machines={machines} now={now} />
           <TaskMeta task={task} now={now} />
         </span>
-        <TaskState task={task} />
       </button>
       {open ? <TaskSheet task={task} now={now} onClose={() => setOpen(false)} onOpen={onOpen} /> : null}
       {shared ? (

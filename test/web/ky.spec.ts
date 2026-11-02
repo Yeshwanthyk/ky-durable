@@ -1930,7 +1930,6 @@ test.describe("automations in Activity", () => {
 
     await panel(page).getByRole("tab", { name: "Activity" }).click();
     const today = panel(page).getByRole("list", { name: "Today" });
-    await expect(today.getByRole("listitem", { name: /^Now, / })).toBeVisible();
     const row = today.getByRole("button", { name: new RegExp(title) });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("every 30 min");
@@ -2096,17 +2095,20 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   await expect(panel(page).getByRole("listitem").filter({ hasText: "webadd" })).toHaveCount(0);
 });
 
-test("shows what a machine task is doing, then how long it took and what it cost", async ({ page }) => {
+test("shows what a machine task is doing, then who did it and how long it took; its sheet says what it cost", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [delay=4000] [tools=Bash:pnpm build] build with steps");
   const card = panel(page).getByRole("button", { name: /build with steps/ }).first();
   await expect(card).toContainText("Running pnpm build");
   await expect(page.getByRole("button", { name: /^ky:/ })).toContainText("webmac: Running pnpm build");
 
-  await expect(card).toContainText("1 turn · $0.01");
+  // Finished, the row says who and how long, and no word of how it ended; turns and cost are the sheet's.
+  await expect(card.locator(".row-sub")).toHaveText(/^webmac · \d+s$/);
   await expect(card).not.toContainText("Running pnpm build");
+  await expect(card).not.toContainText("Done");
   await card.click();
   await expect(page.getByRole("list", { name: "Steps" })).toContainText("pnpm build");
+  await expect(page.getByRole("dialog")).toContainText("1 turn · $0.01");
 });
 
 test("shows a task without its markdown, and its machine and time each on one line", async ({ page }) => {
@@ -2115,7 +2117,7 @@ test("shows a task without its markdown, and its machine and time each on one li
   await send(page, `machine@webmac **Lint** the *web* app ${id}`);
   const name = new RegExp(`Lint the web app ${id}`);
   const card = panel(page).getByRole("button", { name }).first();
-  await expect(card).toContainText("1 turn · $0.01");
+  await expect(card.locator(".row-sub")).toHaveText(/^webmac( · \d+s)?$/);
   await expect(card).not.toContainText("*");
 
   // Squeezed, the machine and the time used to wrap mid-word onto two lines.

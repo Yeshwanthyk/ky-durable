@@ -149,11 +149,6 @@ export function runIn(time: number, zone: string, now: number): string {
   return sameDay(time, now, zone) ? clock : `${WEEK[wallIn(time, zone).weekday]} ${clock}`;
 }
 
-/** A moment's weekday in `zone`, short: "Mon". */
-export function weekdayIn(time: number, zone: string): string {
-  return WEEK[wallIn(time, zone).weekday] ?? "";
-}
-
 /** A zone as the form names it: "America/New_York", or "UTC". */
 export function zoneName(zone: string): string {
   return zone === "Etc/UTC" ? "UTC" : zone;
