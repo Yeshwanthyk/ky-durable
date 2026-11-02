@@ -2,7 +2,6 @@ import { createContext, type FormEvent, useContext, useState } from "react";
 import type { ToolPolicy } from "../approvals/contract";
 import type { ExecutorView } from "../protocol";
 import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
-import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 
 type ExecutorActions = {
@@ -91,9 +90,6 @@ function ConnectedExecutor({ url, actions }: { url: string; actions: ExecutorAct
   return (
     <div className="card">
       <div className="row">
-        <span className="row-tile">
-          <Icon name="plug" size={15} />
-        </span>
         <span className="row-text">
           <span className="row-label">Connected</span>
           <span className="row-sub">{url}</span>
@@ -104,7 +100,6 @@ function ConnectedExecutor({ url, actions }: { url: string; actions: ExecutorAct
         <button type="button" className="pill pressable" onClick={actions.onRemove}>
           Remove
         </button>
-        <span className="status-dot" data-connected />
       </div>
     </div>
   );

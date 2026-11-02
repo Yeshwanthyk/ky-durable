@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { type Login, Logins } from "../browse/contract";
 import { KY, ownerName } from "../skills/contract";
 import { EmptyState, VaultBadge } from "./Controls";
-import { Icon } from "../chat-kit/Icon";
 import { Problem } from "./Subscriptions";
 import { ago } from "./time";
 import { useNow } from "./use-now";
@@ -83,9 +82,6 @@ function LoginRow({ login, owners, onMove, onRemove }: RowProps) {
 
   return (
     <div className="row login-row" data-login={login.site}>
-      <span className="row-tile">
-        <Icon name="globe" size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label">{login.site}</span>
         <span className="row-sub row-sub-text">

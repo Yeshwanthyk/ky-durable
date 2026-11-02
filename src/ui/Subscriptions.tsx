@@ -1,7 +1,6 @@
 import { type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import type { ChatGptCode, ChatGptState, SubscriptionKind, SubscriptionView } from "../protocol";
 import { EmptyState } from "./Controls";
-import { Icon, type IconName } from "../chat-kit/Icon";
 import { clock } from "./time";
 import { SettingsNavContext } from "./use-panel";
 
@@ -91,18 +90,19 @@ function PairFirst() {
   );
 }
 
-function SubscriptionRow({ icon, label, note, ok, children }: { icon: IconName; label: string; note: string; ok: boolean; children: ReactNode }) {
+function SubscriptionRow({ label, note, ok, children }: { label: string; note: string; ok: boolean; children: ReactNode }) {
   return (
     <div className="row subscription-row">
-      <span className="row-tile">
-        <Icon name={icon} size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label">{label}</span>
         <span className="row-sub">{note}</span>
       </span>
       {children}
-      <span className="status-dot" data-connected={ok} />
+      {ok ? (
+        <span className="state" data-tone="online">
+          On
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -129,7 +129,7 @@ function ClaudeRow({ view, actions, now }: { view: SubscriptionView; actions: Su
 
   return (
     <>
-      <SubscriptionRow icon="terminal" label="Claude" note={claudeNote(view, now)} ok={view.connected}>
+      <SubscriptionRow label="Claude" note={claudeNote(view, now)} ok={view.connected}>
         {view.connected ? <RemoveButton onRemove={() => actions.onRemove("claude")} /> : <ClaudeForm onSave={actions.onSetClaude} onRefused={setRefused} />}
       </SubscriptionRow>
       <Problem text={refused} />
@@ -214,7 +214,7 @@ function ChatGptRow({ view, actions }: { view: SubscriptionView; actions: Subscr
 
   return (
     <>
-      <SubscriptionRow icon="cloud" label="ChatGPT" note={chatgptNote(view)} ok={view.connected && view.error === null}>
+      <SubscriptionRow label="ChatGPT" note={chatgptNote(view)} ok={view.connected && view.error === null}>
         {view.connected ? <RemoveButton onRemove={() => actions.onRemove("chatgpt")} /> : <SignInButton again={signing !== null} onStart={start} />}
       </SubscriptionRow>
       {signing ? <ChatGptCodeNote signing={signing} /> : null}
@@ -285,7 +285,7 @@ function GithubRow({ view, actions }: { view: SubscriptionView; actions: Subscri
 
   return (
     <>
-      <SubscriptionRow icon="repo" label="GitHub" note={githubNote(view)} ok={view.connected}>
+      <SubscriptionRow label="GitHub" note={githubNote(view)} ok={view.connected}>
         {view.connected ? (
           <RemoveButton onRemove={() => actions.onRemove("github")} />
         ) : (

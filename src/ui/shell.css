@@ -1361,7 +1361,6 @@
   display: flex;
   gap: 6px;
   min-width: 0;
-  padding-left: 38px;
 }
 
 .subscription-input {
@@ -1408,8 +1407,9 @@
   color: var(--quiet);
 }
 
-.sandbox-add {
-  flex-basis: 100%;
+/* What the "+" opens, and the cap, sit under the machine list. */
+.machines > :is(.card, .empty-state) ~ * {
+  margin-top: 10px;
 }
 
 .sandbox-kept {
@@ -1520,19 +1520,6 @@
   border-radius: 14px;
   box-shadow: inset 0 0 0 1px var(--line);
   font-size: calc(12.5px * var(--text-scale));
-}
-
-.group-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.group-actions > .machine-code,
-.group-actions > .group-note {
-  flex-basis: 100%;
 }
 
 .card {
@@ -1971,25 +1958,13 @@
   outline: none;
 }
 
-/* A state in one word after a small dot in its tone. Good states stay plain text; only exceptions
-   (failed, offline, paused, waking) colour the word too: a fifth of ink keeps them at 4.5:1 on white. */
+/* A state in one word, no dot. Good states stay plain text; only exceptions (failed, offline, paused, waking)
+   colour the word: a fifth of ink keeps them at 4.5:1 on white. */
 .state {
   flex: none;
-  font-size: calc(12.5px * var(--text-scale));
-  font-weight: 500;
+  font-size: calc(13px * var(--text-scale));
   color: var(--muted);
   white-space: nowrap;
-}
-
-.state[data-tone]::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 6px;
-  border-radius: 50%;
-  vertical-align: 0.1em;
-  background: var(--tone);
 }
 
 .state[data-tone="offline"],
@@ -2156,7 +2131,9 @@
     opacity: 1;
   }
 
-  .page-back:hover {
+  .page-back:hover,
+  .page-add-button:hover,
+  .page-add-button[aria-expanded="true"] {
     color: var(--ink);
   }
 }
@@ -2176,6 +2153,40 @@
 .page-head {
   display: flow-root;
   margin: 0 4px 16px 0;
+}
+
+/* The page's "+" sits at the right of the title's line; a page with nothing to add leaves no gap. */
+.page-actions {
+  float: right;
+  margin-left: 8px;
+}
+
+.page-actions:empty {
+  display: none;
+}
+
+.page-add {
+  position: relative;
+}
+
+.page-add-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--muted);
+}
+
+.page-add-menu {
+  width: auto;
+  min-width: 180px;
+}
+
+.page-add-menu .group-option {
+  font-size: calc(13px * var(--text-scale));
+  color: var(--ink);
 }
 
 .settings > .page-back ~ :not(.page-head) {
@@ -2214,7 +2225,7 @@
 }
 
 /* A page's first group is what its title already names: the label stays for screen readers only. */
-.page-head + .group > h3.group-label {
+.page-head + .group:not(.labelled) > h3.group-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -2262,6 +2273,11 @@
   max-width: 62%;
 }
 
+/* A page's own rows end in a state word, which sits on the row's right edge as a value does. */
+.page-link > .state {
+  margin-left: auto;
+}
+
 /* Full-width rows show a press as a fill, not a shrink. */
 .page-link:active,
 .glance-line:active,
@@ -2307,6 +2323,20 @@
   margin-left: auto;
   padding-right: 3px;
   gap: 9px;
+}
+
+/* Appearance's theme: a row each, a tick on the chosen one; the accent's swatches start on the rows' text edge. */
+.theme-pick > .row-label {
+  flex: 1;
+}
+
+.theme-tick {
+  flex: none;
+  color: var(--ink);
+}
+
+.accent-card > .row > .accent-swatches {
+  margin-left: 0;
 }
 
 /* An on/off switch: a 36×22 track, the knob slides to the lit side. */
@@ -4318,7 +4348,6 @@ article.skills-reader > * {
   box-shadow: 0 0 0 1px var(--line-strong);
 }
 
-/* A peer's dot says how it answers: green when paired, amber when it doesn't answer, red when it unpaired. */
 .peer-sub {
   display: flex;
   align-items: center;
@@ -4326,25 +4355,9 @@ article.skills-reader > * {
   min-width: 0;
 }
 
-.peer-state {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--success);
-}
-
-.peer-state[data-state="unreachable"] {
-  background: var(--warning);
-}
-
-.peer-state[data-state="revoked"] {
-  background: var(--danger);
-}
-
 .peer-detail {
   margin-top: -4px;
-  padding-left: 52px;
+  padding-left: 14px;
 }
 
 .peer-confirm {
@@ -4393,13 +4406,13 @@ article.skills-reader > * {
   font-size: 0.95em;
 }
 
-/* A mail waiting for the user: its text under the row, set in from the tile, then Discard and Send. */
+/* A mail waiting for the user: its text under the row, on the row's text edge, then Discard and Send. */
 .mail-held + .mail-held {
   border-top: 1px solid var(--line);
 }
 
 .mail-preview {
-  margin: -4px 14px 0 52px;
+  margin: -4px 14px 0;
   font-size: calc(13px * var(--text-scale));
   line-height: 1.45;
   color: var(--muted);
@@ -5696,19 +5709,6 @@ article.skills-reader > * {
 
 .code-card .copy-line {
   margin: 0 10px 0 6px;
-}
-
-.group-actions > .code-card,
-.group-actions > .empty-state,
-.group-actions > .automation-refused {
-  flex-basis: 100%;
-}
-
-/* Why the actions beside it are missing one: as quiet as a disabled button, and on their line. */
-.actions-note {
-  font-size: calc(12.5px * var(--text-scale));
-  color: var(--quiet);
-  font-variant-numeric: tabular-nums;
 }
 
 /* Where a secret goes once saved: a lock and three words at the start of the form's footer, before its buttons. */

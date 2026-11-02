@@ -37,12 +37,13 @@ import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
 import { Icon, Spinner, type IconName } from "../chat-kit/Icon";
-import { EmptyState, RowValue, Segmented, SegmentedOption, VaultBadge } from "./Controls";
+import { EmptyState, RowValue, Segmented, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Soul, type SpecialistActions } from "./Soul";
 import { Executor } from "./Executor";
+import { PageAdd, PageAddSlot } from "./PageAdd";
 import { BrowserLogins } from "./BrowserLogins";
 import { Inbound } from "./Inbound";
 import { Mail } from "./Mail";
@@ -753,7 +754,7 @@ function MachineList({
 /** Every repo a sandbox has taken. */
 const ownedRepos = (machines: readonly MachineInfo[]) => machines.flatMap((machine) => machine.sandbox?.repos ?? []);
 
-// Under the machine list: adding a computer or a sandbox, then the disks deleted sandboxes kept.
+// The page's "+", which adds a computer or a sandbox; under the list, what adding one shows, then the disks deleted sandboxes kept.
 function MachineActions({
   machines,
   sandboxes,
@@ -769,23 +770,54 @@ function MachineActions({
   now: number;
   onChanged: () => void;
 }) {
-  const live = machines.filter((machine) => machine.sandbox !== null).length;
-
-  if (!sandboxes?.enabled) {
-    return (
-      <div className="group-actions">
-        <AddMachine now={now} />
-      </div>
-    );
-  }
+  const pairing = usePairing();
+  const [adding, setAdding] = useState(false);
+  const view = sandboxes?.enabled ? sandboxes : null;
+  const full = view !== null && machines.filter((machine) => machine.sandbox !== null).length >= view.cap;
+  const sandbox = view === null || full ? [] : [{ label: "Add a sandbox", onChoose: () => setAdding(true) }];
 
   return (
     <>
-      <div className="group-actions">
-        <AddMachine now={now} />
-        <AddSandbox view={sandboxes} live={live} repos={repos} owned={owned} onAdded={onChanged} />
-      </div>
-      <KeptDisks view={sandboxes} now={now} onChanged={onChanged} />
+      <PageAdd label="Add" choices={[{ label: "Add a machine", onChoose: () => void pairing.add() }, ...sandbox]} />
+      <Problem text={pairing.error ?? undefined} />
+      {pairing.code === null ? null : <PairingCommand code={pairing.code} now={now} />}
+      {view === null ? null : (
+        <SandboxAdds view={view} full={full} adding={adding} repos={repos} owned={owned} now={now} onClose={() => setAdding(false)} onChanged={onChanged} />
+      )}
+    </>
+  );
+}
+
+// Under the machine list, the sandboxes' part: the cap once it is reached, the form the "+" opened, then the kept disks.
+function SandboxAdds({
+  view,
+  full,
+  adding,
+  repos,
+  owned,
+  now,
+  onClose,
+  onChanged,
+}: {
+  view: SandboxesView;
+  full: boolean;
+  adding: boolean;
+  repos: readonly string[];
+  owned: readonly string[];
+  now: number;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const added = () => {
+    onClose();
+    onChanged();
+  };
+
+  return (
+    <>
+      {full ? <p className="group-note">{`${view.cap} of ${view.cap} sandboxes`}</p> : null}
+      {adding && !full ? <AddSandbox view={view} repos={repos} owned={owned} onClose={onClose} onAdded={added} /> : null}
+      <KeptDisks view={view} now={now} onChanged={onChanged} />
     </>
   );
 }
@@ -1004,33 +1036,21 @@ function SandboxDelete({ machine, sandbox, onDeleted }: { machine: MachineInfo; 
 // A new sandbox: its name, its repos, and a fresh disk or a kept one; up to the cap.
 function AddSandbox({
   view,
-  live,
   repos,
   owned,
+  onClose,
   onAdded,
 }: {
   view: SandboxesView;
-  live: number;
   repos: readonly string[];
   owned: readonly string[];
+  onClose: () => void;
   onAdded: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
   const [from, setFrom] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  if (live >= view.cap) return <span className="actions-note">{`${view.cap} of ${view.cap} sandboxes`}</span>;
-
-  if (!open) {
-    return (
-      <button type="button" className="pill pressable" onClick={() => setOpen(true)}>
-        <Icon name="cloud" />
-        Add a sandbox
-      </button>
-    );
-  }
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
@@ -1040,15 +1060,11 @@ function AddSandbox({
     setError(problem);
 
     if (problem !== null) return;
-    setOpen(false);
-    setName("");
-    setChosen([]);
-    setFrom("");
     onAdded();
   };
 
   return (
-    <form className="card form-card sandbox-add" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
+    <form className="card form-card" aria-label="Add a sandbox" onSubmit={(event) => void add(event)}>
       <p className="field-hint">ky's own Linux machine in Cloudflare. A task wakes it; it sleeps when idle.</p>
       <label className="field" data-stack>
         <span className="field-label">Name</span>
@@ -1076,7 +1092,7 @@ function AddSandbox({
         </p>
       ) : null}
       <div className="card-foot">
-        <button type="button" className="automation-text pressable" onClick={() => setOpen(false)}>
+        <button type="button" className="automation-text pressable" onClick={onClose}>
           Cancel
         </button>
         <button type="submit" className="pill primary pressable">
@@ -1113,9 +1129,6 @@ function KeptDisk({
   return (
     <li className="item">
       <div className="row">
-        <span className="row-tile">
-          <Icon name="archive" size={15} />
-        </span>
         <span className="row-text">
           <span className="row-label">{disk.name}</span>
           <span className="row-sub">{keptLine(disk, now)}</span>
@@ -1188,7 +1201,8 @@ const PairingCodeSchema = Type.Object({ code: Type.String(), expiresAt: Type.Num
 type PairingCode = Static<typeof PairingCodeSchema>;
 
 // A single-use code for one more machine, and the command that pairs it with the code.
-function AddMachine({ now }: { now: number }) {
+/** Pairing a computer: a code made on request, or why ky could not make one; asking again makes a new code. */
+function usePairing() {
   const [code, setCode] = useState<PairingCode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1207,16 +1221,7 @@ function AddMachine({ now }: { now: number }) {
     setCode(made);
   };
 
-  return (
-    <>
-      <button type="button" className="pill pressable" onClick={() => void add()}>
-        <Icon name="monitor" />
-        {code === null ? "Add a machine" : "New code"}
-      </button>
-      <Problem text={error ?? undefined} />
-      {code === null ? null : <PairingCommand code={code} now={now} />}
-    </>
-  );
+  return { code, error, add };
 }
 
 // The command that pairs a computer with `code`, until the code expires.
@@ -1388,6 +1393,13 @@ function machineSummary(machine: MachineInfo): string | null {
 /** Which repos a sandbox takes: its own, or every picked one when it has none. */
 const reachOf = (sandbox: SandboxInfo) => (sandbox.repos.length === 0 ? "every picked repo" : plural(sandbox.repos.length, "repo"));
 
+/** A machine's row's second line: its OS, and "default" on the default sandbox; its page says the rest. */
+function machineShort(machine: MachineInfo): string | null {
+  const os = machine.facts ? osName(machine.facts.os) : machine.sandbox ? "Linux" : null;
+
+  return machine.sandbox?.isDefault ? `${os ?? "Linux"} · default` : os;
+}
+
 /** A machine's state in one word, and the tone that colours it. */
 type MachineWord = { tone: MachineStatus["tone"]; word: string };
 
@@ -1399,18 +1411,13 @@ function stateOf(machine: MachineInfo, now: number): MachineWord {
   return { tone: isCloud(machine) && status.tone === "offline" ? "off" : status.tone, word };
 }
 
-// A machine's row: its name and what it is, and its state in a word; it opens the machine's page.
+// A machine's row: its name and OS, and its state in a word; it opens the machine's page.
 function MachineLink({ machine, now }: { machine: MachineInfo; now: number }) {
   const state = stateOf(machine, now);
-  const summary = machineSummary(machine);
+  const short = machineShort(machine);
 
   return (
-    <PageLink
-      to={{ kind: "machine", name: machine.name }}
-      icon={isCloud(machine) ? "cloud" : "monitor"}
-      label={machine.name}
-      sub={summary ? <span className="row-sub-text">{summary}</span> : null}
-    >
+    <PageLink to={{ kind: "machine", name: machine.name }} label={machine.name} sub={short ? <span className="row-sub-text">{short}</span> : null}>
       <span className="state" data-tone={state.tone}>
         {state.word}
       </span>
@@ -1906,17 +1913,6 @@ const LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = {
 /** Each level's label in the thinking switch, short enough that all of them fit the panel's width; its full name stays its name. */
 const SHORT_LEVELS: Partial<Record<ModelChoice["thinkingLevel"], string>> = { minimal: "Min", medium: "Med", xhigh: "XHigh" };
 
-const PURPOSE_ICONS: Record<Purpose, IconName> = { main: "chat", worker: "nodes", background: "pencil", fallback: "cloud" };
-
-// What a purpose runs, as its row shows it: the model, its provider and, when the model has a choice, how hard it thinks.
-function summaryOf(current: ModelChoice, provider: ProviderInfo | undefined, model: ModelOption | undefined): string[] {
-  const parts = [model?.name ?? current.modelId, provider?.name ?? current.provider];
-
-  if ((model?.levels.length ?? 0) > 1) parts.push(LEVELS[current.thinkingLevel] ?? current.thinkingLevel);
-
-  return parts;
-}
-
 // Words joined with dots that break only between the parts, so a long provider name moves to the next line whole.
 function Parts({ parts }: { parts: readonly string[] }) {
   // The dot stays with the part before it; the line breaks only at the space after.
@@ -1942,18 +1938,11 @@ function modelOf(settings: SettingsView, choice: ModelChoice): ModelPick {
   return { provider, model: provider?.models.find((each) => each.modelId === choice.modelId) };
 }
 
-// A purpose's row: what it runs; it opens the purpose's page.
+// A purpose's row: the model it runs; it opens the purpose's page, which names the provider and how hard it thinks.
 function ModelLink({ purpose, current, settings }: { purpose: Purpose; current: ModelChoice; settings: SettingsView }) {
-  const { provider, model } = modelOf(settings, current);
+  const { model } = modelOf(settings, current);
 
-  return (
-    <PageLink
-      to={{ kind: "model", purpose }}
-      icon={PURPOSE_ICONS[purpose]}
-      label={PURPOSE_TEXT[purpose].label}
-      sub={<Parts parts={summaryOf(current, provider, model)} />}
-    />
-  );
+  return <PageLink to={{ kind: "model", purpose }} label={PURPOSE_TEXT[purpose].label} sub={<span className="row-sub-text">{model?.name ?? current.modelId}</span>} />;
 }
 
 // How hard the chosen model thinks, when it has a choice.
@@ -2100,31 +2089,18 @@ function NoModels({ loading }: { loading: boolean }) {
   return loading ? <p className="group-empty">Loading models…</p> : <EmptyState icon="plug">No model provider is on</EmptyState>;
 }
 
-// A provider or tool: what it needs while it is off, or why it last failed, and how it stands.
-function ServiceRow({
-  name,
-  sub,
-  value,
-  on,
-  children,
-}: {
-  name: string;
-  sub?: string | undefined;
-  value: string;
-  on: boolean;
-  children?: ReactNode;
-}) {
+// A provider or tool: what it has, needs or last failed with under its name, and how it stands in a word.
+function ServiceRow({ name, sub, word, on, children }: { name: string; sub: string; word: string; on: boolean; children?: ReactNode }) {
   return (
     <li className="row">
-      <span className="row-tile">
-        <Icon name="plug" size={15} />
-      </span>
       <span className="row-text">
         <span className="row-label">{name}</span>
-        <span className="row-sub">{sub ? `${value} · ${sub}` : value}</span>
+        <span className="row-sub">{sub}</span>
       </span>
       {children}
-      <span className="status-dot" data-connected={on} />
+      <span className="state" data-tone={on ? "online" : "off"}>
+        {word}
+      </span>
     </li>
   );
 }
@@ -2135,11 +2111,11 @@ export type KeyActions = {
   readonly onRemove: (provider: string) => void;
 };
 
-// What a provider's row says under its name: what it needs while it is off, else why its breaker last opened.
-function providerSub(provider: ProviderInfo): string | undefined {
+// What a provider's row says under its name: what it needs while it is off, else why its breaker last opened, else its models.
+function providerSub(provider: ProviderInfo): string {
   if (!provider.connected) return `Needs ${provider.needs ?? "a key"}`;
 
-  return provider.failure && `Last error: ${provider.failure}`;
+  return provider.failure ? `Last error: ${provider.failure}` : plural(provider.models.length, "model");
 }
 
 // A provider and how it stands; an api-key provider's key can be removed.
@@ -2148,7 +2124,7 @@ function ProviderRow({ provider, onRemove }: { provider: ProviderInfo; onRemove:
     <ServiceRow
       name={provider.name}
       sub={providerSub(provider)}
-      value={provider.connected ? plural(provider.models.length, "model") : "Off"}
+      word={provider.connected ? "On" : "Off"}
       on={provider.connected}
     >
       {provider.kind === "api-key" ? (
@@ -2219,7 +2195,7 @@ function NotSetUpGroup({ missing }: { missing: SetupView["missing"] }) {
       <h3 className="group-label">Not set up</h3>
       <ul className="card">
         {missing.map((each) => (
-          <ServiceRow key={each.id} name={each.name} sub={`Needs ${each.needs}`} value="Not set up" on={false} />
+          <ServiceRow key={each.id} name={each.name} sub={`Needs ${each.needs}`} word="Not set up" on={false} />
         ))}
       </ul>
     </section>
@@ -2411,10 +2387,13 @@ const parentOf = (page: SettingsPage) => PARENTS[page.kind] ?? SETTINGS_HOME;
 /** What the back button says, by the page it goes to. */
 const BACK_LABELS: Partial<Record<SettingsPage["kind"], string>> = { models: "Models", machines: "Machines" };
 
-// A page's large title, which takes focus when the page opens, and a line under it.
+// A page's title, which takes focus when the page opens, the spot for its "+" at the right, and a line under it.
 function PageHead({ title, children }: { title: string; children?: ReactNode }) {
+  const { setSlot } = useContext(PageAddSlot);
+
   return (
     <header className="page-head">
+      <span className="page-actions" ref={setSlot} />
       <h3 className="page-title" tabIndex={-1}>
         {title}
       </h3>
@@ -2423,20 +2402,16 @@ function PageHead({ title, children }: { title: string; children?: ReactNode }) 
   );
 }
 
-// A row that opens a page: its icon if it has one, its name and a line under it, what it is set to, and a chevron unless it goes without.
+// A row that opens a page: its name and a line under it, and what it is set to.
 function PageLink({
   to,
-  icon,
   label,
   sub,
-  chevron = true,
   children,
 }: {
   to: SettingsPage;
-  icon?: IconName | undefined;
   label: string;
   sub?: ReactNode;
-  chevron?: boolean;
   children?: ReactNode;
 }) {
   const { go } = useContext(SettingsNavContext);
@@ -2444,17 +2419,11 @@ function PageLink({
   return (
     <li>
       <button type="button" className="row page-link" data-goes={keyOf(to)} onClick={() => go(to)}>
-        {icon ? (
-          <span className="row-tile">
-            <Icon name={icon} size={15} />
-          </span>
-        ) : null}
         <span className="row-text">
           <span className="row-label">{label}</span>
           {sub ? <span className="row-sub">{sub}</span> : null}
         </span>
         {children}
-        {chevron ? <Icon name="chevronRight" size={14} className="row-chevron" /> : null}
       </button>
     </li>
   );
@@ -2659,7 +2628,7 @@ const MORE_PAGES: ReadonlySet<SettingsPage["kind"]> = new Set(MORE.map((row) => 
 
 function GroupLinks({ rows, props }: { rows: readonly GroupRow[]; props: SettingsProps }) {
   return rows.map((row) => (
-    <PageLink key={row.label} to={row.to} label={row.label} chevron={false}>
+    <PageLink key={row.label} to={row.to} label={row.label}>
       {row.value?.(props)}
     </PageLink>
   ));
@@ -2804,24 +2773,30 @@ function ToolsPage({ catalog }: PageProps) {
   );
 }
 
+const THEME_NAMES: Record<Theme, string> = { light: "Light", dark: "Dark" };
+
+// Appearance: the theme as a list with a tick on the chosen one, then the accent's swatches in a card of their own.
 function AppearancePage({ theme, onTheme }: PageProps) {
   return (
     <>
       <PageHead title="Appearance" />
-      <div className="card">
-        <div className="row">
-          <span className="row-label">Theme</span>
-          <Segmented small role="radiogroup" aria-label="Theme" chosen={theme}>
-            {(["light", "dark"] as const).map((each) => (
-              <SegmentedOption key={each} checked={theme === each} onChoose={() => onTheme(each)}>
-                <Icon name={each === "light" ? "sun" : "moon"} size={13} />
-                {each === "light" ? "Light" : "Dark"}
-              </SegmentedOption>
-            ))}
-          </Segmented>
+      <section className="group labelled">
+        <h3 className="group-label">Theme</h3>
+        <div className="card" role="radiogroup" aria-label="Theme">
+          {(["light", "dark"] as const).map((each) => (
+            <button key={each} type="button" role="radio" aria-checked={theme === each} className="row page-link theme-pick" onClick={() => onTheme(each)}>
+              <span className="row-label">{THEME_NAMES[each]}</span>
+              {theme === each ? <Icon name="check" size={15} className="theme-tick" /> : null}
+            </button>
+          ))}
         </div>
-        <AccentRow />
-      </div>
+      </section>
+      <section className="group">
+        <h3 className="group-label">Accent</h3>
+        <div className="card accent-card">
+          <AccentRow />
+        </div>
+      </section>
     </>
   );
 }
@@ -2847,7 +2822,6 @@ function AccentRow() {
 
   return (
     <div className="row">
-      <span className="row-label">Accent</span>
       <div ref={group} className="accent-swatches" role="radiogroup" aria-label="Accent" onKeyDown={onKeyDown}>
         {ACCENTS.map((each) => (
           <button
@@ -2931,6 +2905,7 @@ function Settings(props: SettingsProps) {
   const parent = parentOf(page);
   // More stays open while Settings is; it opens on its own when a page behind it is shown, so the way back finds its row.
   const [more, setMore] = useState(MORE_PAGES.has(page.kind));
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
 
   if (MORE_PAGES.has(page.kind) && !more) setMore(true);
 
@@ -2959,7 +2934,9 @@ function Settings(props: SettingsProps) {
           <Icon name="arrowLeft" size={16} />
         </button>
       )}
-      <View page={page} more={more} onMore={setMore} {...props} />
+      <PageAddSlot value={{ slot, setSlot }}>
+        <View page={page} more={more} onMore={setMore} {...props} />
+      </PageAddSlot>
     </div>
   );
 }
