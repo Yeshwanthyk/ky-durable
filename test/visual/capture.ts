@@ -30,14 +30,13 @@ const chat = (page: Page) => page.getByRole("region", { name: "Chat" });
 
 /**
  * What shows the clock or a time relative to it, and so differs between runs: a chat's age in the
- * sidebar, Today's date, its now line and its times, a routine's "Next run in" and a skill's "changed
+ * sidebar, Today's date and its times, a routine's "Next run in" and a skill's "changed
  * now". The schedule beside "Next run in" and the use count beside "changed" are masked with them; a
  * paused routine's line shows the same schedule unmasked.
  */
 const MASK = (page: Page): Locator[] => [
   page.locator(".chat-time"),
   page.locator(".today-date"),
-  page.locator(".today-now"),
   page.locator(".today-time"),
   page.locator(".rt-meta", { hasText: "Next run in" }),
   page.locator(".skills-reader-meta")

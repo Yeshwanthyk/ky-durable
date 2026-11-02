@@ -40,7 +40,6 @@ import {
   sameDay,
   scheduleSentence,
   wallInput,
-  weekdayIn,
   zoneName,
 } from "./schedule";
 import { ago } from "./time";
@@ -177,11 +176,10 @@ function resultOf(run: NonNullable<AutomationInfo["last_run"]>): string {
   return run.status === "done" ? "done" : run.status;
 }
 
-/** Today's runs so far, those still to come today, and those later this week, each soonest first. */
+/** Today's runs so far and those still to come today, each soonest first. */
 function slotsOf(automations: readonly AutomationInfo[], now: number, zone: string) {
   const past: Slot[] = [];
   const next: Slot[] = [];
-  const later: Slot[] = [];
 
   for (const automation of automations) {
     const run = automation.last_run;
@@ -193,19 +191,15 @@ function slotsOf(automations: readonly AutomationInfo[], now: number, zone: stri
 
     const when = automation.next_run;
 
-    if (automation.status !== "active" || when === null) continue;
-    const often = oftenOf(automation.cron);
+    if (automation.status !== "active" || when === null || !sameDay(when, now, zone)) continue;
 
-    if (sameDay(when, now, zone)) next.push({ key: `next:${automation.id}`, at: when, tone: "next", automation, note: often || (automation.post ? "posts" : "") });
-    else if (when - now < WEEK_MS) later.push({ key: `later:${automation.id}`, at: when, tone: "next", automation, note: often || scheduleOf(automation) });
+    next.push({ key: `next:${automation.id}`, at: when, tone: "next", automation, note: oftenOf(automation.cron) || (automation.post ? "posts" : "") });
   }
 
   const soonest = (a: Slot, b: Slot) => a.at - b.at;
 
-  return { past: past.sort(soonest), next: next.sort(soonest), later: later.sort(soonest) };
+  return { past: past.sort(soonest), next: next.sort(soonest) };
 }
-
-const WEEK_MS = 7 * 86_400_000;
 
 /** Each slot with its time, written only on the first of a run of rows that share it. */
 function once(slots: readonly Slot[], timeOf: (slot: Slot) => string): [Slot, string][] {
@@ -234,9 +228,9 @@ function SlotRow({ slot, time, onOpen }: { slot: Slot; time: string; onOpen: (ev
 }
 
 /**
- * Today on one axis: what ran, with what it came to, above a line at now; what comes later today below it,
- * each routine once, at its next run; then the rest of the week, folded. `finished` is the row of today's
- * finished tasks and when the last ended, set among the runs by its time.
+ * Today on one axis: what ran, with what it came to; then what comes later today, each routine once, at its next
+ * run. The rest of the week is on All routines. `finished` is the row of today's finished tasks and when the last
+ * ended, set among the runs by its time.
  */
 export function Timeline({
   now,
@@ -256,8 +250,7 @@ export function Timeline({
   onRun: (automation: string) => boolean;
 }) {
   const { automations } = useContext(AutomationsContext);
-  const [weekOpen, setWeekOpen] = useState(false);
-  const { past, next, later } = slotsOf(automations.filter(notArchived), now, zone);
+  const { past, next } = slotsOf(automations.filter(notArchived), now, zone);
 
   // A fire opens its run; a run to come opens the routine.
   const open = (slot: Slot) => (event: MouseEvent) => {
@@ -266,7 +259,7 @@ export function Timeline({
     onView({ page: "edit", id: slot.automation.id, back: "today", glide: glideOf(event) });
   };
 
-  if (past.length + next.length + later.length === 0 && finished === null)
+  if (past.length + next.length === 0 && finished === null)
     return busy ? null : <p className="today-empty">Nothing today.</p>;
 
   const before = past.filter((slot) => finished === null || slot.at <= finished.at);
@@ -279,19 +272,7 @@ export function Timeline({
       {once(before, timeOf).map(row)}
       {finished?.row}
       {once(after, timeOf).map(row)}
-      <li className="today-now" aria-label={`Now, ${clockIn(now, zone)}`}>
-        Now {clockIn(now, zone)}
-      </li>
       {once(next, timeOf).map(row)}
-      {later.length > 0 ? (
-        <li className="today-item">
-          <button type="button" className="today-group disclosure" aria-expanded={weekOpen} onClick={() => setWeekOpen(!weekOpen)}>
-            Later this week · {later.length}
-            <Icon name="chevronRight" size={12} className="chevron" />
-          </button>
-        </li>
-      ) : null}
-      {weekOpen ? once(later, (slot) => weekdayIn(slot.at, zone)).map(row) : null}
     </ol>
   );
 }
@@ -363,7 +344,7 @@ function AllRoutines({ glide, now, session, onView }: { glide: boolean; now: num
 
   return (
     <section className="routines" aria-label="Routines" data-glide={glide || undefined} onKeyDown={escape}>
-      <button type="button" className="page-back pressable" onClick={() => onView(TODAY)}>
+      <button type="button" className="back-link pressable" onClick={() => onView(TODAY)}>
         <Icon name="arrowLeft" size={14} />
         Today
       </button>

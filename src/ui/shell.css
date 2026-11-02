@@ -1030,7 +1030,7 @@
 
 /* Activity's ledger: each task one line of when, what and how it went. Three columns run through
    every card: the time, 14px in (a live task's spinner sits there instead); the title and the line
-   of who did it and what it cost; then the state word, or Stop, on the right edge. */
+   of who did it and how long; a live one's Stop on the right edge. A finished task's dot follows its time. */
 .ledger-button {
   width: 100%;
   display: flex;
@@ -1080,9 +1080,20 @@
   margin-top: 1px;
 }
 
-/* What an opened task holds hangs from the title's edge, past the time. */
+/* A finished task's dot, as a routine's run has it on the timeline, on the title's line. */
+.ledger-dot {
+  align-self: flex-start;
+  margin-top: calc((13.5px * 1.35 * var(--text-scale) - 7px) / 2);
+}
+
+/* A failed task says so in its title and at the start of its line, in red: a fifth of ink keeps 4.5:1 on white. */
+.ledger-item[data-status="failed"] :is(.ledger-title, .ledger-ended) {
+  color: color-mix(in srgb, var(--danger) 80%, var(--ink));
+}
+
+/* What an opened task holds hangs from the title's edge, past the time and the dot. */
 .ledger-item > :is(.feed-detail, .feed-files, .feed-changes) {
-  padding-left: calc(24px + 52px * var(--text-scale));
+  padding-left: calc(41px + 52px * var(--text-scale));
 }
 
 .ledger-item[data-live] > :is(.feed-detail, .feed-files, .feed-changes) {
@@ -4683,44 +4694,14 @@ article.skills-reader > * {
   }
 }
 
-/* Now: a thin blue rule with the time on it, on the clocks' column. */
-.today-now {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  padding: 0 12px 0 14px;
-  color: var(--ink);
-  font-size: calc(11.5px * var(--text-scale));
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.today-now::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line-strong);
-}
-
-.today-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  min-height: 32px;
-  margin-top: 4px;
-  padding: 0 14px;
-  border-top: 1px solid var(--line);
-  color: var(--quiet);
-  font-size: calc(12px * var(--text-scale));
-  font-weight: 550;
-  text-align: left;
-}
-
 /* Finished tasks, folded to one quieter row; open, their rows sit flat in the card under it. */
 .today-fold > .today-row :is(.today-title, .today-dot) {
   opacity: 0.7;
+}
+
+/* The fold's words start on the titles' edge, past the dots' column. */
+.today-fold > .today-row > .today-title {
+  margin-left: 17px;
 }
 
 .today-fold .chevron {
@@ -4745,6 +4726,75 @@ article.skills-reader > * {
   font-size: calc(12.5px * var(--text-scale));
 }
 
+/* ---------- Activity, open ----------
+   Activity's sections sit on the panel's ground, not in cards: a rule under each head, rules between rows, and
+   every row's content on its head's words, 8px in from the panel's edge. */
+
+.activity :is(.feed, .today-list) {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.activity :is(.feed-head, .today-head) {
+  margin-bottom: 0;
+  padding-left: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* One rule between rows, wherever they sit: a run, the fold's own rows, and the tasks it opens on. */
+.activity :is(.today-list > li + li, .today-fold > * + *) {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.activity .today-tasks {
+  margin: 0;
+}
+
+.activity .ledger-button {
+  padding-inline: 8px;
+}
+
+.activity .ledger-item:has(.feed-stop) .ledger-button {
+  padding-right: 52px;
+}
+
+.activity .feed-stop {
+  right: 4px;
+}
+
+.activity .today-row {
+  padding-inline: 8px;
+}
+
+.activity .feed-button {
+  padding-inline: 8px;
+}
+
+.activity .feed-more {
+  margin: 0;
+  padding-inline: 8px;
+  border-radius: 0;
+}
+
+.activity .feed > .feed-more,
+.activity .feed-group > .feed-more {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.activity .today-empty {
+  padding-inline: 8px;
+}
+
+.activity .ledger-item > :is(.feed-detail, .feed-files, .feed-changes) {
+  padding-left: calc(35px + 52px * var(--text-scale));
+}
+
+.activity .ledger-item[data-live] > :is(.feed-detail, .feed-files, .feed-changes) {
+  padding-left: 34px;
+}
+
 /* ---------- Routines ----------
    Every routine on one page in place of Today, and a routine's form on another. A page opened by a pointer
    eases in; one the keyboard opened is simply there. */
@@ -4759,6 +4809,28 @@ article.skills-reader > * {
   :is(.routines, .routine-page)[data-glide] {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+
+/* Back to Today: the arrow and the word on one line, above the head, on the title's edge. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: 0 0 2px;
+  padding: 0 8px 0 4px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .back-link:hover {
+    color: var(--ink);
   }
 }
 
