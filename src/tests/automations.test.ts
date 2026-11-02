@@ -4,7 +4,7 @@ import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import type { TaskRow } from "../automations/contract";
 import { GLM, GPT_OSS, type PiAgent } from "./stack";
-import { agent, connect, connectExecutor, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
+import { agent, connect, connectExecutor, FACTS, follow, gateStarted, inside, runner, snapshotView, until } from "./drive";
 
 /**
  * Automations through ky's real PiAgent on the fake Workers AI: created and
@@ -26,6 +26,9 @@ async function say(name: string, text: string, session?: string): Promise<string
 }
 
 /** Ask for an automation, daily at 09:00 UTC unless `args` say otherwise; its id. */
+/** A runner that pins models, with both agents installed. */
+const PINS = { ...FACTS, models: true, agents: { claude: { installed: true, signedIn: true }, codex: { installed: true, signedIn: true } } };
+
 async function create(name: string, args: Record<string, JsonValue> = {}, session?: string): Promise<string> {
   const draft = { action: "create", title: "Daily digest", prompt: "digest the news", cron: "0 9 * * *", ...args };
   const said = await say(name, automation(draft), session);
@@ -182,7 +185,7 @@ describe("automations", () => {
 
     const line = await listed(name, id);
     expect(line).toContain(`${id} "Daily digest" [active] cron 0 9 * * * UTC, by user`);
-    expect(line).toContain("model: worker model; where: cloud; reports to: main");
+    expect(line).toContain("runs on: cloud · subagents model; reports to: main");
     expect(line).toContain(`next: ${nextDaily(9)}; last run: never`);
 
     expect(await booking(name, id)).toMatchObject({ ...bookedDaily(9), callback: "automation", payload: { id } });
@@ -369,7 +372,7 @@ describe("automations", () => {
     socket.close();
 
     const id = await create(name);
-    expect(await listed(name, id)).toContain("model: worker model");
+    expect(await listed(name, id)).toContain("runs on: cloud · subagents model");
     await runNow(name, id);
     await runEnds(name, id);
     const calls = await runCalls(name, id);
@@ -558,7 +561,7 @@ describe("automations", () => {
     const id = await create(name, { model: `workers-ai/${GPT_OSS}` });
 
     expect(await say(name, automation({ action: "update", id, thinking: "high" }))).toBe('tool said: Updated "Daily digest".');
-    expect(await listed(name, id)).toContain(`model: workers-ai/${GPT_OSS} `);
+    expect(await listed(name, id)).toContain(`runs on: cloud · workers-ai/${GPT_OSS} `);
     expect(await listed(name, id)).not.toContain(GLM);
   });
 
@@ -577,18 +580,55 @@ describe("automations", () => {
 
   it("update clears a model and a machine, and refuses an empty prompt", async () => {
     const name = crypto.randomUUID();
-    const first = await runner(name);
+    const first = await runner(name, "mac", PINS);
     first.socket.close();
-    const id = await create(name, { model: `workers-ai/${GPT_OSS}`, machine: "mac" });
-    expect(await listed(name, id)).toContain(`model: workers-ai/${GPT_OSS}`);
-    expect(await listed(name, id)).toContain("where: mac");
+    const id = await create(name, { machine: "mac", agent: "codex", model: "gpt-6.1-sol", thinking: "high" });
+    expect(await listed(name, id)).toContain("runs on: mac · Codex · gpt-6.1-sol high;");
 
-    expect(await say(name, automation({ action: "update", id, model: "worker", machine: "cloud" }))).toBe(
-      'tool said: Updated "Daily digest".'
-    );
-    expect(await listed(name, id)).toContain("model: worker model; where: cloud");
+    expect(await say(name, automation({ action: "update", id, model: "default", machine: "cloud" }))).toBe('tool said: Updated "Daily digest".');
+    expect(await listed(name, id)).toContain("runs on: cloud · subagents model;");
 
     expect(await say(name, automation({ action: "update", id, prompt: " " }))).toBe("tool said: An automation needs a title and a prompt.");
+  });
+
+  it("refuses a model its runner can't run: none without an agent, an agent's in the cloud, any on a runner from before models", async () => {
+    const name = crypto.randomUUID();
+    const old = await runner(name);
+    old.socket.close();
+    const make = (args: Record<string, JsonValue>) => say(name, automation({ action: "create", title: "Daily digest", prompt: "digest", cron: "0 9 * * *", ...args }));
+
+    expect(await make({ machine: "mac", model: `workers-ai/${GPT_OSS}` })).toBe("tool said: Pick the agent too: a model on a machine is its agent's.");
+    expect(await make({ agent: "claude", model: "opus" })).toBe("tool said: An agent is picked only for a run on a machine; a run in the cloud is a subagent.");
+    expect(await make({ model: "claude/opus" })).toBe("tool said: opus is Claude Code's: pick a machine for it, or a model ky offers.");
+    expect(await make({ machine: "mac", agent: "claude", model: "gpt-6.1-sol" })).toBe("tool said: A run as Claude Code takes one of its models: fable, opus, sonnet, haiku.");
+    expect(await make({ machine: "mac", agent: "codex" })).toBe("tool said: mac cannot run Codex: it is not installed there.");
+    expect(await make({ machine: "mac", agent: "claude", model: "opus" })).toBe("tool said: mac's ky-runner is too old to pick a model; update ky on it (ky upgrade).");
+    // The machine's own agent on its own model needs nothing of the runner.
+    await create(name, { machine: "mac", agent: "claude" });
+  });
+
+  it("a machine automation runs as its agent on its model, every turn, and says why when its runner no longer can", async () => {
+    const name = crypto.randomUUID();
+    const first = await runner(name, "mac", PINS);
+    first.socket.close();
+    const id = await create(name, { machine: "mac", agent: "claude", model: "opus", thinking: "xhigh", prompt: "check the backups" });
+
+    await runNow(name, id);
+    const [run] = await runs(name, id);
+    expect(run).toMatchObject({ kind: "machine", worker: "mac", status: "queued", agent: "claude" });
+    const mac = await runner(name, "mac", PINS);
+    expect(await mac.next()).toMatchObject({ type: "run", task: run!.id, agent: "claude", model: { id: "opus", effort: "xhigh" } });
+    mac.send({ type: "result", task: run!.id, turn: 1, ok: true, text: "backups are fine", session: "s-backups", agent: "claude" });
+    await runEnds(name, id);
+    mac.socket.close();
+
+    // The runner is put back to one from before models: the next run is refused, never run on its own model.
+    const old = await runner(name);
+    old.socket.close();
+    expect(await listed(name, id)).toContain("(mac's ky-runner is too old to pick a model; update ky on it (ky upgrade).)");
+    await runNow(name, id);
+    await until(async () => (await runs(name, id)).some((each) => each.status === "failed"), "the refused run");
+    expect((await runs(name, id)).find((each) => each.status === "failed")).toMatchObject({ summary: "mac's ky-runner is too old to pick a model; update ky on it (ky upgrade)." });
   });
 
   it("books lost schedules again when the object starts", async () => {
@@ -963,7 +1003,7 @@ describe("check-ins", () => {
       status: "active"
     });
     // Its report goes to the main agent, which checks memory before it tells the user, so a dream's posted one is refused.
-    const posted = { title: "Polls", prompt: "polls", cron: null, at: Date.now() + 3_600_000, model: null, machine: null, chat: ROOT_SESSION, gate: null, post: true };
+    const posted = { title: "Polls", prompt: "polls", cron: null, at: Date.now() + 3_600_000, model: null, machine: null, agent: null, chat: ROOT_SESSION, gate: null, post: true };
     expect(await inside(name, (instance) => instance.automations.create(posted, "dream"))).toEqual({ refused: "A check-in's report goes to the main agent, not posted." });
 
     expect(await book(name, session, { at: null, cron: "0 9 * * *" })).toBe("tool said: A check-in runs once: give at, not cron.");

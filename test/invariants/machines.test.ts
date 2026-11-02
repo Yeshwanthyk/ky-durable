@@ -286,7 +286,7 @@ describe("the port's refusals", () => {
         await run(port.paired("box", FACTS, "p2"));
 
         if (delivered) await hello(harness, "c1");
-        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude"));
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude", null));
         await run(port.deliver("mini"));
         // SAFETY: start made the task.
         const said = await run(port.move(world.feed.get("t1")!, "box"));
@@ -302,7 +302,7 @@ describe("the port's refusals", () => {
         const { port, run, world } = harness;
         await run(port.paired("mini", FACTS, "p1"));
         await run(port.paired("box", { ...FACTS, agents: { ...FACTS.agents, [agent]: { installed, signedIn: installed } } }, "p2"));
-        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", agent));
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", agent, null));
         const name = agent === "claude" ? "Claude Code" : "Codex";
         // SAFETY: start made the task.
         const said = await run(port.move(world.feed.get("t1")!, "box"));
@@ -395,7 +395,7 @@ describe("the port's time is the Clock's", () => {
         const { port, run, world, at } = harness;
         vi.setSystemTime(T);
         await run(port.paired("mini", FACTS, "p1"));
-        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude"));
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude", null));
         // SAFETY: start made the task.
         await run(port.stop(world.feed.get("t1")!));
         await at(T + after);
@@ -464,7 +464,7 @@ const lateReport = (step: Extract<Step, { do: "late" }>, turn: number): TaskRepo
 
 const STEPS = {
   start: async ({ harness: { port, run } }, step) => {
-    await run(port.start("mini", "A task", "Do it", step.task, step.parent, "chat", step.agent));
+    await run(port.start("mini", "A task", "Do it", step.task, step.parent, "chat", step.agent, null));
     await run(port.deliver("mini"));
   },
   send: async ({ harness: { port, run, world } }, step) => {
@@ -649,7 +649,7 @@ describe("the port's stored rows", () => {
         const { port, run, world } = harness;
         await run(port.paired("mini", FACTS, "p1"));
         await hello(harness, "c1");
-        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude"));
+        await run(port.start("mini", "A task", "Do it", "t1", "s1", "chat", "claude", null));
         await run(port.deliver("mini"));
 
         // SAFETY: start made the task.

@@ -23,6 +23,16 @@ const Session = Schema.NullOr(Schema.String);
 
 export const AgentSchema = Schema.Literals(["claude", "codex"]);
 
+/** The effort levels some agent takes: Claude Code's `--effort`, Codex's `model_reasoning_effort`. */
+const EffortSchema = Schema.Literals(["minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** The model a run on a machine is pinned to, as its agent's CLI names it, and its effort; a null effort is the CLI's own. */
+export const AgentModelSchema = Schema.Struct({ id: Schema.String, effort: Schema.NullOr(EffortSchema) });
+
+export type AgentModel = typeof AgentModelSchema.Type;
+
+export type Effort = typeof EffortSchema.Type;
+
 const CodexCredsSchema = Schema.Struct({
   accessToken: Text,
   refreshToken: Schema.Null,
@@ -49,7 +59,9 @@ const RunCommandSchema = Schema.Struct({
   session: Session,
   agent: AgentSchema,
   taskToken: Text,
-  creds: Schema.optionalKey(RunCredsSchema)
+  creds: Schema.optionalKey(RunCredsSchema),
+  /** The model to start the agent with; left out, its CLI's default. Sent only to a runner whose facts say it pins one. */
+  model: Schema.optionalKey(AgentModelSchema)
 });
 
 const StopCommandSchema = Schema.Struct({ type: Schema.Literal("stop"), seq: Positive, task: Text, turn: Positive });
@@ -83,7 +95,9 @@ export const FactsSchema = Schema.Struct({
   repos: Schema.Array(RepoSchema),
   agents: Schema.Struct({ claude: AgentFactsSchema, codex: AgentFactsSchema }),
   ports: Schema.Array(Port),
-  kind: Schema.Literals(["computer", "cloud"])
+  kind: Schema.Literals(["computer", "cloud"]),
+  /** Whether this runner starts an agent with the model a run names. A runner from before left it out, and would drop the model without a word. */
+  models: Schema.optionalKey(Schema.Boolean)
 });
 
 const HelloSchema = Schema.Struct({
@@ -153,6 +167,18 @@ export type CodexCreds = typeof CodexCredsSchema.Type;
 export type Agent = typeof AgentSchema.Type;
 
 export const AGENT_NAMES: Readonly<Record<Agent, string>> = { claude: "Claude Code", codex: "Codex" };
+
+/** The models ChatGPT's subscription offers, which Codex signs in for. */
+export const CHATGPT_MODELS: readonly string[] = ["gpt-6.1-sol", "gpt-6-luna"];
+
+/** The models a run on a machine may be pinned to, by agent: Claude Code's aliases, each its latest, and ChatGPT's. */
+export const AGENT_MODELS: Readonly<Record<Agent, readonly string[]>> = { claude: ["fable", "opus", "sonnet", "haiku"], codex: CHATGPT_MODELS };
+
+/** Each agent's effort levels, lowest first. */
+export const AGENT_EFFORTS: Readonly<Record<Agent, readonly Effort[]>> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  codex: ["minimal", "low", "medium", "high", "xhigh"]
+};
 
 export const isPipeReport: (report: RunnerReport) => report is PipeReport = Schema.is(PipeReportSchema);
 

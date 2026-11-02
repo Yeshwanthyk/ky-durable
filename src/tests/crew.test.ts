@@ -14,6 +14,7 @@ const task = (worker: string, status: TaskRow["status"], times: { started: numbe
   steps: [],
   session: null,
   agent: null,
+  model: null,
   chat,
   created_at: times.started,
   updated_at: times.finished ?? times.started,

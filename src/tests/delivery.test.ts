@@ -23,7 +23,7 @@ const runs = (page: Tab, id: string, status: string) =>
 
 /** Save "School mail" from the page as the user does, its gate finding `found`; its id. */
 async function save(page: Tab, found: readonly string[], id?: string, prompt = "tell me what school sent"): Promise<string> {
-  const draft = { title: "School mail", prompt, cron: "*/15 * * * *", at: null, model: null, machine: null, chat: ROOT_SESSION, gate: `answer ${JSON.stringify(found)}` };
+  const draft = { title: "School mail", prompt, cron: "*/15 * * * *", at: null, model: null, machine: null, agent: null, chat: ROOT_SESSION, gate: `answer ${JSON.stringify(found)}` };
   expect(await page.send({ type: "automation-save", automation: id, draft })).toMatchObject({ type: "result", result: {} });
   await page.until(() => page.latest("automations")?.automations.some((each) => each.title === "School mail" && each.gate === draft.gate && each.prompt === prompt) === true);
 

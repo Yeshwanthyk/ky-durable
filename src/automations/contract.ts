@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import Type, { type Static, type TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";
 import type { Refusable } from "../core/edge";
-import type { Agent } from "../machines/contract";
+import { AGENT_EFFORTS, AGENT_MODELS, AGENT_NAMES, type Agent, type AgentModel, AgentModelSchema } from "../machines/contract";
 import { type ModelChoice, ModelChoiceSchema, ThinkingLevelSchema } from "../settings/contract";
 
 export type { Automations } from "./wiring";
@@ -58,6 +58,8 @@ const StoredAutomation = Schema.Struct({
   at: Schema.NullOr(Schema.Number),
   model: ModelColumn,
   machine: Schema.NullOr(Schema.String),
+  /** The agent a run on a machine starts; null, the machine's own. A row from before agents has none. */
+  agent: Schema.NullOr(Schema.Literals(["claude", "codex"])).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   chat: Schema.String,
   gate: Schema.NullOr(Schema.String),
   gate_checked_at: Schema.NullOr(Schema.Number),
@@ -83,6 +85,8 @@ export const AutomationDraftSchema = Type.Object({
   at: Nullable(Type.Number()),
   model: Nullable(ModelChoiceSchema),
   machine: Nullable(Type.String()),
+  // Optional on the wire: a page from before agents sends none, for the machine's own.
+  agent: Type.Optional(Nullable(Type.Union([Type.Literal("claude"), Type.Literal("codex")]))),
   chat: Type.String(),
   gate: Nullable(Type.String()),
   post: Type.Optional(Type.Boolean()),
@@ -90,7 +94,57 @@ export const AutomationDraftSchema = Type.Object({
   owner: Type.Optional(Type.String())
 });
 
-export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "chat" | "gate"> & Partial<Pick<AutomationRow, "post" | "owner">>;
+export type AutomationDraft = Pick<AutomationRow, "title" | "prompt" | "cron" | "at" | "model" | "machine" | "agent" | "chat" | "gate"> & Partial<Pick<AutomationRow, "post" | "owner">>;
+
+/**
+ * Where and how an automation's run starts. The cloud: a subagent on a model ky offers, null for the
+ * subagents model. A machine: its agent, null for the machine's own, and that agent's model, null
+ * for its CLI's own; a model needs an agent, since the agent's CLI names it.
+ *
+ * A row keeps these as its columns, `machine`, `agent` and `model`, where a model on a machine is
+ * `{ provider: agent, modelId, thinkingLevel }`; read them through `runnerOfRow`, never one by one.
+ */
+export type Runner =
+  | { readonly kind: "cloud"; readonly model: ModelChoice | null }
+  | { readonly kind: "machine"; readonly machine: string; readonly agent: Agent | null; readonly model: AgentModel | null };
+
+type RunnerColumns = Pick<AutomationRow, "machine" | "agent" | "model">;
+
+const isAgent = (provider: string): provider is Agent => provider === "claude" || provider === "codex";
+
+/** An agent's model as a row's model column keeps it. */
+export const agentChoice = (agent: Agent, model: AgentModel, thinkingLevel: ModelChoice["thinkingLevel"] = model.effort ?? "off"): ModelChoice => ({
+  provider: agent,
+  modelId: model.id,
+  thinkingLevel
+});
+
+/** Why these columns are no way to run, or undefined: what a save refuses, and a read drops. */
+export function runnerProblem({ machine, agent, model }: RunnerColumns): string | undefined {
+  if (machine === null) {
+    if (agent !== null) return "An agent is picked only for a run on a machine; a run in the cloud is a subagent.";
+
+    return model !== null && isAgent(model.provider) ? `${model.modelId} is ${AGENT_NAMES[model.provider]}'s: pick a machine for it, or a model ky offers.` : undefined;
+  }
+
+  if (model === null) return undefined;
+
+  if (agent === null) return "Pick the agent too: a model on a machine is its agent's.";
+
+  if (model.provider !== agent || !AGENT_MODELS[agent].includes(model.modelId)) return `A run as ${AGENT_NAMES[agent]} takes one of its models: ${AGENT_MODELS[agent].join(", ")}.`;
+
+  return undefined;
+}
+
+/** Where and how a row runs. */
+export function runnerOfRow({ machine, agent, model }: RunnerColumns): Runner {
+  if (machine === null) return { kind: "cloud", model };
+
+  if (agent === null || model === null) return { kind: "machine", machine, agent, model: null };
+  const effort = AGENT_EFFORTS[agent].find((level) => level === model.thinkingLevel) ?? null;
+
+  return { kind: "machine", machine, agent, model: { id: model.modelId, effort } };
+}
 
 function wordsProblem(draft: Pick<AutomationDraft, "title" | "prompt">): string | undefined {
   return draft.title.trim() && draft.prompt.trim() ? undefined : "An automation needs a title and a prompt.";
@@ -156,6 +210,11 @@ const StepsColumn = Type.Array(TaskStepSchema);
 
 const AgentSchema = Type.Union([Type.Literal("claude"), Type.Literal("codex")]);
 
+/** A machine task's pinned model, as JSON; anything else is no pin, the agent's own. */
+const AgentModelColumn = Schema.NullOr(Schema.fromJsonString(AgentModelSchema)).pipe(Schema.catchDecoding(() => Effect.succeed(Option.some(null))));
+
+const decodeAgentModel = Schema.decodeUnknownSync(AgentModelColumn);
+
 const StoredTask = Type.Object({
   id: Type.String(),
   kind: TaskKindSchema,
@@ -167,6 +226,7 @@ const StoredTask = Type.Object({
   steps: Type.String(),
   session: Nullable(Type.String()),
   agent: Nullable(AgentSchema),
+  model: Type.Optional(Nullable(Type.String())),
   chat: Nullable(Type.String()),
   created_at: Type.Number(),
   updated_at: Type.Number(),
@@ -176,7 +236,7 @@ const StoredTask = Type.Object({
   cost_usd: Nullable(Type.Number())
 });
 
-export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent"> & { steps: readonly TaskStep[]; agent: Agent | null }>;
+export type TaskRow = Readonly<Omit<Static<typeof StoredTask>, "steps" | "agent" | "model"> & { steps: readonly TaskStep[]; agent: Agent | null; model: AgentModel | null }>;
 
 export type TaskPatch = Partial<Pick<TaskRow, "title" | "status" | "summary" | "session">>;
 
@@ -217,6 +277,8 @@ export const RUN_HISTORY = 14;
 
 export type AutomationView = Omit<AutomationRow, "schedule_id" | "zone"> & {
   readonly zone: string;
+  /** Why its runs won't start as it says now, such as its model gone or its machine's runner too old; null when they will. */
+  readonly runner_note: string | null;
   readonly next_run: number | null;
   readonly last_run: LastRun | null;
   readonly runs: readonly RunInfo[];
@@ -239,9 +301,19 @@ export const AutomationToolInput = Type.Object({
   prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),
   cron: Type.Optional(Type.String({ description: "A 5-field cron in the user's time zone, like 0 9 * * 1-5 for 9 AM on weekdays." })),
   at: Type.Optional(Type.String({ description: "A one-off's time, ISO with a zone, like 2026-10-06T09:00:00Z." })),
-  model: Type.Optional(Type.String({ description: "provider/modelId; leave out, or worker to clear it, for the worker model." })),
+  model: Type.Optional(
+    Type.String({
+      description:
+        "In the cloud, provider/modelId; on a machine, the agent's model, like opus or gpt-6.1-sol. Leave out, or default to clear it, for the subagents model or the agent's own."
+    })
+  ),
   thinking: Type.Optional(ThinkingLevelSchema),
   machine: Type.Optional(Type.String({ description: "Run on this machine instead of the cloud; cloud to clear it." })),
+  agent: Type.Optional(
+    Type.Union([Type.Literal("claude"), Type.Literal("codex"), Type.Literal("default")], {
+      description: "On a machine: the agent that runs it, claude (Claude Code) or codex (Codex); default for the machine's own."
+    })
+  ),
   chat: Type.Optional(Type.String({ description: "Where results are reported: main, or a side chat's session; this chat when left out." })),
   gate: Type.Optional(
     Type.String({
@@ -262,12 +334,16 @@ export type AutomationToolArgs = Readonly<Static<typeof AutomationToolInput>>;
 const decodeAutomation = Schema.decodeUnknownOption(StoredAutomation);
 
 export function automationRows(rows: readonly unknown[]): AutomationRow[] {
-  return rows.flatMap((row) => {
-    const stored = decodeAutomation(row);
+  return rows.flatMap((raw) => {
+    const stored = decodeAutomation(raw);
 
     if (Option.isNone(stored)) return [];
+    const row = { ...stored.value, post: stored.value.post === 1 };
 
-    return [{ ...stored.value, post: stored.value.post === 1 }];
+    // Columns no run could use, such as a model kept from before agents beside a machine, read as unset.
+    if (runnerProblem(row) === undefined) return [row];
+
+    return [row.machine === null ? { ...row, agent: null, model: null } : { ...row, model: null }];
   });
 }
 
@@ -275,7 +351,7 @@ export function taskRows(rows: readonly unknown[]): TaskRow[] {
   return rows.flatMap((row) => {
     const stored = decodeOr(StoredTask, row, undefined);
 
-    return stored === undefined ? [] : [{ ...stored, steps: parseOr(StepsColumn, stored.steps, []) }];
+    return stored === undefined ? [] : [{ ...stored, steps: parseOr(StepsColumn, stored.steps, []), model: decodeAgentModel(stored.model ?? null) }];
   });
 }
 

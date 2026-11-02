@@ -3,10 +3,15 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type from "typebox";
 import type { Refusable } from "../core/edge.ts";
-import { AgentSchema, type Agent, FactsSchema, Integer, type MachineFacts, type RunCreds, type TaskReport } from "./runner-protocol.ts";
+import type { MachineInfo } from "../protocol.ts";
+import { AGENT_EFFORTS, AGENT_MODELS, AGENT_NAMES, AgentModelSchema, AgentSchema, type Agent, type AgentModel, FactsSchema, Integer, type MachineFacts, type RunCreds, type TaskReport } from "./runner-protocol.ts";
 
 export {
+  AGENT_EFFORTS,
+  AGENT_MODELS,
   AGENT_NAMES,
+  AgentModelSchema,
+  CHATGPT_MODELS,
   decodeObjectFrame,
   decodeReport,
   fromBase64,
@@ -27,6 +32,7 @@ export {
 
 export type {
   Agent,
+  AgentModel,
   CodexCreds,
   HttpRequest,
   MachineFacts,
@@ -65,7 +71,9 @@ export const CLOUD_FACTS: MachineFacts = {
   repos: [],
   agents: { claude: { installed: true, signedIn: false }, codex: { installed: true, signedIn: false } },
   ports: [],
-  kind: "cloud"
+  kind: "cloud",
+  // The cloud machine runs the image this ky's deploy pinned, whose runner is this ky's.
+  models: true
 };
 
 /** Whether a listed machine is one of the user's paired computers, not a sandbox. */
@@ -120,7 +128,15 @@ export const HelloRow = Schema.Struct({ seen_at: Schema.Number, hello: Schema.Nu
 export const InboxRow = Schema.Struct({ seq: Integer, payload: Text });
 
 const Queued = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("run"), task: Text, turn: Integer, prompt: Text, session: Schema.NullOr(Text), agent: AgentSchema }),
+  Schema.Struct({
+    type: Schema.Literal("run"),
+    task: Text,
+    turn: Integer,
+    prompt: Text,
+    session: Schema.NullOr(Text),
+    agent: AgentSchema,
+    model: Schema.optionalKey(AgentModelSchema)
+  }),
   Schema.Struct({ type: Schema.Literal("stop"), task: Text, turn: Integer }),
   Schema.Struct({ type: Schema.Literal("creds"), task: Text })
 ]);
@@ -176,4 +192,29 @@ export function runnerTag(machine: string): string {
 
 export function runnerOf(tags: readonly string[]): string | undefined {
   return tags.find((tag) => tag.startsWith(RUNNER_TAG_PREFIX))?.slice(RUNNER_TAG_PREFIX.length);
+}
+
+/**
+ * Why `machine` can't run `agent` on `model`, or null when it can. A runner from before models
+ * would drop the model without a word, so one that doesn't say it pins one is refused.
+ */
+export function cannotPin(machine: MachineInfo | undefined, agent: Agent, model: AgentModel | null): string | null {
+  if (model === null || !machine) return null;
+
+  if (!AGENT_MODELS[agent].includes(model.id)) return `${AGENT_NAMES[agent]} runs ${AGENT_MODELS[agent].join(", ")}, not ${model.id}.`;
+
+  if (model.effort !== null && !AGENT_EFFORTS[agent].includes(model.effort)) return `${AGENT_NAMES[agent]} takes effort ${AGENT_EFFORTS[agent].join(", ")}, not ${model.effort}.`;
+
+  if (machine.facts === null) return `${machine.name} hasn't connected yet, so ky can't tell whether its runner picks a model.`;
+
+  if (machine.facts.models !== true) return `${machine.name}'s ky-runner is too old to pick a model; update ky on it (ky upgrade).`;
+
+  return null;
+}
+
+/** Why `machine` can't run `agent`, or null when it can; one that hasn't connected yet may have it. */
+export function cannotRun(machine: MachineInfo | undefined, agent: Agent): string | null {
+  if (!machine || machine.facts === null || machine.facts.agents[agent].installed) return null;
+
+  return `${machine.name} cannot run ${AGENT_NAMES[agent]}: it is not installed there.`;
 }

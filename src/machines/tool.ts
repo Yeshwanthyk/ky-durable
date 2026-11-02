@@ -6,7 +6,8 @@ import { isRefusal } from "../core/refusal";
 import { type MachineInfo, osName } from "../protocol";
 import { KY, mayUse, type Profile } from "../skills/contract";
 import { MACHINE_ACTIONS, MACHINE_EXTENSION, MACHINE_TOOL, type MachineChange, type MachineState } from "./contract";
-import { agentOf, cannotRun, PREFERRED, runs } from "./machines";
+import { cannotRun } from "./contract";
+import { agentOf, PREFERRED, runs } from "./machines";
 import { type Agent, AGENT_NAMES, type MachineFacts } from "./runner-protocol";
 import type { MachineHub } from "./wiring";
 

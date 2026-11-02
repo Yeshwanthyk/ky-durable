@@ -1,4 +1,5 @@
 import { type MouseEvent, useContext, useState } from "react";
+import { AGENT_NAMES } from "../machines/contract";
 import type { AutomationInfo, RunInfo, TaskRow } from "../protocol";
 import { byNextRun } from "./automation-order";
 import { AutomationForm, AutomationsContext, scheduleOf, useZone } from "./Automations";
@@ -67,8 +68,24 @@ function costOf(usd: number): string {
   return usd < 0.01 ? `$${usd.toFixed(3)}` : `$${usd.toFixed(2)}`;
 }
 
-/** The model a routine runs on, as its picker names it. */
-const modelOf = (automation: AutomationInfo) => automation.model?.modelId ?? "Worker model";
+/** The model a routine runs on, as its picker names it: on a machine, its agent's, or the agent's own. */
+function modelOf({ machine, agent, model }: AutomationInfo): string {
+  if (model !== null) return model.modelId;
+
+  if (machine === null) return "Worker model";
+
+  return agent === null ? "Its agent's model" : `${AGENT_NAMES[agent]}'s model`;
+}
+
+/** A pinned agent model and its effort: "opus high", or "opus" at the agent's own effort. */
+const pickOf = ({ modelId, thinkingLevel }: NonNullable<AutomationInfo["model"]>) => (thinkingLevel === "off" ? modelId : `${modelId} ${thinkingLevel}`);
+
+/** Where on a machine and as what: "webmac · Claude Code · opus high"; the cloud is just that. */
+function runsOn({ machine, agent, model }: AutomationInfo): string {
+  if (machine === null) return "The cloud";
+
+  return [machine, agent && AGENT_NAMES[agent], model && pickOf(model)].filter(Boolean).join(" · ");
+}
 
 /** What a row says under its title: when it runs, then when next, paused, or the step a live run is on. */
 function stateOf(automation: AutomationInfo, task: TaskRow | undefined, now: number): string[] {
@@ -142,14 +159,19 @@ function Strip({
   );
 }
 
-/** Where a run happens and where it reports: "☁ The cloud → 💬 Main chat". Shown on an open row only. */
+/** A routine that won't run as it says, open or not: its model is gone, or its machine can't run it so. */
+function RunnerWarn({ note }: { note: string | null }) {
+  return note === null ? null : <p className="rt-warn">Won't run as set: {note}</p>;
+}
+
+/** Where a run happens and where it reports: "☁ The cloud → 💬 Main chat", or "🖥 webmac · Codex · gpt-6.1-sol → …". Shown on an open row only. */
 function Places({ automation }: { automation: AutomationInfo }) {
   const chat = automation.chat === MAIN_SESSION ? "Main chat" : plain(automation.chat_label);
 
   return (
     <span className="rt-places">
       <Icon name={automation.machine === null ? "cloud" : "monitor"} size={13} />
-      {automation.machine ?? "The cloud"}
+      {runsOn(automation)}
       <Icon name="chevronRight" size={12} />
       <Icon name="chat" size={13} />
       {chat}
@@ -261,6 +283,7 @@ function RoutineRow({ automation, open, tasks, now, onOpen }: RowProps) {
         </div>
         <p className="rt-meta">{[scheduleOf(automation), ...stateOf(automation, taskOf(automation.runs[0]), now)].join(" · ")}</p>
         <LastLine automation={automation} now={now} />
+        <RunnerWarn note={automation.runner_note} />
         {open ? <Places automation={automation} /> : null}
         {automation.runs.length > 0 ? <Strip runs={automation.runs} picked={open ? run?.id : undefined} now={now} onPick={open ? setPicked : null} /> : null}
       </div>

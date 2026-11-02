@@ -301,7 +301,7 @@ export class AutomationWorld {
   }
 }
 
-const DRAFT: AutomationDraft = { title: "Digest", prompt: "digest the news", cron: null, at: null, model: null, machine: null, chat: "1", gate: null };
+const DRAFT: AutomationDraft = { title: "Digest", prompt: "digest the news", cron: null, at: null, model: null, machine: null, agent: null, chat: "1", gate: null };
 
 type Answer = object | string | number | boolean | null | undefined;
 

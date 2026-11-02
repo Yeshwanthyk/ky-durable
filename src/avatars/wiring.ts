@@ -312,7 +312,7 @@ export async function seed(setup: Setup, skills: Skills, specialists: Specialist
 
   for (const automation of AUTOMATIONS) {
     const created = await automations.create(
-      { ...automation, at: null, model: null, machine: null, chat: ROOT_SESSION, gate: null },
+      { ...automation, at: null, model: null, machine: null, agent: null, chat: ROOT_SESSION, gate: null },
       "ky"
     );
 

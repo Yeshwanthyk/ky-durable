@@ -21,6 +21,7 @@ import type {
   TaskRow,
 } from "../protocol";
 import { nextLocals } from "../automations/contract";
+import { AGENT_EFFORTS, AGENT_MODELS, AGENT_NAMES, type Agent } from "../machines/contract";
 import { KY } from "../skills/contract";
 import { byNextRun } from "./automation-order";
 import { Icon } from "../chat-kit/Icon";
@@ -525,8 +526,9 @@ function Details({ automation, now, session }: ItemProps) {
 
   const extras = [
     automation.chat === session ? null : { key: "chat", text: `to ${chat}` },
+    automation.runner_note ? { key: "runner", text: "won't run as set", title: automation.runner_note } : null,
     automation.model ? { key: "model", text: automation.model.modelId } : null,
-    automation.machine ? { key: "machine", text: `on ${automation.machine}` } : null,
+    automation.machine ? { key: "machine", text: `on ${[automation.machine, ...(automation.agent ? [AGENT_NAMES[automation.agent]] : [])].join(" · ")}` } : null,
     automation.gate ? gateDetail(automation.gate_note) : null,
     automation.post ? { key: "post", text: "posted", title: "Its report is posted as written, with no reply" } : null,
   ].flatMap((extra) => extra ?? []);
@@ -627,11 +629,13 @@ type Form = {
   every: number;
   /** Weekly's days, 0-6 from Sunday. */
   days: readonly number[];
-  /** provider/modelId, or empty for the worker model. */
+  /** provider/modelId, or empty for the worker model; on a machine, agent/model, or empty for the agent's own. */
   model: string;
   thinking: string;
   /** A machine's name, or empty for the cloud. */
   machine: string;
+  /** On a machine, the agent that runs it, or empty for the machine's own. */
+  agent: "" | Agent;
   /** "ky", or the id of the specialist it runs as. */
   owner: string;
   chat: string;
@@ -656,6 +660,7 @@ function blank(now: number, zone: string): Form {
     model: "",
     thinking: "",
     machine: "",
+    agent: "",
     owner: KY,
     chat: MAIN_SESSION,
     gate: "",
@@ -708,6 +713,7 @@ function formOf(automation: AutomationInfo | undefined, now: number, zone: strin
     prompt,
     chat,
     machine: automation.machine ?? "",
+    agent: automation.agent ?? "",
     owner: automation.owner,
     gate: automation.gate ?? "",
     ...timing,
@@ -788,6 +794,17 @@ export function choiceOf(
   };
 }
 
+/** On a machine: the agent's model as the row keeps it, `{ provider: agent, … }`; null for the agent's own. */
+function agentModelOf(form: Pick<Form, "agent" | "model" | "thinking">): ModelChoice | null {
+  const { agent } = form;
+
+  if (agent === "" || !form.model.startsWith(`${agent}/`)) return null;
+  const modelId = form.model.slice(agent.length + 1);
+  const effort = AGENT_EFFORTS[agent].find((level) => level === form.thinking);
+
+  return AGENT_MODELS[agent].includes(modelId) ? { provider: agent, modelId, thinkingLevel: effort ?? "off" } : null;
+}
+
 function draftOf(form: Form, choices: readonly Pickable[], zone: string): AutomationDraft {
   const cron = cronFor(form);
   const timing = cron === null ? { cron: null, at: inputTime(form.at, zone) } : { cron, at: null };
@@ -796,8 +813,9 @@ function draftOf(form: Form, choices: readonly Pickable[], zone: string): Automa
     title: form.title.trim(),
     prompt: form.prompt.trim(),
     ...timing,
-    model: choiceOf(form, choices),
+    model: form.machine === "" ? choiceOf(form, choices) : agentModelOf(form),
     machine: form.machine || null,
+    agent: form.machine === "" || form.agent === "" ? null : form.agent,
     owner: form.owner,
     chat: form.chat,
     gate: form.gate.trim() || null,
@@ -1109,7 +1127,7 @@ function MoreFields({ form, set }: FieldProps) {
       </button>
       {open ? (
         <div className="card routine-more-card">
-          <ModelPicks providers={providers} form={form} set={set} />
+          {form.machine === "" ? <ModelPicks providers={providers} form={form} set={set} /> : <AgentModelPicks form={form} set={set} />}
           <label className="automation-gate">
             <span className="automation-gate-label">Gate</span>
             <textarea
@@ -1163,6 +1181,52 @@ export function ModelPicks({
   );
 }
 
+/** On a machine: its agent's models and efforts, which the agent's CLI names; none until an agent is picked. */
+function AgentModelPicks({ form, set }: FieldProps) {
+  const { agent } = form;
+
+  if (agent === "") {
+    return (
+      <Pick label="Model" value="" onChange={() => {}}>
+        <option value="">The agent's own · pick an agent to choose</option>
+      </Pick>
+    );
+  }
+
+  const model = agentModelOf(form);
+  const efforts = AGENT_EFFORTS[agent];
+
+  return (
+    <>
+      <Pick label="Model" value={model ? form.model : ""} onChange={(picked) => set({ model: picked })}>
+        <option value="">{AGENT_NAMES[agent]}'s own</option>
+        {AGENT_MODELS[agent].map((id) => (
+          <option key={id} value={`${agent}/${id}`}>
+            {id}
+          </option>
+        ))}
+      </Pick>
+      {model && (
+        <Pick label="Effort" value={efforts.find((level) => level === form.thinking) ?? ""} onChange={(thinking) => set({ thinking })}>
+          <option value="">Its own</option>
+          {efforts.map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </Pick>
+      )}
+    </>
+  );
+}
+
+/** The agents `machine` has installed, both before it first connects. */
+function agentsOn(machine: MachineInfo | undefined): Agent[] {
+  const agents: Agent[] = ["claude", "codex"];
+
+  return machine?.facts ? agents.filter((agent) => machine.facts?.agents[agent].installed) : agents;
+}
+
 function PlaceFields({ form, set }: FieldProps) {
   const { machines, specialists, chats } = useContext(AutomationsContext);
   const listed = chats.filter((chat) => chat.archived_at === null || chat.session === form.chat);
@@ -1180,7 +1244,12 @@ function PlaceFields({ form, set }: FieldProps) {
           ))}
         </Pick>
       )}
-      <Pick label="Runs on" value={form.machine} onChange={(machine) => set({ machine })}>
+      <Pick
+        label="Runs on"
+        value={form.machine}
+        // The cloud's models aren't a machine agent's, nor the other way: a move between them starts the model over.
+        onChange={(machine) => set(machine === "" || form.machine === "" ? { machine, agent: "", model: "", thinking: "" } : { machine })}
+      >
         <option value="">The cloud</option>
         {machines.map((machine) => (
           <option key={machine.name} value={machine.name}>
@@ -1188,6 +1257,20 @@ function PlaceFields({ form, set }: FieldProps) {
           </option>
         ))}
       </Pick>
+      {form.machine !== "" && (
+        <Pick
+          label="Agent"
+          value={form.agent}
+          onChange={(agent) => set({ agent: agent === "claude" || agent === "codex" ? agent : "", model: "", thinking: "" })}
+        >
+          <option value="">The machine's own</option>
+          {[...new Set([...agentsOn(machines.find((each) => each.name === form.machine)), ...(form.agent === "" ? [] : [form.agent])])].map((agent) => (
+            <option key={agent} value={agent}>
+              {AGENT_NAMES[agent]}
+            </option>
+          ))}
+        </Pick>
+      )}
       <Pick label="Reports to" value={form.chat} onChange={(chat) => set({ chat })}>
         <option value={MAIN_SESSION}>Main chat</option>
         {listed.map((chat) => (

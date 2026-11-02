@@ -680,6 +680,39 @@ describe("a task's agent", () => {
     }
   };
 
+  it("starts with the model and effort its run names, in each CLI's own flags, and with neither when it names none", async () => {
+    // An agent that writes the arguments it was started with, one per line, and exits.
+    const agent = path.join(dir, "argv");
+
+    await writeFile(agent, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/$KY_TASK.args"\n`, { mode: 0o755 });
+
+    const work = tasks({ url: "http://ky.test", workdir: path.join(dir, "work"), permissionMode: "default", chrome: false, claude: agent, codex: agent, machineCodexHome: dir, state: dir, ky: ["ky"], log: () => {} });
+
+    const argsOf = async (agentName: "claude" | "codex", task: string, model: Launch["model"], session: string | null = null) => {
+      await new Promise<void>((resolve) => work.spawnAgent(agentName, task, { taskToken: "t", session, creds: undefined, model }, { line: () => {}, exit: () => resolve() }).end());
+
+      return (await readFile(path.join(dir, `${task}.args`), "utf8")).trim().split("\n");
+    };
+
+    const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+
+    const claude = await argsOf("claude", "m-claude", { id: "opus", effort: "high" }, "s1");
+    expect([after(claude, "--model"), after(claude, "--effort"), after(claude, "--resume")]).toEqual(["opus", "high", "s1"]);
+    // An effort Claude Code doesn't take is left to it.
+    expect(await argsOf("claude", "m-claude-min", { id: "sonnet", effort: "minimal" })).not.toContain("--effort");
+
+    const codex = await argsOf("codex", "m-codex", { id: "gpt-6.1-sol", effort: "xhigh" }, "t1");
+    expect(after(codex, "-m")).toBe("gpt-6.1-sol");
+    expect(codex).toContain('model_reasoning_effort="xhigh"');
+    expect(codex.slice(0, 2)).toEqual(["exec", "resume"]);
+    expect(await argsOf("codex", "m-codex-max", { id: "gpt-6-luna", effort: "max" })).not.toContain('model_reasoning_effort="max"');
+
+    for (const [name, task] of [["claude", "m-plain"], ["codex", "m-plain-codex"]] as const) {
+      const plain = await argsOf(name, task, undefined);
+      expect(plain.some((arg) => ["--model", "-m", "--effort"].includes(arg) || arg.startsWith("model_reasoning_effort"))).toBe(false);
+    }
+  });
+
   it("is ended with everything it started when the runner settles, even if it ignores the interrupt", async () => {
     // An agent that ignores SIGINT and starts a tool that ignores it too, then waits on it.
     const agent = path.join(dir, "stubborn");
@@ -688,7 +721,7 @@ describe("a task's agent", () => {
     const logged: string[] = [];
     const work = tasks({ url: "http://ky.test", workdir: path.join(dir, "work"), permissionMode: "default", chrome: false, claude: agent, codex: agent, machineCodexHome: dir, state: dir, ky: ["ky"], log: (line) => logged.push(line) });
     let exited = false;
-    const child = work.spawnAgent("claude", "m-1", { taskToken: "t", session: null, creds: undefined }, { line: () => {}, exit: () => (exited = true) });
+    const child = work.spawnAgent("claude", "m-1", { taskToken: "t", session: null, creds: undefined, model: undefined }, { line: () => {}, exit: () => (exited = true) });
 
     while (!existsSync(tool) || (await readFile(tool, "utf8")).trim() === "") await new Promise((resolve) => setTimeout(resolve, 20));
     const toolPid = Number(await readFile(tool, "utf8"));

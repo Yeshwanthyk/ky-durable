@@ -29,7 +29,7 @@ function normalize(observed: Json): Json {
 
   return Object.fromEntries(
     Object.entries(observed)
-      .filter(([key]) => key !== "gate_found" && key !== "gate_found_by" && key !== "owner")
+      .filter(([key]) => key !== "gate_found" && key !== "gate_found_by" && key !== "owner" && key !== "agent" && key !== "runner_note")
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => [key, value === undefined ? value : normalize(value)])
   );

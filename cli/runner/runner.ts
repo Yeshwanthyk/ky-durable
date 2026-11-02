@@ -16,6 +16,7 @@ import {
   decodeObjectFrame,
   PROTOCOL,
   type Agent,
+  type AgentModel,
   type CodexCreds,
   type MachineFacts,
   type ObjectFrame,
@@ -58,7 +59,7 @@ export type ProcessEvents = {
 export type SpawnAgent = (agent: Agent, task: string, launch: Launch, events: ProcessEvents) => AgentProcess;
 
 /** What a turn's process starts with, besides its prompt. */
-export type Launch = { taskToken: string; session: string | null; creds: RunCreds | undefined };
+export type Launch = { taskToken: string; session: string | null; creds: RunCreds | undefined; model: AgentModel | undefined };
 
 const ADAPTERS: Readonly<Record<Agent, Adapter>> = { claude, codex };
 
@@ -356,7 +357,7 @@ export class Runner {
 
     if (run && (run.stopped || run.ended || !ADAPTERS[run.agent].steers)) {
       // The process is dying, or takes nothing more: run it in a new one after.
-      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session, taskToken: command.taskToken, creds: command.creds });
+      run.next.push({ turn: command.turn, prompt: command.prompt, session: command.session, taskToken: command.taskToken, creds: command.creds, model: command.model });
       this.#log(`${command.task}: queued behind ${run.stopped ? "the stop" : "its turn"}`);
 
       return;
@@ -379,7 +380,7 @@ export class Runner {
       return;
     }
 
-    this.#start(command.task, command.agent, { ...command, creds: command.creds });
+    this.#start(command.task, command.agent, { ...command, creds: command.creds, model: command.model });
   }
 
   /**
@@ -535,12 +536,12 @@ export class Runner {
     this.#start(task, run.agent, { ...launch, prompt: `${SESSION_LOST}\n\n${launch.prompt}`, session: null }).next = run.next;
   }
 
-  #start(task: string, agent: Agent, { turn, prompt, session, taskToken, creds }: Turn): Run {
+  #start(task: string, agent: Agent, { turn, prompt, session, taskToken, creds, model }: Turn): Run {
     this.#log(`${task}: start ${agent}${session ? ` (resume ${session.slice(0, 8)})` : ""}`);
     const adapter = ADAPTERS[agent];
     const read = adapter.reader();
 
-    const child = this.#spawn(agent, task, { taskToken, session, creds }, {
+    const child = this.#spawn(agent, task, { taskToken, session, creds, model }, {
       line: (line) => {
         clearTimeout(silence);
 
@@ -569,7 +570,7 @@ export class Runner {
     const run: Run = {
       agent,
       child,
-      launch: { turn, prompt, session, taskToken, creds },
+      launch: { turn, prompt, session, taskToken, creds, model },
       handed: creds?.codex !== undefined,
       session,
       announced: false,

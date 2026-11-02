@@ -16,6 +16,8 @@ import type { FileRow } from "../files/contract";
 import type { CloudState, MachineInfo } from "../protocol";
 import type { Sandboxes } from "../runners/wiring";
 import {
+  cannotPin,
+  cannotRun,
   CLOUD_FACTS,
   type CloudHook,
   HelloRow,
@@ -40,6 +42,7 @@ import {
 import {
   AGENT_NAMES,
   type Agent,
+  type AgentModel,
   ISSUED_TTL_MS,
   type MachineFacts,
   OUTDATED,
@@ -115,8 +118,8 @@ export function agentOf(task: TaskRow): Agent {
   return must(task.agent, `Machine task ${task.id} names no agent.`);
 }
 
-function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent): Queued {
-  return { type: "run", task, turn, prompt, session, agent };
+function runCommand(task: string, turn: number, prompt: string, session: string | null, agent: Agent, model: AgentModel | null): Queued {
+  return model === null ? { type: "run", task, turn, prompt, session, agent } : { type: "run", task, turn, prompt, session, agent, model };
 }
 
 function has(facts: MachineFacts | null, agent: Agent): boolean {
@@ -133,12 +136,6 @@ function handsCreds(machine: MachineInfo | undefined, agent: Agent): boolean {
 
 function defaultAgent(facts: MachineFacts | null): Agent {
   return PREFERRED.find((agent) => runs(facts, agent)) ?? PREFERRED.find((agent) => has(facts, agent)) ?? "claude";
-}
-
-export function cannotRun(machine: MachineInfo | undefined, agent: Agent): string | null {
-  if (!machine || has(machine.facts, agent)) return null;
-
-  return `${machine.name} cannot run ${AGENT_NAMES[agent]}: it is not installed there.`;
 }
 
 function sharedLine(files: readonly FileRow[]): string {
@@ -662,15 +659,15 @@ const make = Effect.gen(function* () {
 
     defaultAgent: (machine: string) => Effect.map(info(machine), (target) => defaultAgent(target?.facts ?? null)),
 
-    start: (machine: string, title: string, prompt: string, id: string, parent: string, source: string, agent: Agent) =>
+    start: (machine: string, title: string, prompt: string, id: string, parent: string, source: string, agent: Agent, model: AgentModel | null) =>
       Effect.gen(function* () {
         const existed = feed.get(id) !== undefined;
-        const task = feed.create({ id, kind: "machine", source, worker: machine, title, status: "queued", session: null, agent });
+        const task = feed.create({ id, kind: "machine", source, worker: machine, title, status: "queued", session: null, agent, model });
 
         if (!existed) {
           yield* setTurns(id, { turn: 1, closed: 0, sent: 0 });
           yield* sentBy(id, 1, parent);
-          yield* queue(machine, runCommand(id, 1, prompt, null, agent));
+          yield* queue(machine, runCommand(id, 1, prompt, null, agent, model));
         }
 
         return { task, queued: !existed };
@@ -684,7 +681,8 @@ const make = Effect.gen(function* () {
         yield* setTurns(task.id, { turn });
         yield* sentBy(task.id, turn, from);
         feed.update(task.id, { status: task.status === "working" ? "working" : "queued" });
-        yield* queue(task.worker, runCommand(task.id, turn, message, task.session, agentOf(task)));
+        // Each turn names the task's model: Codex starts a process per turn, and a lost session starts afresh.
+        yield* queue(task.worker, runCommand(task.id, turn, message, task.session, agentOf(task), task.model));
       }),
 
     move: (task: TaskRow, to: string) =>
@@ -696,7 +694,8 @@ const make = Effect.gen(function* () {
         }
 
         const agent = agentOf(task);
-        const refusal = cannotRun(yield* info(to), agent);
+        const target = yield* info(to);
+        const refusal = cannotRun(target, agent) ?? cannotPin(target, agent, task.model);
 
         if (refusal) return `${refusal} ${task.id} runs as ${AGENT_NAMES[agent]}, so it stays.`;
 

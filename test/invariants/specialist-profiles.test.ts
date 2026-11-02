@@ -243,6 +243,7 @@ const workflow = (owner: string, machine: string | null) => ({
   at: T + 3_600_000,
   model: null,
   machine,
+  agent: null,
   chat: "1",
   gate: null,
   owner

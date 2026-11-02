@@ -8,11 +8,20 @@ import Type from "typebox";
 import { Guard } from "typebox/guard";
 import { type Adapter, type AgentEvent, JsonObjectSchema, TextSchema } from "./agent.ts";
 import { decodeOr, parseOr } from "../../src/core/decode.ts";
+import { AGENT_EFFORTS, type AgentModel } from "../../src/machines/contract.ts";
 
-type Options = { permissionMode: string; systemPrompt: string; chrome: boolean; session: string | null };
+type Options = { permissionMode: string; systemPrompt: string; chrome: boolean; session: string | null; model?: AgentModel | undefined };
+
+/** The flags that pin `model`, and its effort when Claude Code takes it; none leaves Claude Code's own. */
+function modelFlags(model: AgentModel | undefined): string[] {
+  if (!model) return [];
+  const effort = model.effort !== null && AGENT_EFFORTS.claude.includes(model.effort) ? ["--effort", model.effort] : [];
+
+  return ["--model", model.id, ...effort];
+}
 
 /** `claude`'s arguments for a task, resuming `session` when it is set. */
-export function claudeArgs({ permissionMode, systemPrompt, chrome, session }: Options): string[] {
+export function claudeArgs({ permissionMode, systemPrompt, chrome, session, model }: Options): string[] {
   return [
     "-p",
     "--input-format", "stream-json",
@@ -23,6 +32,7 @@ export function claudeArgs({ permissionMode, systemPrompt, chrome, session }: Op
     "--permission-mode", permissionMode,
     "--append-system-prompt", systemPrompt,
     ...(chrome ? ["--chrome"] : []),
+    ...modelFlags(model),
     ...(session ? ["--resume", session] : [])
   ];
 }

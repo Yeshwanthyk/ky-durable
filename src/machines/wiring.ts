@@ -9,7 +9,7 @@ import type { MachineInfo } from "../protocol";
 import type { Sandboxes } from "../runners/wiring";
 import type { CloudHook, MachineChange, SessionCreds, TaskTokens } from "./contract";
 import { type Harness, Host, Machines } from "./machines";
-import type { Agent, MachineFacts, TaskReport } from "./runner-protocol";
+import type { Agent, AgentModel, MachineFacts, TaskReport } from "./runner-protocol";
 import { machineExtension, type Owners } from "./tool";
 
 export { RunnerPipe } from "./pipe";
@@ -112,8 +112,8 @@ export class MachineHub {
     return this.#edge.run(Machines.use((machines) => machines.defaultAgent(machine)));
   }
 
-  start(machine: string, title: string, prompt: string, id: string, parent: string, source = "chat", agent = this.defaultAgent(machine)): TaskRow {
-    const { task, queued } = this.#edge.run(Machines.use((machines) => machines.start(machine, title, prompt, id, parent, source, agent)));
+  start(machine: string, title: string, prompt: string, id: string, parent: string, source = "chat", agent = this.defaultAgent(machine), model: AgentModel | null = null): TaskRow {
+    const { task, queued } = this.#edge.run(Machines.use((machines) => machines.start(machine, title, prompt, id, parent, source, agent, model)));
 
     this.adopt(task.id, parent);
 
