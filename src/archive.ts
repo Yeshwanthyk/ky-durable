@@ -18,8 +18,12 @@ import { Value } from "typebox/value";
 
 export const FORMAT = "ky-backup";
 
-/** Bumped when an archive this code writes can't be read by the code before it. */
-export const FORMAT_VERSION = 1;
+/**
+ * Bumped when an archive this code writes can't be read by the code before it. 2: the data carries its migration
+ * level (src/core/migrate.ts), which a release before migrations would drop, and the kinds of migration 1, which
+ * it can't read. A format 1 archive still restores: its data is at level 0, and the restore migrates it.
+ */
+export const FORMAT_VERSION = 2;
 
 export const MANIFEST = "manifest.json";
 

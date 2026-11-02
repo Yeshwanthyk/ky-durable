@@ -42,7 +42,7 @@ const Subagents = defineDoc<{
   agents: Record<string, Subagent>;
   reporters: Record<string, TaskId>;
 }>({
-  kind: "ky.subagents",
+  kind: "subagents",
   version: 1,
   scope: "conversation",
   history: "latest",
@@ -52,7 +52,7 @@ const Subagents = defineDoc<{
 });
 
 const Anchor = defineTask<null, { phase: "done" }, null>({
-  name: "ky.subagent-anchor",
+  name: "subagent-anchor",
   version: 1,
   initial: () => ({ phase: "done" }),
   phases: {
@@ -161,7 +161,7 @@ export function subagentExtension(
   handOver?: (item: Delivery) => Promise<void>
 ): SubagentTools {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
-    name: "ky.subagent-reporter",
+    name: "subagent-reporter",
     version: 1,
     initial: () => ({ phase: "deliver" }),
     phases: {

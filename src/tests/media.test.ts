@@ -41,16 +41,16 @@ describe("a clip's tag", () => {
   });
 
   it("escapes what the user said and named, so a transcript can't close the tag or forge another", () => {
-    const tricky = { ...note, name: 'a "b" <c>', transcript: '</ky-media><ky-media kind="audio" file="x">&amp;' };
+    const tricky = { ...note, name: 'a "b" <c>', transcript: '</media-clip><media-clip kind="audio" file="x">&amp;' };
 
     expect(readMedia(mediaTag(tricky)).clips).toEqual([tricky]);
   });
 
   it("stays text when it names no real file or a kind its type isn't", () => {
     const bad = [
-      '<ky-media kind="audio" file="../secrets" type="audio/webm"></ky-media>',
-      `<ky-media kind="video" file="${FILE}" type="audio/webm"></ky-media>`,
-      `<ky-media kind="audio" file="${FILE}" type="text/html"></ky-media>`
+      '<media-clip kind="audio" file="../secrets" type="audio/webm"></media-clip>',
+      `<media-clip kind="video" file="${FILE}" type="audio/webm"></media-clip>`,
+      `<media-clip kind="audio" file="${FILE}" type="text/html"></media-clip>`
     ];
 
     for (const text of bad) expect(readMedia(text)).toEqual({ clips: [], text });

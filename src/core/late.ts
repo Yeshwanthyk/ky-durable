@@ -9,7 +9,7 @@ import type { UserInput } from "@earendil-works/pi-durable";
 /** Longer than this between writing a message and ky getting it, and the model is told. */
 export const LATE_AFTER_MS = 2 * 60_000;
 
-const TAG = /\s*<ky-late>[^<]*<\/ky-late>\s*$/;
+const TAG = /\s*<late-note>[^<]*<\/late-note>\s*$/;
 
 /** How long ago, in the fewest words: "5 min", "3h", "2 days". */
 export function agoText(ms: number): string {
@@ -24,7 +24,7 @@ export function agoText(ms: number): string {
 }
 
 /** The note for a message that waited `waited` ms on the device before it was sent. */
-const lateNote = (waited: number) => `<ky-late>(written ${agoText(waited)} ago while offline, delivered now)</ky-late>`;
+const lateNote = (waited: number) => `<late-note>(written ${agoText(waited)} ago while offline, delivered now)</late-note>`;
 
 /** The message with the note after its words, when it waited long enough to need one. */
 export function withLateNote(input: UserInput, waited: number | undefined): UserInput {
