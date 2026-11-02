@@ -2,7 +2,7 @@
    Plain CSS on the chat kit's tokens (src/chat-kit/chat.css). */
 
 .shell {
-  --sidebar-width: 248px;
+  --sidebar-width: 272px;
   --panel-width: 340px;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -124,29 +124,17 @@
   color: var(--quiet);
 }
 
-/* A chat with news the user has not opened reads in ink, with a dot. */
+/* A chat with news the user has not opened reads in ink, its title bold and its time in ink too. */
 .chat-item[data-unread="true"] {
   color: var(--ink);
 }
 
-.chat-unread {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
+.chat-item[data-unread="true"] .chat-title {
+  font-weight: 600;
 }
 
-/* News that lands on screen pops its dot in; a dot there on load just shows. */
-.chat-unread[data-pop="true"] {
-  animation: unread-pop 250ms var(--ease-out);
-}
-
-@keyframes unread-pop {
-  from {
-    opacity: 0;
-    scale: 0.6;
-  }
+.chat-item[data-unread="true"] .chat-time {
+  color: var(--ink);
 }
 
 @keyframes chat-fade {
@@ -3011,9 +2999,68 @@
   flex: 1;
 }
 
+/* A new side chat, a quiet outlined button under the search. */
+.sidebar-new {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 500;
+}
+
+.sidebar-new:disabled {
+  color: var(--quiet);
+}
+
+/* Main chat above, side chats below: a hairline in place of a label. */
+.sidebar-rule {
+  flex: none;
+  height: 1px;
+  margin: 10px 10px 2px;
+  border: 0;
+  background: var(--line);
+}
+
+.chat-day {
+  flex: none;
+}
+
+.chat-day-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* A day's quiet heading, its text sitting on the rows below. */
+.chat-day-head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  height: 28px;
+  margin: 0;
+  padding: 0 10px 4px;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 500;
+  color: var(--quiet);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .sidebar-search:hover {
     color: var(--muted);
+  }
+
+  .sidebar-new:hover:not(:disabled) {
+    background: var(--hover);
   }
 }
 
@@ -3057,8 +3104,7 @@
     animation: none;
   }
 
-  /* News still fades in, without the pop or the rise. */
-  .chat-unread[data-pop="true"],
+  /* A new side chat still fades in, without the rise. */
   .chat-row[data-fresh="true"] {
     animation-name: chat-fade;
   }

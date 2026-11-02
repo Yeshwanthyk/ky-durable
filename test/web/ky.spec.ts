@@ -1032,22 +1032,27 @@ test("marks a side chat that ky answered while the user was in another chat, unt
   await send(page, "gate");
   await expect(composer(page)).toHaveAttribute("placeholder", "Steer the running turn");
   const side = chats.locator("li", { has: page.getByRole("button", { name: /gate/ }) });
-  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+  // News reads as a bold title; assistive tech hears "New" as the row's description.
+  const row = side.getByRole("button", { name: /gate/ }).first();
+  await expect(row).toHaveAttribute("data-unread", "false");
+  await expect(chats.getByRole("list", { name: "Side chats" }).getByRole("heading", { name: "Today" })).toBeVisible();
 
   // The answer lands while the user reads the main chat.
   await chats.getByRole("button", { name: "Main chat" }).click();
   await release(page);
-  await expect(side.getByRole("img", { name: "New" })).toBeVisible();
+  await expect(row).toHaveAttribute("data-unread", "true");
+  await expect(row).toHaveAccessibleDescription("New");
+  await expect(row.locator(".chat-title")).toHaveCSS("font-weight", "600");
 
-  await side.getByRole("button", { name: /gate/ }).first().click();
-  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+  await row.click();
+  await expect(row).toHaveAttribute("data-unread", "false");
   // In the chat, New marks where the answer that landed while away starts.
   const divider = chat(page).getByRole("separator", { name: "New since you last looked" });
   await expect(divider).toBeVisible();
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/new-divider.png` });
   await chats.getByRole("button", { name: "Main chat" }).click();
-  await expect(side.getByRole("img", { name: "New" })).toBeHidden();
+  await expect(row).toHaveAttribute("data-unread", "false");
 
   // Seen, it is not news the next time.
   await side.getByRole("button", { name: /gate/ }).first().click();
@@ -2245,13 +2250,15 @@ test("lists today's routines above its finished tasks, and only recent tasks unt
 
   for (let index = 0; index <= 10; index++) {
     await send(page, `machine@webmac quick job ${id} ${index}`);
-    await expect(page.getByText(new RegExp(`tool said: .*quick job ${id} ${index}\\b`))).toBeVisible();
+    // Finished and reported, with ky idle again: a job sent into a turn still running would steer it, not start a task.
+    await expect(chat(page).getByText(`quick job ${id} ${index}" finished`)).toBeVisible();
+    await expect(composer(page)).toHaveAttribute("placeholder", "Message ky");
   }
 
   // Eleven finished jobs, the newest of all: ten show, the first waits behind Show earlier.
   await expect(panel(page).getByRole("button", { name: new RegExp(`^Stop .*quick job ${id}`) })).toHaveCount(0);
   await expect(jobs).toHaveCount(10);
-  await expect(panel(page).getByRole("button", { name: new RegExp(`quick job ${id} 0$`) })).toBeHidden();
+  await expect(panel(page).getByRole("button", { name: new RegExp(`quick job ${id} 0\\b`) })).toBeHidden();
 
   const today = panel(page).getByRole("region", { name: "Today" }).getByRole("heading");
   expect((await today.boundingBox())!.y).toBeLessThan((await jobs.first().boundingBox())!.y);

@@ -1,6 +1,6 @@
 import { type ReactNode, useRef, useState } from "react";
 import type { AutomationInfo, ChatRow } from "../protocol";
-import { ago } from "./time";
+import { ago, byDay } from "./time";
 import { Icon } from "../chat-kit/Icon";
 import { useChanges } from "./use-changes";
 
@@ -8,11 +8,17 @@ const ARCHIVE = { label: "Archive", icon: "archive" } as const;
 
 const UNARCHIVE = { label: "Unarchive", icon: "unarchive" } as const;
 
+/** Marks the open chat or page for the sidebar's fill. */
+const page = (current: boolean) => (current ? "page" : undefined);
+
+/** A chat with news reads bold; this says so to a screen reader. */
+const unreadNote = (unread: boolean) => (unread ? "New" : undefined);
+
 /** How new a side chat must be to slide into the list rather than just be there. */
 const FRESH_MS = 10_000;
 
-// Whether a chat just gained news on screen, so its dot pops in and the row glows once.
-// One that loads with a dot already shows it; `ready` is false until its time has arrived.
+// Whether a chat just gained news on screen, so the row glows once.
+// One that loads already unread just reads bold; `ready` is false until its time has arrived.
 function useNews(unread: boolean, ready = true) {
   return useChanges(unread, ready) > 0 && unread;
 }
@@ -110,16 +116,17 @@ function SideChat({
       <button
         type="button"
         className="chat-item pressable pressable-row"
-        aria-current={current ? "page" : undefined}
+        aria-current={page(current)}
         data-unread={unread}
         data-news={news}
+        aria-description={unreadNote(unread)}
         onClick={() => onOpen(chat.session)}
         onDoubleClick={() => setEditing(true)}
       >
         <span className="chat-title" data-untitled={named === null && chat.title === ""}>
           {title}
         </span>
-        <ChatTime time={chat.updated_at} unread={unread} news={news} now={now} />
+        <ChatTime time={chat.updated_at} now={now} />
       </button>
       <span className="chat-actions">
         <button
@@ -145,14 +152,9 @@ function SideChat({
   );
 }
 
-// When the chat last moved, with a dot when it has news the user has not opened.
-function ChatTime({ time, unread, news, now }: { time: number; unread: boolean; news: boolean; now: number }) {
-  return (
-    <>
-      {unread ? <span className="chat-unread" data-pop={news} role="img" aria-label="New" /> : null}
-      {time > 0 ? <span className="chat-time tabular">{ago(time, now)}</span> : null}
-    </>
-  );
+// When the chat last moved. News the user has not opened shows in the title's weight, not here.
+function ChatTime({ time, now }: { time: number; now: number }) {
+  return time > 0 ? <span className="chat-time tabular">{ago(time, now)}</span> : null;
 }
 
 // The archived side chats, folded away under their count.
@@ -180,6 +182,86 @@ function ArchivedChats({ chats, row }: { chats: readonly ChatRow[]; row: (chat: 
         </ul>
       ) : null}
     </>
+  );
+}
+
+// The main chat, alone at the top, open unless a side chat or a page is.
+function MainChat({ current, unread, updatedAt, now, onOpen }: { current: boolean; unread: boolean; updatedAt: number; now: number; onOpen: () => void }) {
+  const news = useNews(unread, updatedAt > 0);
+
+  return (
+    <ul className="chat-list">
+      <li>
+        <button
+          type="button"
+          className="chat-item pressable pressable-row"
+          aria-current={page(current)}
+          data-unread={unread}
+          data-news={news}
+          aria-description={unreadNote(unread)}
+          onClick={onOpen}
+        >
+          <span className="chat-title">Main chat</span>
+          <ChatTime time={updatedAt} now={now} />
+        </button>
+      </li>
+    </ul>
+  );
+}
+
+/** Whether a routine's latest run is under way or about to be. */
+const running = (automation: AutomationInfo) => automation.runs[0]?.status === "working" || automation.runs[0]?.status === "queued";
+
+// The side chats still open, newest first under a quiet heading for each day.
+function SideChats({ chats, now, row }: { chats: readonly ChatRow[]; now: number; row: (chat: ChatRow) => ReactNode }) {
+  if (chats.length === 0) return <p className="sidebar-empty">Start one for a tangent. It remembers what the main chat does.</p>;
+
+  return (
+    <ul className="chat-list" aria-label="Side chats" data-scroll>
+      {byDay(chats, (chat) => chat.updated_at, now).map(([label, group]) => (
+        <li key={label} className="chat-day">
+          <h3 className="chat-day-head">{label}</h3>
+          <ul className="chat-day-list">{group.map(row)}</ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// What ky made, apart from the chats at the sidebar's foot, so the list starts with the main chat:
+// Skills, Artifacts and Routines, with a live dot while a routine runs.
+function SidebarFoot({
+  skills,
+  onSkills,
+  artifacts,
+  onArtifacts,
+  automations,
+  routine,
+  onRoutine,
+}: {
+  skills: boolean;
+  onSkills: () => void;
+  artifacts: boolean;
+  onArtifacts: () => void;
+  automations: readonly AutomationInfo[];
+  routine: boolean;
+  onRoutine: () => void;
+}) {
+  return (
+    <div className="sidebar-foot">
+      <button type="button" className="sidebar-foot-button pressable" aria-label="Skills" title="Skills" aria-current={page(skills)} onClick={onSkills}>
+        <Icon name="list" size={16} />
+      </button>
+      <button type="button" className="sidebar-foot-button pressable" aria-label="Artifacts" title="Artifacts" aria-current={page(artifacts)} onClick={onArtifacts}>
+        <Icon name="grid" size={16} />
+      </button>
+      <button type="button" className="sidebar-foot-button pressable" aria-label="Routines" title="Routines" aria-current={page(routine)} onClick={onRoutine}>
+        <Icon name="clock" size={16} />
+        {automations.some(running) ? (
+          <span className="sidebar-live" role="status" aria-label="A routine is running" />
+        ) : null}
+      </button>
+    </div>
   );
 }
 
@@ -233,8 +315,6 @@ export function Sidebar({
 }) {
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
-  const mainUnread = unread(main);
-  const mainNews = useNews(mainUnread, mainUpdatedAt > 0);
 
   const row = (chat: ChatRow) => (
     <SideChat
@@ -256,61 +336,26 @@ export function Sidebar({
         <span>Search</span>
         <kbd className="palette-kbd">⌘K</kbd>
       </button>
-      <ul className="chat-list">
-        <li>
-          <button
-            type="button"
-            className="chat-item pressable pressable-row"
-            aria-current={session === main && !artifacts && !skills && !routine ? "page" : undefined}
-            data-unread={mainUnread}
-            data-news={mainNews}
-            onClick={() => onOpen(main)}
-          >
-            <span className="chat-title">Main chat</span>
-            <ChatTime time={mainUpdatedAt} unread={mainUnread} news={mainNews} now={now} />
-          </button>
-        </li>
-      </ul>
-      <div className="sidebar-head">
-        <span>Side chats</span>
-        <button
-          type="button"
-          className="icon-button pressable"
-          aria-label="New side chat"
-          title="New side chat"
-          disabled={creating}
-          onClick={onNew}
-        >
-          <Icon name="plus" size={14} />
-        </button>
-      </div>
-      {active.length === 0 ? (
-        <p className="sidebar-empty">Start one for a tangent. It remembers what the main chat does.</p>
-      ) : (
-        <ul className="chat-list" data-scroll>
-          {active.map(row)}
-        </ul>
-      )}
+      <button type="button" className="sidebar-new pressable" aria-label="New side chat" disabled={creating} onClick={onNew}>
+        <Icon name="compose" size={15} />
+        New chat
+      </button>
+      <MainChat
+        current={session === main && !artifacts && !skills && !routine}
+        unread={unread(main)}
+        updatedAt={mainUpdatedAt}
+        now={now}
+        onOpen={() => onOpen(main)}
+      />
+      {/* A rule, not a label, sets the side chats apart; each day of them gets a quiet heading. */}
+      <hr className="sidebar-rule" />
+      <SideChats chats={active} now={now} row={row} />
       <ArchivedChats chats={archived} row={row} />
       {/* On a phone, where the drawer is the whole screen, a new chat is one round button over the foot. */}
       <button type="button" className="sidebar-fab pressable" aria-label="New chat" title="New chat" disabled={creating} onClick={onNew}>
         <Icon name="compose" size={20} />
       </button>
-      {/* What ky made sits apart from the chats, at the foot, so the list starts with the main chat. */}
-      <div className="sidebar-foot">
-        <button type="button" className="sidebar-foot-button pressable" aria-label="Skills" title="Skills" aria-current={skills ? "page" : undefined} onClick={onSkills}>
-          <Icon name="list" size={16} />
-        </button>
-        <button type="button" className="sidebar-foot-button pressable" aria-label="Artifacts" title="Artifacts" aria-current={artifacts ? "page" : undefined} onClick={onArtifacts}>
-          <Icon name="grid" size={16} />
-        </button>
-        <button type="button" className="sidebar-foot-button pressable" aria-label="Routines" title="Routines" aria-current={routine ? "page" : undefined} onClick={onRoutine}>
-          <Icon name="clock" size={16} />
-          {automations.some((automation) => automation.runs[0]?.status === "working" || automation.runs[0]?.status === "queued") ? (
-            <span className="sidebar-live" role="status" aria-label="A routine is running" />
-          ) : null}
-        </button>
-      </div>
+      <SidebarFoot skills={skills} onSkills={onSkills} artifacts={artifacts} onArtifacts={onArtifacts} automations={automations} routine={routine} onRoutine={onRoutine} />
     </nav>
   );
 }
