@@ -87,6 +87,8 @@ export function Thread({
   const lastTurn = shownTurns.at(-1);
   const busy = lastTurn !== undefined && isLive(lastTurn, mode);
   const cards = useMemo(() => ({ placed, busy }), [placed, busy]);
+  // The newest report reads open, so what a specialist or machine said is in the chat; the ones before it are a line each.
+  const newestReport = shownTurns.findLast((turn) => turn.from !== null)?.id;
 
   return (
     <CardsContext.Provider value={cards}>
@@ -100,6 +102,7 @@ export function Thread({
             mode={index === shown.length - 1 ? mode : "dormant"}
             arrived={arrived}
             next={wrote(shown[index + 1])}
+            newest={turn.id === newestReport}
           />}
         </Fragment>
       ))}
@@ -288,16 +291,18 @@ function UserMessage({
   clips,
   from,
   task,
+  newest,
 }: {
   text: string;
   images: readonly string[];
   clips: readonly MediaClip[];
   from: ReportFrom | null;
   task: string | null;
+  newest: boolean;
 }) {
   const open = useLightbox();
 
-  if (from !== null) return <Report text={text} from={from} task={task} />;
+  if (from !== null) return <Report text={text} from={from} task={task} newest={newest} />;
   const media = images.map((src, index) => ({ src, label: `Image ${index + 1} you sent` }));
 
   return (
@@ -345,9 +350,16 @@ function Recalled({ lines }: { lines: readonly string[] }) {
   );
 }
 
-// A report arrives as input; it reads as one quiet line, like a turn's events, and opens to what it said.
-function Report({ text, from, task }: { text: string; from: ReportFrom; task: string | null }) {
-  const [open, setOpen] = useState(false);
+// A report arrives as input; it reads as one quiet line, like a turn's events, and opens to what it said. The
+// newest is open: a newer report closes it, and either can still be toggled.
+function Report({ text, from, task, newest }: { text: string; from: ReportFrom; task: string | null; newest: boolean }) {
+  const [open, setOpen] = useState(newest);
+  const [was, setWas] = useState(newest);
+
+  if (was !== newest) {
+    setWas(newest);
+    setOpen(newest);
+  }
 
   return (
     <>
@@ -402,13 +414,16 @@ const TurnView = memo(function TurnView({
   turn,
   mode,
   arrived,
-  next
+  next,
+  newest
 }: {
   turn: Turn;
   mode: ThreadMode;
   arrived: boolean;
   /** The user's next message, which answers this turn's cards. */
   next: string | null;
+  /** Whether this turn is the chat's newest report, which reads open. */
+  newest: boolean;
 }) {
   const live = isLive(turn, mode);
   // A streaming turn that isn't live was cut off; a live one shows no end, so its state is never read.
@@ -447,7 +462,7 @@ const TurnView = memo(function TurnView({
   // turn ends: the log folds away behind "Worked" and the answer stays put.
   return (
     <ChatTurn arrived={arrived} sending={turn.id.startsWith(SENDING)}>
-      <UserMessage text={turn.user} images={turn.images} clips={turn.clips} from={turn.from} task={turn.task} />
+      <UserMessage text={turn.user} images={turn.images} clips={turn.clips} from={turn.from} task={turn.task} newest={newest} />
       {recalled && recalled.length > 0 && turn.from === null ? <Recalled lines={recalled} /> : null}
       <Assistant>
         {live && mode === "booting" ? null : (

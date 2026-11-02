@@ -2104,6 +2104,15 @@ test("runs a task on a machine and shows its report", async ({ page }) => {
   await send(page, "machine@webmac build the web site");
   await expect(page.getByText("fake claude did: build the web site").first()).toBeVisible();
   await expect(page.getByText("Report from").first()).toBeVisible();
+  // The newest report reads open; a second one closes the first to a line.
+  const reports = chat(page).locator(".report-line");
+  await expect(reports.last()).toHaveAttribute("aria-expanded", "true");
+  await send(page, "machine@webmac write the tests");
+  await expect(reports).toHaveCount(2);
+  await expect(reports.last()).toHaveAttribute("aria-expanded", "true");
+  await expect(reports.first()).toHaveAttribute("aria-expanded", "false");
+  await expect(chat(page).locator(".report-body").last()).toBeVisible();
+  await page.screenshot({ path: SHOTS ? `${SHOTS}/report-open.png` : undefined });
 });
 
 test("lists the cloud machine first in Settings, asleep while it has no task", async ({ page }) => {
