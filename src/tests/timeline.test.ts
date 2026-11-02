@@ -141,7 +141,7 @@ const logged = (seq: number, fields: Partial<TaskLogStep>): TaskLogStep => ({
 describe("a task's timeline", () => {
   it("shows the row's few steps until its log loads, the newest running while it works", () => {
     const steps = taskTimeline(task("working", [{ at: 1, text: "Reading a.ts" }, { at: 2, text: "Editing a.ts" }]), null);
-    expect(steps.map((step) => [step.title, step.state])).toEqual([
+    expect(steps.map((step) => step.kind === "step" && [step.title, step.state])).toEqual([
       ["Reading a.ts", "done"],
       ["Editing a.ts", "running"]
     ]);
@@ -149,22 +149,28 @@ describe("a task's timeline", () => {
 
   it("runs several tools at once, and says which failed", () => {
     const log = [logged(1, { state: "failed", detail: "exit 1" }), logged(2, { state: "running" }), logged(3, { state: "running" })];
-    expect(taskTimeline(task("working"), log).map((step) => step.state)).toEqual(["failed", "running", "running"]);
+    expect(taskTimeline(task("working"), log).map((step) => step.kind === "step" && step.state)).toEqual(["failed", "running", "running"]);
   });
 
   it("shows a tool the task ended before it returned as stopped", () => {
-    expect(taskTimeline(task("stopped"), [logged(1, { state: "running" })])[0]?.state).toBe("stopped");
+    expect(taskTimeline(task("stopped"), [logged(1, { state: "running" })])[0]).toMatchObject({ kind: "step", state: "stopped" });
   });
 
-  it("treats words from an older runner as done once another step follows", () => {
-    const log = [logged(1, { call: null }), logged(2, { call: null })];
-    expect(taskTimeline(task("working"), log).map((step) => step.state)).toEqual(["done", "running"]);
-    expect(taskTimeline(task("done"), log).map((step) => step.state)).toEqual(["done", "done"]);
+  it("makes the agent's words between its tools notes, not steps", () => {
+    const log = [logged(1, {}), logged(2, { call: null, text: "Committed and pushed." }), logged(3, { state: "running" })];
+    expect(taskTimeline(task("working"), log)).toEqual([
+      expect.objectContaining({ kind: "step", state: "done" }),
+      { kind: "note", id: "2", text: "Committed and pushed." },
+      expect.objectContaining({ kind: "step", state: "running" })
+    ]);
   });
 
   it("shows an agent's words without their markdown, keeping quoted code for mono", () => {
     const log = [logged(1, { call: null, text: "working on: **Lint** the *web* app with `pnpm lint`" }), logged(2, { text: "Ran `a*b*`" })];
-    expect(taskTimeline(task("done"), log).map((step) => step.title)).toEqual(["working on: Lint the web app with `pnpm lint`", "Ran `a*b*`"]);
+    expect(taskTimeline(task("done"), log).map((entry) => (entry.kind === "note" ? entry.text : entry.title))).toEqual([
+      "working on: Lint the web app with `pnpm lint`",
+      "Ran `a*b*`"
+    ]);
   });
 });
 
@@ -191,9 +197,9 @@ describe("the main agent's turn as a timeline", () => {
     ];
 
     const steps = turnTimeline({ messages, live: null, running: true, tools: [{ callId: "r", name: "read", output: "" }] });
-    expect(steps.map((step) => [step.title, step.state, step.detail])).toEqual([
-      ["Searched files — 2 matches", "done", "a.ts:1 b.ts:2"],
-      ["Reading tasks.ts", "running", ""]
+    expect(steps.map((step) => [step.title, step.state])).toEqual([
+      ["Searched files — 2 matches", "done"],
+      ["Reading tasks.ts", "running"]
     ]);
   });
 
