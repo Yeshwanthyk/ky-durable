@@ -48,8 +48,8 @@ function NavButton({ talksToMain, drawer, onBack }: { talksToMain: boolean; draw
   );
 }
 
-// The agent pill: who is talking, how it is connected, and what it is doing, with the specialists
-// working for the chat sat beside it. A click shows or hides the panel.
+// The thread's title, sat left: who is talking and, on the same line, what it is doing, with the specialists
+// working for the chat beside it. A dot shows only while the connection is down (a phone's pill keeps it always). A click shows or hides the panel.
 function Who({
   speaker,
   variantId,
@@ -94,8 +94,12 @@ function Who({
         <span className="who-text">
           <span className="who-name">
             {speaker}
+            {/* Wider than a phone, the green dot of a live connection is hidden; only trouble shows. */}
             <span className="status-dot" data-connected={status.connected} data-tone={CONNECTION_TONE[status.kind]} data-pop={reconnected} />
             <CrewCount crew={crew} />
+          </span>
+          <span className="who-sep" aria-hidden>
+            ·
           </span>
           <WhoSub activity={down === null ? activity : null} idle={down ?? sub} />
         </span>
@@ -132,10 +136,10 @@ export type TopbarProps = {
 export function Topbar({ open, variantId, running, status, sub, activity, drawer, onBack, panel, updated, group, crew, onNewChat, creating }: TopbarProps) {
   return (
     <header className="topbar">
-      <div className="topbar-side">
+      <div className="topbar-side start">
         <NavButton talksToMain={open.talksToMain} drawer={drawer} onBack={onBack} />
+        <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} crew={crew} />
       </div>
-      <Who speaker={open.speaker} variantId={variantId} running={running} status={status} sub={sub} activity={activity} panel={panel} crew={crew} />
       <div className="topbar-side end">
         {status.kind === "signed-out" ? (
           // Access's sign-in is a page of its own: loading the app again takes the user there and back.

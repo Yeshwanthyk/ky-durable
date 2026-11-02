@@ -8,8 +8,8 @@ const FADE_MS = 150;
 type Line = { readonly key: number; readonly text: string; readonly activity: Activity | null };
 
 /**
- * The header pill's subtitle: what the agent is doing while it works, its usual line otherwise.
- * A change cross-fades; the pill resizes to fit (see useFitWidth).
+ * What follows the name in the thread's title: what the agent is doing while it works, its usual line otherwise.
+ * A change swaps vertically; the title resizes to fit (see useFitWidth).
  */
 export function WhoSub({ activity, idle }: { activity: Activity | null; idle: string }) {
   const text = activity?.label ?? idle;

@@ -276,13 +276,14 @@
 
 /* ---------- Floating header ---------- */
 
-/* Floats over the thread; a fade, not a rule, separates it from what scrolls under. */
+/* Floats over the thread; a fade, not a rule, separates it from what scrolls under. The way to the chats or
+   back and the title sit left; the rest of what the header offers sits right. */
 .topbar {
   position: absolute;
   inset: 0 0 auto;
   z-index: 2;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: calc(8px + env(safe-area-inset-top)) 12px 16px;
@@ -333,40 +334,33 @@
   visibility: hidden;
 }
 
+/* In the header, a hidden menu button takes no room, so the title starts at the edge. */
+.topbar .drawer-toggle {
+  display: none;
+}
+
+/* The title: no container, only a soft fill under the pointer and while the panel it opens is out.
+   Working changes nothing here; the blob and the line beside the name say so. */
 .who {
   display: flex;
+  flex: none;
   align-items: center;
-  max-width: min(60vw, 420px);
+  max-width: 100%;
   height: 44px;
-  padding: 0 14px 0 8px;
+  padding: 0 8px;
   overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow:
-    0 0 0 1px var(--line),
-    0 1px 2px rgb(0 0 0 / 0.04),
-    0 4px 14px rgb(0 0 0 / 0.05);
+  border-radius: 10px;
   text-align: left;
-  /* useFitWidth sets a pixel width so the pill can grow and shrink with its subtitle.
+  /* useFitWidth sets a pixel width so the title can grow and shrink with its line.
      transform is listed again so the press from .pressable still eases. */
   transition:
     width 240ms var(--ease-out),
     transform var(--fast) var(--ease-out),
-    box-shadow 240ms var(--ease-out),
     background-color 240ms var(--ease-out);
 }
 
-/* While it works the pill lifts a little and takes on the working colour, Dynamic Island style. */
-.who[data-busy="true"] {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--working) 35%, var(--line)),
-    0 1px 2px rgb(0 0 0 / 0.05),
-    0 6px 20px color-mix(in srgb, var(--working) 18%, transparent);
-}
-
 .who[aria-expanded="true"] {
-  background: var(--raised);
-  box-shadow: 0 0 0 1px var(--line);
+  background: color-mix(in srgb, var(--raised) 70%, transparent);
 }
 
 /* Measured at its natural width; the text inside caps itself, so it never needs the pill's room. */
@@ -419,15 +413,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* One line: the name, a quiet dot of a separator, then the model or what the agent is doing. */
 .who-text {
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 6px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .who-name {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   font-size: calc(13.5px * var(--text-scale));
@@ -435,11 +433,18 @@
   letter-spacing: -0.01em;
 }
 
-/* Lines stack in one cell so the old one fades out where the new one fades in. */
+.who-sep {
+  flex: none;
+  color: var(--quiet);
+  font-size: calc(13px * var(--text-scale));
+}
+
+/* Lines stack in one cell so the old one leaves where the new one arrives. */
 .who-sub {
   position: relative;
   display: grid;
-  font-size: calc(11.5px * var(--text-scale));
+  min-width: 0;
+  font-size: calc(13px * var(--text-scale));
   color: var(--muted);
 }
 
@@ -476,28 +481,23 @@
   transition-duration: 150ms;
 }
 
-.who-sub-line[data-busy="true"] {
-  color: var(--ink);
-}
-
 .who-sub-line .icon {
   flex: none;
-  color: var(--working);
+  align-self: center;
+  color: var(--quiet);
 }
 
-/* Short enough that the pill stays clear of the buttons either side of it at 390px. */
+/* Short enough that the title stays clear of the buttons on the right at 390px; the rest ends in an ellipsis. */
 .who-sub-text {
-  max-width: min(36vw, 240px);
+  max-width: min(32vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Reduced motion: the pill snaps to size and the lines cross-fade without moving. */
+/* Reduced motion: the title snaps to size and the lines cross-fade without moving. */
 @media (prefers-reduced-motion: reduce) {
   .who {
-    transition:
-      box-shadow 240ms var(--ease-out),
-      background-color 240ms var(--ease-out);
+    transition: background-color 240ms var(--ease-out);
   }
 
   .who-sub-line {
@@ -574,6 +574,11 @@
 .status-dot[data-tone="failed"] {
   background: var(--danger);
   animation: none;
+}
+
+/* In the title a live connection shows nothing; only trouble gets a dot. A phone's pill shows it (phone.css). */
+.who .status-dot[data-connected="true"] {
+  display: none;
 }
 
 /* Connecting settles with a small pop instead of swapping colour in place. */
@@ -2650,7 +2655,7 @@
   }
 
   .who:hover {
-    background: var(--raised);
+    background: color-mix(in srgb, var(--raised) 70%, transparent);
   }
 
   .pill:hover:not(:disabled) {
@@ -2706,6 +2711,10 @@
   .shell[data-sidebar="hidden"] .drawer-toggle {
     visibility: visible;
   }
+
+  .shell[data-sidebar="hidden"] .topbar .drawer-toggle {
+    display: inline-grid;
+  }
 }
 
 @media (max-width: 1023px) {
@@ -2716,6 +2725,10 @@
 
   .drawer-toggle {
     visibility: visible;
+  }
+
+  .topbar .drawer-toggle {
+    display: inline-grid;
   }
 
   .sidebar-slot {
@@ -2780,10 +2793,6 @@
 
   .topbar {
     padding-inline: 8px;
-  }
-
-  .who {
-    max-width: 64vw;
   }
 
   .welcome {

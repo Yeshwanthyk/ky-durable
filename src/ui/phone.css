@@ -22,7 +22,16 @@
       max(8px, env(safe-area-inset-left));
   }
 
-  .topbar > .who {
+  /* The menu and the pill join the header's grid themselves, so the pill sits in the middle column. */
+  .topbar-side.start {
+    display: contents;
+  }
+
+  .topbar-side.start > .icon-button {
+    justify-self: start;
+  }
+
+  .topbar .who {
     justify-self: center;
   }
 
@@ -36,9 +45,62 @@
     color: var(--ink);
   }
 
+  /* Wider, the title has no container; here it is the pill: a surface with a hairline ring, the name
+     over its line, a dot for the connection, a lift while it works. */
   .who {
+    flex: initial;
     gap: 9px;
+    max-width: 64vw;
     padding: 0 16px 0 8px;
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 1px 2px rgb(0 0 0 / 0.04),
+      0 4px 14px rgb(0 0 0 / 0.05);
+    transition:
+      width 240ms var(--ease-out),
+      transform var(--fast) var(--ease-out),
+      box-shadow 240ms var(--ease-out),
+      background-color 240ms var(--ease-out);
+  }
+
+  .who[data-busy="true"] {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--working) 35%, var(--line)),
+      0 1px 2px rgb(0 0 0 / 0.05),
+      0 6px 20px color-mix(in srgb, var(--working) 18%, transparent);
+  }
+
+  .who[aria-expanded="true"] {
+    background: var(--raised);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+
+  .who-text {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .who-sep {
+    display: none;
+  }
+
+  .who .status-dot[data-connected="true"] {
+    display: block;
+  }
+
+  .who-sub-line[data-busy="true"] {
+    color: var(--ink);
+  }
+
+  .who-sub-line .icon {
+    color: var(--working);
+  }
+
+  .who-sub-text {
+    max-width: min(36vw, 240px);
   }
 
   .who-name {
