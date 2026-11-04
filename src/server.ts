@@ -347,6 +347,8 @@ export class PiAgent extends DurableObject<Env> {
 
       if (busy) return false;
       await conversation.submit({ type: "write", entry: lookPost(text, Date.now(), cards, item), requestId }, BACKGROUND_CONTEXT);
+      // A post runs no turn, so no reply's end moves the chat's date: the post itself does.
+      this.chats.answered(session);
 
       return true;
     },
