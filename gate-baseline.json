@@ -1794,7 +1794,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the chats tool inspect with no chat lists only the chats this chat opened, each working or idle",
+      "name": "the chats tool inspect with no chat lists every chat in the user's list with its id, from any chat, marking the ones this chat opened",
       "outcome": "passed",
       "file": "src/tests/chats-tool.test.ts"
     },

@@ -526,7 +526,8 @@ export class PiAgent extends DurableObject<Env> {
       const site = siteExtension(chat, this.sites, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
-      // A chat opens side chats and steers them; one it opened runs none, so control goes one way.
+      // A chat finds and reads every chat, opens side chats and steers them; it sends to one it didn't open only in a
+      // turn the user started, and one another chat opened sends nothing, so two chats never keep waking each other.
       const chats = chatsExtension({
         chats: this.chats,
         openedFor: (request) => this.chats.openedFor(request),
@@ -541,7 +542,8 @@ export class PiAgent extends DurableObject<Env> {
           return conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
         },
         latest: (session) => this.history.latest(session),
-        chat
+        chat,
+        userStarted: (session) => startedByUser(this.ctx.storage.sql, session)
       });
 
       this.registry.install(chats);

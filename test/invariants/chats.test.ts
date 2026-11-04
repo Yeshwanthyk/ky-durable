@@ -53,7 +53,7 @@ const listActions: fc.Arbitrary<ListAction> = fc.oneof(
   { weight: 2, arbitrary: fc.record({ op: fc.constant("archive" as const), session: aSession, archived: fc.boolean() }) }
 );
 
-type Seen = { changes: number; readonly named: Json[]; readonly steers: Json[]; readonly opened: Json[] };
+type Seen = { changes: number; readonly named: Json[]; readonly steers: Json[]; readonly opened: Json[]; userTurn?: boolean };
 
 const Rows = Schema.Array(StoredRow);
 
@@ -80,7 +80,8 @@ function partsFor(chats: ChatList, seen: Seen) {
     steer: async (session: string, content: string, requestId: string) => void seen.steers.push([session, content, requestId]),
     busy: async (session: string) => Number(session) % 2 === 0,
     latest: (session: string) => (session === "3" ? null : session === "21" ? LONG_SAID : `said in ${session}`),
-    chat: (session: string) => session !== NOT_A_CHAT_SESSION
+    chat: (session: string) => session !== NOT_A_CHAT_SESSION,
+    userStarted: () => seen.userTurn === true
   };
 }
 
@@ -254,17 +255,20 @@ const REFUSED = {
   openedByAnother: "Another chat opened this one, so this one runs none: answer here.",
   nothingToStart: "Nothing to start it on: give a message.",
   nothingToSteer: "Nothing to steer it with: give a message.",
-  notOpenedHere: (chat: string) => `No chat "${chat}" that this chat opened: inspect lists them.`
+  noSuchChat: (chat: string) => `No chat "${chat}" in the user's list: inspect with no chat lists every chat and its id.`,
+  thisChat: "That is this chat: answer here.",
+  notTheUsersTurn: (title: string) =>
+    `"${title}" exists, but this turn was not started by the user, so it sends only to chats this chat opened (chats never keep each other going). Tell the user here; their next message here can send it.`
 };
 
 type Setup = { readonly session: string; readonly by: string | null; readonly archived: boolean };
 
 const aSetup = fc.uniqueArray(fc.record({ session: fc.constantFrom("2", "3", "20", "21", "22"), by: fc.constantFrom(null, ROOT, "2", "3"), archived: fc.boolean() }), { selector: (each) => each.session, maxLength: 5 });
 
-function toolWorld(setup: readonly Setup[]) {
+function toolWorld(setup: readonly Setup[], userTurn = false) {
   vi.spyOn(Date, "now").mockImplementation(() => START);
   const db = new DatabaseSync(":memory:");
-  const seen: Seen = { changes: 0, named: [], steers: [], opened: [] };
+  const seen: Seen = { changes: 0, named: [], steers: [], opened: [], userTurn };
   const chats = new ChatList(storageOf(db));
 
   for (const { session, by, archived } of setup) {
@@ -309,16 +313,17 @@ describe("the chats tool", () => {
     );
   });
 
-  it("runs from no chat another chat opened: it refuses and opens and steers nothing", async () => {
+  it("sends from no chat another chat opened: it may read, but it opens and steers nothing", async () => {
     await fc.assert(
-      fc.asyncProperty(aSetup, aSession.filter((session) => session !== NOT_A_CHAT_SESSION), someArgs, async (setup, from, args) => {
-        using world = toolWorld(setup);
+      fc.asyncProperty(aSetup, aSession.filter((session) => session !== NOT_A_CHAT_SESSION), someArgs, fc.boolean(), async (setup, from, args, userTurn) => {
+        using world = toolWorld(setup, userTurn);
         const said = await world.call(from, args);
         const opened = world.openedBy(from) !== null;
 
-        expect(said.text === REFUSED.openedByAnother).toBe(opened);
+        expect(said.text === REFUSED.openedByAnother).toBe(opened && args.action !== "inspect");
 
-        if (opened) expect(said.failed && quiet(world.seen)).toBe(true);
+        if (opened && args.action !== "inspect") expect(said.failed && quiet(world.seen)).toBe(true);
+        else if (opened) expect(quiet(world.seen)).toBe(true);
       }),
       runs()
     );
@@ -339,17 +344,42 @@ describe("the chats tool", () => {
     );
   });
 
-  it("steers or inspects only a chat this chat opened", async () => {
+  it("finds and reads any chat; steers one it opened any time, and any other only in a turn the user started", async () => {
     await fc.assert(
-      fc.asyncProperty(aSetup, fc.constantFrom(ROOT, "2", "3"), fc.constantFrom("steer" as const, "inspect" as const), fc.option(aSession, { nil: undefined }), aText, async (setup, from, action, chat, message) => {
-        using world = toolWorld(setup.filter((each) => each.session !== from || each.by === null));
-        const said = await world.call(from, { action, chat, message });
-        const refused = (action === "steer" || chat !== undefined) && !world.ownedBy(from).has(chat ?? "");
+      fc.asyncProperty(
+        aSetup,
+        fc.constantFrom(ROOT, "2", "3"),
+        fc.constantFrom("steer" as const, "inspect" as const),
+        fc.option(aSession, { nil: undefined }),
+        aText.filter((text) => text.trim() !== ""),
+        fc.boolean(),
+        async (setup, from, action, chat, message, userTurn) => {
+          const own = setup.filter((each) => each.session !== from || each.by === null);
+          using world = toolWorld(own, userTurn);
+          const said = await world.call(from, { action, chat, message });
+          const target = own.find((each) => each.session === chat);
+          const known = chat === ROOT || target !== undefined;
 
-        expect(said.text === REFUSED.notOpenedHere(chat ?? "")).toBe(refused);
+          if (action === "inspect" && chat === undefined) {
+            expect(said.failed).toBe(false);
 
-        if (refused) expect(said.failed && quiet(world.seen)).toBe(true);
-      }),
+            for (const session of [ROOT, ...own.map((each) => each.session)]) expect(said.text).toMatch(new RegExp(`^${session} "`, "m"));
+          } else if (!known) {
+            expect(said).toEqual({ text: REFUSED.noSuchChat(chat ?? ""), failed: true });
+          } else if (action === "inspect") {
+            expect(said.failed).toBe(false);
+          } else if (chat === from) {
+            expect(said).toEqual({ text: REFUSED.thisChat, failed: true });
+          } else if (target?.by === from || userTurn) {
+            expect(said.failed).toBe(false);
+            expect(world.seen.steers).toHaveLength(1);
+          } else {
+            expect(said).toEqual({ text: REFUSED.notTheUsersTurn(chat === ROOT ? "main chat" : "untitled"), failed: true });
+          }
+
+          if (said.failed) expect(quiet(world.seen)).toBe(true);
+        }
+      ),
       runs()
     );
   });

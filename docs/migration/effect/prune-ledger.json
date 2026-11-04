@@ -147,13 +147,13 @@
     "check": "worker-e2e",
     "name": "the chats tool refuses a chat another chat opened: it opens, steers and inspects none, so control goes one way",
     "class": "COPY",
-    "replacedBy": "test/invariants/chats.test.ts > the chats tool > runs from no chat another chat opened: it refuses and opens and steers nothing"
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > sends from no chat another chat opened: it may read, but it opens and steers nothing"
   },
   {
     "check": "worker-e2e",
     "name": "the chats tool steers and inspects only the chats this chat opened: not main, not the user's, not another chat's",
     "class": "COPY",
-    "replacedBy": "test/invariants/chats.test.ts > the chats tool > steers or inspects only a chat this chat opened"
+    "replacedBy": "test/invariants/chats.test.ts > the chats tool > finds and reads any chat; steers one it opened any time, and any other only in a turn the user started"
   },
   {
     "check": "worker-e2e",

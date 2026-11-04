@@ -41,8 +41,20 @@ export class NothingToSteer extends Schema.TaggedError<NothingToSteer>()("Nothin
   }
 }
 
-export class NotOpenedHere extends Schema.TaggedError<NotOpenedHere>()("NotOpenedHere", { chat: Schema.String }) implements Refusable {
+export class NoSuchChat extends Schema.TaggedError<NoSuchChat>()("NoSuchChat", { chat: Schema.String }) implements Refusable {
   get refusal(): string {
-    return `No chat ${JSON.stringify(this.chat)} that this chat opened: inspect lists them.`;
+    return `No chat ${JSON.stringify(this.chat)} in the user's list: inspect with no chat lists every chat and its id.`;
+  }
+}
+
+export class ThisChat extends Schema.TaggedError<ThisChat>()("ThisChat", {}) implements Refusable {
+  get refusal(): string {
+    return "That is this chat: answer here.";
+  }
+}
+
+export class NotTheUsersTurn extends Schema.TaggedError<NotTheUsersTurn>()("NotTheUsersTurn", { title: Schema.String }) implements Refusable {
+  get refusal(): string {
+    return `"${this.title}" exists, but this turn was not started by the user, so it sends only to chats this chat opened (chats never keep each other going). Tell the user here; their next message here can send it.`;
   }
 }

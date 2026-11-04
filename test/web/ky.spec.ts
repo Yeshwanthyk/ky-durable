@@ -605,7 +605,7 @@ test("the main chat opens a side chat, steers it, and the side chat shows the ma
   const side = /Opened chat (\d+);/.exec((await said.textContent()) ?? "")![1]!;
 
   await send(page, `tool chats ${JSON.stringify({ action: "steer", chat: side, message: "reply: And back at 6." })}`);
-  await expect(chat(page).getByText('tool said: Steered "Lisbon trains"; its agent answers there.')).toBeVisible();
+  await expect(chat(page).getByText('tool said: Sent to "Lisbon trains"; its agent answers there, where the user reads it.')).toBeVisible();
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-run-main.png` });
 

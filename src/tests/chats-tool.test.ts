@@ -94,7 +94,7 @@ describe("the chats tool", () => {
 
     expect(await run(name, ROOT_SESSION, 2, { action: "inspect", chat })).toEqual({ text: `"gate" is working; no message from ky in it yet.`, failed: false });
     const steer = { action: "steer", chat, message: "reply: Make it the top 15, not 10." };
-    expect(await run(name, ROOT_SESSION, 3, steer)).toEqual({ text: `Steered "gate"; its agent answers there.`, failed: false });
+    expect(await run(name, ROOT_SESSION, 3, steer)).toEqual({ text: `Sent to "gate"; its agent answers there, where the user reads it.`, failed: false });
     expect(await run(name, ROOT_SESSION, 3, steer)).toMatchObject({ failed: false });
 
     await agent(name).release();
@@ -114,19 +114,42 @@ describe("the chats tool", () => {
     await until(async () => (await latest(name, chat)) === "And the comments?", "the steered turn");
   });
 
-  it("inspect with no chat lists only the chats this chat opened, each working or idle", async () => {
+  it("inspect with no chat lists every chat in the user's list with its id, from any chat, marking the ones this chat opened", async () => {
     const name = crypto.randomUUID();
     const mine = await create(name, ROOT_SESSION, 1, "gate", "Fasting");
     await gateStarted(name, 1);
-    await userChat(name);
-    const side = await userChat(name);
-    await create(name, side, 1, "reply: Theirs.");
+    const reading = await userChat(name);
+    await inside(name, (instance) => instance.chats.rename(reading, "Reading"));
+    const theirs = await create(name, reading, 1, "reply: Theirs.", "Theirs");
 
     const lines = (await run(name, ROOT_SESSION, 2, { action: "inspect" })).text.split("\n");
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(new RegExp(`^${mine} "Fasting", working, updated `));
-    expect(await run(name, await userChat(name), 1, { action: "inspect" })).toEqual({ text: "This chat has opened no chats yet.", failed: false });
+    expect(lines[0]).toBe("The user's chats:");
+    expect(lines[1]).toMatch(new RegExp(`^${ROOT_SESSION} "main chat", this chat, `));
+    expect(lines).toContainEqual(expect.stringMatching(new RegExp(`^${mine} "Fasting", opened by this chat, working, updated `)));
+    expect(lines).toContainEqual(expect.stringMatching(new RegExp(`^${reading} "Reading", (idle|working), updated `)));
+    expect(lines).toContainEqual(expect.stringMatching(new RegExp(`^${theirs} "Theirs", opened by "Reading", `)));
+    // A chat another chat opened sends nothing, but it can still find and read the rest.
+    expect((await run(name, mine, 1, { action: "inspect" })).text).toContain(`${reading} "Reading"`);
     await agent(name).release();
+  });
+
+  it("sends to a chat the user opened when the user asks in the main chat, and that chat's turn can send nowhere but its own chats", async () => {
+    const name = crypto.randomUUID();
+    const reading = await userChat(name);
+    await inside(name, (instance) => instance.chats.rename(reading, "Reading"));
+
+    // Not in a turn the user started: nothing goes, and the refusal says the chat is there.
+    const refused = await run(name, ROOT_SESSION, 1, { action: "steer", chat: reading, message: "reply: Too early." });
+    expect(refused).toMatchObject({ failed: true });
+    expect(refused.text).toMatch(/^"Reading" exists, but this turn was not started by the user/);
+
+    const said = await inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify({ action: "steer", chat: reading, message: "reply: Here is the reading list." })}`)).text ?? "");
+    expect(said).toMatch(/^tool said: Sent to "Reading"/);
+    await until(async () => (await latest(name, reading)) === "Here is the reading list.", "Reading's answer");
+    expect((await placed(name, reading)).at(-1)).toMatch(new RegExp(`^chat-steer:${ROOT_SESSION}:`));
+
+    // Reading's turn was started by the main chat, so it cannot send back: two chats never keep waking each other.
+    expect((await run(name, reading, 9, { action: "steer", chat: ROOT_SESSION, message: "reply: Back at you." })).text).toMatch(/^"main chat" exists, but this turn was not started by the user/);
   });
 
   it("opens a chat when the main chat's model calls it, as the user asked", async () => {
@@ -155,9 +178,9 @@ describe("chats run one way, over generated calls", () => {
    * From the main chat, a side chat the user opened, and every chat those open, any of them calls create, steer or
    * inspect at any chat, sometimes twice as a replay. Once all are idle:
    * - P1: a chat a chat opened was opened by the main chat or one the user opened: one level, never deeper.
-   * - P2: a call from a chat a chat opened is refused, and opens or gives nothing.
+   * - P2: a create or steer from a chat a chat opened is refused; no call from one opens or gives anything.
    * - P3: a chat a chat opened was given messages only by its opener's create and steers, each request once.
-   * - P4: no chat is given a message from a chat it did not open: the main chat and the user's get none at all.
+   * - P4: no chat is given a message from a chat it did not open outside a turn the user started; no call here is in one, so the main chat and the user's get none at all.
    * - P5: one create call, however often it runs, opens one chat.
    */
   it("keeps every chat a chat opened one level down, given messages only by its opener", async () => {
@@ -179,7 +202,7 @@ describe("chats run one way, over generated calls", () => {
 
           if (managed) {
             // P2
-            expect(first.failed && again.failed).toBe(true);
+            if (op.action !== "inspect") expect(first.failed && again.failed).toBe(true);
             expect(await inside(name, (instance) => instance.chats.list().length)).toBe(before);
           } else if (op.action === "create") {
             // P5
