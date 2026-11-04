@@ -113,7 +113,11 @@ export default bench({
       }
     },
 
-    /** One long markdown answer streaming into the long chat (about 1.1k characters at the fake model's pace). */
+    /**
+     * One long markdown answer streaming into the long chat (about 1.1k characters at the fake model's pace). Each
+     * run adds a turn, so a block's later runs stream into a slightly longer chat (strobe says NotSteady); the
+     * thread shows only its last turns, and base and head grow alike. Enter goes to the composer `fill` focused.
+     */
     stream: {
       primary: "main.busy",
       metrics: ["main.work", "frames.dropped.pct", "phase.answer"],

@@ -9,5 +9,5 @@
     "ready": "http://127.0.0.1:{port}/manifest.webmanifest"
   },
   "benches": ["perf/*.bench.ts"],
-  "harness": ["perf", "test/stack/vite.config.ts"]
+  "harness": ["perf", "test/stack/vite.config.ts", "vite.client.ts"]
 }

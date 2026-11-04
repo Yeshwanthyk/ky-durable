@@ -3,7 +3,7 @@
  * strobe.json's `serve`: the stack perf/build.ts built, on `port`, over a fresh copy of the state it seeded, so
  * every bench block starts from the same week of use. Stops on SIGTERM or SIGINT.
  */
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startStack } from "../test/harness/stack.ts";
@@ -25,6 +25,7 @@ console.log(`perf serve: ${stack.url} on ${state}`);
 
 const stop = async () => {
   await stack.stop();
+  rmSync(state, { recursive: true, force: true });
   process.exit(0);
 };
 
