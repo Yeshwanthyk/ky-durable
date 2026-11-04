@@ -114,7 +114,7 @@ async function pairMac(): Promise<Runner> {
 async function main(): Promise<void> {
   const runner = await pairMac();
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   const context = await browser.newContext({ baseURL: URL, viewport: { width: 1440, height: 900 } });
   await context.addCookies([await accessCookie(URL)]);
   const page = await context.newPage();

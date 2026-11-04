@@ -67,7 +67,7 @@ const PAGES: ReadonlyArray<{ name: string; open: (page: Page) => Promise<void> }
 ];
 
 async function shoot(url: string, out: string): Promise<Record<string, number>> {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
 
   try {
     const context = await browser.newContext({ baseURL: url, viewport: { width: 1280, height: 860 }, locale: "en-US", timezoneId: "UTC" });
