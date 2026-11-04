@@ -1,0 +1,13 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index ff434b45..a50953c8 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -101,7 +101,7 @@ async function steer(parts: ChatsParts, from: string, task: number, row: ChatRow
+ 
+   if (row.session === from) return reply(new ThisChat().refusal, true);
+ 
+-  if (!opener && !parts.userStarted(from)) return reply(new NotTheUsersTurn({ title: shown(row) }).refusal, true);
++  if (!opener && false) return reply(new NotTheUsersTurn({ title: shown(row) }).refusal, true);
+ 
+   if (row.archived_at !== null) parts.chats.archive(row.session, false);
+ 
