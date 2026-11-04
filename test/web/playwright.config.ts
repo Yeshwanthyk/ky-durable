@@ -36,6 +36,9 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        // The installed Google Chrome, which updates itself, not the Chromium build this Playwright pins:
+        // that one lags Chrome's security fixes (1.63 pins 153, 1.64 pins 156.0.8078.4).
+        channel: "chrome",
         viewport: { width: 1280, height: 860 },
         // A stand-in microphone and camera, for a test that records: a beep, granted without asking.
         launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] }

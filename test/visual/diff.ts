@@ -100,7 +100,7 @@ export async function diff(a: string, b: string, threshold: number): Promise<Row
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const pages = [...new Set([...pngs(left), ...pngs(right)])].sort();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   const rows: Row[] = [];
 
   try {

@@ -22,7 +22,7 @@ let browser: Browser;
 let page: Page;
 
 beforeAll(async () => {
-  browser = await chromium.launch();
+  browser = await chromium.launch({ channel: "chrome" });
   page = await browser.newPage();
 });
 

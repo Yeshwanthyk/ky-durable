@@ -191,7 +191,7 @@ async function main(): Promise<void> {
   // The stack's log, and what the page showed if a step failed, sit beside the shots: a base worktree is gone by the time anyone reads them.
   const logs = path.join(out, "stack");
   const stack = await useStack(logs);
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
 
   try {
     const context = await browser.newContext({
