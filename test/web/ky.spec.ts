@@ -949,6 +949,37 @@ test("a routine's posted card can ask: a tap answers it in the chat, as the user
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/post-asks-answered.png` });
 });
 
+test("a routine's post into a chat moves that chat to the top of the list, as a reply would", async ({ page }) => {
+  await open(page);
+  const chats = page.getByRole("navigation", { name: "Chats" });
+  const tag = crypto.randomUUID().slice(0, 8);
+
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).toHaveURL(/\?session=/);
+  await send(page, `Posted here ${tag}`);
+  await expect(chat(page).getByText(`echo: Posted here ${tag}`)).toBeVisible();
+  const target = new URL(page.url()).searchParams.get("session") ?? "";
+
+  // The routine is made and run from another chat, so only its post can bring the first one back up.
+  await chats.getByRole("button", { name: "New side chat" }).click();
+  await expect(page).not.toHaveURL(new RegExp(`session=${target}\\b`));
+  await send(page, `Asked from here ${tag}`);
+  await expect(chat(page).getByText(`echo: Asked from here ${tag}`)).toBeVisible();
+  await send(page, `tool automation ${JSON.stringify({ action: "create", title: `Digest ${tag}`, prompt: "reply: The digest.", cron: "0 7 * * *", chat: target, post: true, createdBy: "user" })}`);
+  const id = /Created automation (\w+),/.exec((await chat(page).getByText(/tool said: Created automation/).textContent()) ?? "")?.[1] ?? "";
+  await send(page, `tool automation ${JSON.stringify({ action: "run", id })}`);
+
+  // Opening a chat reads it and moves nothing; the post landing there is what is under test.
+  await chats.getByRole("button", { name: new RegExp(`^(Named: )?Posted here ${tag}`) }).click();
+  await expect(chat(page).getByText("The digest.")).toBeVisible({ timeout: 30_000 });
+
+  const rows = chats.getByRole("listitem").filter({ hasText: tag });
+  await expect(rows.first()).toContainText(`Posted here ${tag}`);
+  await expect(rows.nth(1)).toContainText(`Asked from here ${tag}`);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/post-moves-chat.png` });
+});
+
 test("ky's card shows a routine as it is now: pausing it from the card changes the card", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();
