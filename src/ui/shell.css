@@ -2285,7 +2285,7 @@
 }
 
 /* Executor's address is one token: it ends in an ellipsis beside its buttons. */
-#settings-executor .row-sub {
+#settings-executor-page .row-sub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

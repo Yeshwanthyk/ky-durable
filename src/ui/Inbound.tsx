@@ -86,7 +86,7 @@ export function Inbound() {
         <h3 className="group-label">Webhooks</h3>
         {shown ? <ShownOnce shown={shown} onClose={() => setShown(null)} /> : null}
         {view.hooks.length === 0 ? (
-          <EmptyState icon="plug">No webhooks yet. A webhook posts what a service sends into a chat, for ky to read.</EmptyState>
+          <EmptyState>No webhooks yet</EmptyState>
         ) : (
           <div className="card">
             {view.hooks.map((hook) => (
@@ -106,7 +106,7 @@ export function Inbound() {
       <section className="group">
         <h3 className="group-label">Credentials</h3>
         {secrets.length === 0 ? (
-          <EmptyState icon="lock">None yet. ky asks for one in a chat when it needs to call an API.</EmptyState>
+          <EmptyState>None yet</EmptyState>
         ) : (
           groups.map(({ owner, own }) => (
             <div key={owner} data-owner={owner}>

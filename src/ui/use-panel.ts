@@ -18,6 +18,7 @@ export type SettingsPage =
   | { readonly kind: "proactivity" }
   | { readonly kind: "spend" }
   | { readonly kind: "tools" }
+  | { readonly kind: "executor" }
   | { readonly kind: "appearance" }
   | { readonly kind: "self-edits" };
 

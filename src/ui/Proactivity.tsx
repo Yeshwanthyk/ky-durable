@@ -411,7 +411,7 @@ function Notifications({ view, onRightAway }: { readonly view: ProactivityView; 
         <div className="row">
           <label className="row-text" htmlFor="right-away">
             <span className="row-label">Per day, at most</span>
-            <span className="row-sub">Of posts ky starts; more arrive silently. Replies to you always notify.</span>
+            <span className="row-sub">Replies always notify</span>
           </label>
           <Stepper id="right-away" value={view.rightAway} min={0} max={RIGHT_AWAY_MOST} onChange={onRightAway} />
         </div>

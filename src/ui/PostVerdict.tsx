@@ -31,7 +31,7 @@ export function UsefulRate() {
       <div className="row">
         <span className="row-text">
           <span className="row-label">Useful</span>
-          <span className="row-sub">Of the posts you rated in the last 30 days</span>
+          <span className="row-sub">Rated, last 30 days</span>
         </span>
         <RowValue>{rate.judged === 0 ? "None rated yet" : `${Math.round((rate.useful / rate.judged) * 100)}% · ${rate.useful} of ${rate.judged}`}</RowValue>
       </div>

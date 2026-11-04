@@ -18,7 +18,7 @@ export const SpendContext = createContext<SpendActions>({
 
 const dollars = (amount: number) => `$${amount.toFixed(amount > 0 && amount < 1 ? 4 : 2)}`;
 
-const tokens = (totals: SpendTotals) => `${(totals.tokensIn + totals.tokensOut).toLocaleString()} tokens, ${totals.calls} calls`;
+const tokens = (totals: SpendTotals) => (totals.calls === 1 ? "1 call" : `${totals.calls.toLocaleString()} calls`);
 
 const SOURCES = new Map([
   ["chat", "Chat"],
@@ -67,8 +67,8 @@ function Cap({ view, onSet }: { readonly view: SpendView; readonly onSet: (usd: 
     <form className="card" aria-label="Daily cap" onSubmit={save}>
       <label className="row">
         <span className="row-text">
-          <span className="row-label">Daily cap, USD</span>
-          <span className="row-sub">{view.capUsd === null ? "Off: nothing waits" : view.capped ? "Reached: unasked work waits until tomorrow" : "Unasked work waits once today reaches it"}</span>
+          <span className="row-label">Daily cap</span>
+          <span className="row-sub">{view.capUsd === null ? "Off, in USD" : view.capped ? "Reached: work waits" : "In USD"}</span>
         </span>
         <input className="key-input" aria-label="Daily cap in dollars" type="number" inputMode="decimal" min="0" step="0.01" placeholder="None" value={draft} onChange={(event) => setDraft(event.target.value)} />
       </label>
@@ -120,7 +120,7 @@ export function Spend() {
       <section className="group">
         <h3 className="group-label">Today by purpose</h3>
         {view.lines.length === 0 ? (
-          <p className="group-empty">Nothing yet today.</p>
+          <p className="group-empty">Nothing yet today</p>
         ) : (
           <ul className="card" aria-label="Today by purpose">
             {view.lines.map((line) => (
@@ -128,7 +128,7 @@ export function Spend() {
                 <span className="row-text">
                   <span className="row-label">{SOURCES.get(line.source) ?? line.source}</span>
                   <span className="row-sub">
-                    {line.purpose} · {tokens(line)}
+                    {tokens(line)}
                   </span>
                 </span>
                 <RowValue>{dollars(line.costUsd)}</RowValue>

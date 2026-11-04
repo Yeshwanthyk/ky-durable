@@ -173,7 +173,7 @@ function MailLine({ mail, now }: { mail: MailItem; now: number }) {
 function RecentMail({ mail }: { mail: readonly MailItem[] }) {
   const now = useNow();
 
-  if (mail.length === 0) return <EmptyState icon="mail">No mail yet</EmptyState>;
+  if (mail.length === 0) return <EmptyState>No mail yet</EmptyState>;
 
   return (
     <div className="card">
@@ -187,7 +187,7 @@ function RecentMail({ mail }: { mail: readonly MailItem[] }) {
 function Allowed({ allowed, onRemove }: { allowed: readonly string[]; onRemove: (address: string) => Promise<string | undefined> }) {
   const [refused, setRefused] = useState<string>();
 
-  if (allowed.length === 0) return <EmptyState icon="mail">No one but you yet</EmptyState>;
+  if (allowed.length === 0) return <EmptyState>No one but you yet</EmptyState>;
 
   return (
     <div className="card">
