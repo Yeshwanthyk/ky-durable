@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Hona/strobe/main/schema/strobe.v1.json",
+  "build": {
+    "command": "node --experimental-strip-types --no-warnings perf/build.ts",
+    "output": "perf/.out/build/client"
+  },
+  "serve": {
+    "command": "node --experimental-strip-types --no-warnings perf/serve.ts {port}",
+    "ready": "http://127.0.0.1:{port}/manifest.webmanifest"
+  },
+  "benches": ["perf/*.bench.ts"],
+  "harness": ["perf", "test/stack/vite.config.ts"]
+}
