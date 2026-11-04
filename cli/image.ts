@@ -113,6 +113,40 @@ function decode<T extends TSchema>(schema: T, bytes: Uint8Array, step: string): 
   return parsed;
 }
 
+/** How many blobs move at once, each way. */
+const BLOBS_AT_ONCE = 4;
+
+/**
+ * `work` on each item, BLOBS_AT_ONCE at a time, in the items' order. A failure is thrown only once every started
+ * item has settled, so nothing still writes into the scratch folder when the caller removes it.
+ */
+async function few<T, R>(items: readonly T[], work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  const failures: unknown[] = [];
+  let next = 0;
+
+  const worker = async () => {
+    while (next < items.length && failures.length === 0) {
+      const at = next++;
+      const item = items[at];
+
+      if (item === undefined) return;
+
+      try {
+        results[at] = await work(item);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(BLOBS_AT_ONCE, items.length) }, worker));
+
+  if (failures.length > 0) throw failures[0];
+
+  return results;
+}
+
 /** Writes a blob to `file`, refusing it unless it has the size and digest its manifest says. */
 async function spool(response: Response, blob: Blob, file: string): Promise<void> {
   if (!response.body) throw failed("source blob", response);
@@ -207,13 +241,11 @@ export async function copyImage({ source, account, repository, login }: CopyOpti
   const scratch = await mkdtemp(path.join(tmpdir(), "ky-image-"));
 
   try {
-    const missing: { blob: Blob; file: string }[] = [];
-
     // Every missing blob is fetched and checked before any is pushed.
-    for (const [index, blob] of [image.config, ...image.layers].entries()) {
+    const fetched = await few([...[image.config, ...image.layers].entries()], async ([index, blob]) => {
       const head = await target("HEAD", `blobs/${blob.digest}`);
 
-      if (head.status === 200) continue;
+      if (head.status === 200) return [];
       await expect(head, 404, `checking blob ${blob.digest}`);
       const answer = await get(`blobs/${blob.digest}`);
 
@@ -221,10 +253,11 @@ export async function copyImage({ source, account, repository, login }: CopyOpti
       const file = path.join(scratch, String(index));
 
       await spool(answer, blob, file);
-      missing.push({ blob, file });
-    }
 
-    for (const { blob, file } of missing) {
+      return [{ blob, file }];
+    });
+
+    await few(fetched.flat(), async ({ blob, file }) => {
       const started = await target("POST", "blobs/uploads/");
 
       await expect(started, 202, "starting an upload");
@@ -245,7 +278,7 @@ export async function copyImage({ source, account, repository, login }: CopyOpti
       } as RequestInit);
 
       await expect(pushed, 201, `pushing blob ${blob.digest}`);
-    }
+    });
 
     const put = await target("PUT", `manifests/${chosen.digest}`, { headers: { "content-type": chosen.mediaType }, body: chosen.content });
 

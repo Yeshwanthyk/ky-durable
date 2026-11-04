@@ -790,9 +790,8 @@ function useDeliver(pending: Pending, live: { readonly current: Live | null }, s
       const message = pending.get(operationId);
 
       if (message === undefined || message.uploads.length === 0) return;
-      const files = new Map<string, string>();
-
-      for (const each of message.uploads) files.set(each.file, await uploadClip(each.body, each.type, () => {}));
+      // The clips go up together.
+      const files = new Map(await Promise.all(message.uploads.map(async (each) => [each.file, await uploadClip(each.body, each.type, () => {})] as const)));
 
       // Taken back while its clips went up: it goes nowhere.
       if (pending.get(operationId) === undefined) return;

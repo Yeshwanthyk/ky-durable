@@ -643,12 +643,11 @@ async function* archive(env: Env, target: BackupAgent, manifest: Manifest): Asyn
 
 /** GET /api/backup: everything, as one gzipped tar. */
 async function backup(env: Env, target: BackupAgent, origin: string): Promise<Response> {
-  const plan = await target.backupPlan();
-  const files = await uploads(env.FILES);
+  const [plan, files, secrets] = await Promise.all([target.backupPlan(), uploads(env.FILES), env.Vault.getByName("owner").status()]);
   const saved = (await Promise.all(plan.sandboxes.map(async (sandbox) => ((await env.FILES.head(saveKey(sandbox.id))) ? [sandbox] : [])))).flat();
 
   const leftOut: LeftOut[] = [
-    ...secretsLeftOut(await env.Vault.getByName("owner").status()),
+    ...secretsLeftOut(secrets),
     ...plan.machines.map((machine) => ({
       what: `Machine ${machine}`,
       why: "a pairing's token is the old deploy's",
@@ -734,11 +733,11 @@ async function restoreRows(request: Request, target: BackupAgent): Promise<Respo
 async function restoreEnd(request: Request, env: Env, target: BackupAgent): Promise<Response> {
   const { force } = parsed(RestoreFinishSchema, await request.text(), "The restore's finish");
 
-  for (const file of await target.restoreFiles()) {
-    const object = await env.FILES.head(file.key);
+  const expected = await target.restoreFiles();
+  const arrived = await Promise.all(expected.map((file) => env.FILES.head(file.key)));
+  const torn = expected.find((file, at) => arrived[at]?.size !== file.size);
 
-    if (object?.size !== file.size) return new Response(`${file.key} didn't arrive whole: run the restore again.`, { status: 409 });
-  }
+  if (torn) return new Response(`${torn.key} didn't arrive whole: run the restore again.`, { status: 409 });
 
   const restored: Restored = await target.restoreFinish(new URL(request.url).origin, force === true);
   // The agent starts over on the restored tables; the call that restarts it never returns.

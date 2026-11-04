@@ -633,8 +633,11 @@ function seatOf(browser: CloudBrowser, context: BrowserContext): Seat {
       const page = pageOf(tab);
 
       if (page === undefined) throw new Error("the page closed");
-      const logs = await Promise.allSettled(page.frames().map((frame) => frame.evaluate(readLog, RECORDER)));
-      const history = await cdp(page, (session) => session.send("Page.getNavigationHistory"));
+
+      const [logs, history] = await Promise.all([
+        Promise.allSettled(page.frames().map((frame) => frame.evaluate(readLog, RECORDER))),
+        cdp(page, (session) => session.send("Page.getNavigationHistory"))
+      ]);
 
       return { logs: logs.flatMap((log) => (log.status === "fulfilled" ? [log.value] : [])), history };
     },

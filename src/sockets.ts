@@ -628,7 +628,8 @@ export class PiSessionSockets {
     const zone = ctx.request.cf?.timezone;
 
     // A booking that fails must not keep the page from opening; the object's next start books it again.
-    if (Guard.IsString(zone) && zone) {
+    const booked = async () => {
+      if (!Guard.IsString(zone) || !zone) return;
       // Kept on the connection: picking Automatic follows it at once.
       connection.setState({ zone });
 
@@ -637,7 +638,11 @@ export class PiSessionSockets {
       } catch (error) {
         console.warn("booking the dream in the user's zone failed", error);
       }
-    }
+    };
+
+    // Asked together, while the first messages go out: subscriptions and Executor each ask the Vault, and
+    // automations are read once the zone is booked.
+    const asked = Promise.all([this.#subscriptionsMessage(), this.#executorMessage(), booked().then(() => this.#automationsMessage())]);
 
     send(connection, {
       type: "hello",
@@ -648,8 +653,10 @@ export class PiSessionSockets {
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
-    send(connection, await this.#subscriptionsMessage());
-    send(connection, await this.#executorMessage());
+    const [subscriptions, executor, automations] = await asked;
+
+    send(connection, subscriptions);
+    send(connection, executor);
     send(connection, this.#approvalsMessage());
     send(connection, this.#chatsMessage());
     send(connection, this.#skillsMessage());
@@ -657,7 +664,7 @@ export class PiSessionSockets {
     send(connection, this.#specialistsMessage());
     send(connection, this.#avatarsMessage());
     send(connection, this.#memoryMessage());
-    send(connection, await this.#automationsMessage());
+    send(connection, automations);
     await this.#watch(connection, session);
   }
 

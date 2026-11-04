@@ -113,10 +113,14 @@ describe("pairing a machine", () => {
     const from = crypto.randomUUID();
     const statuses: number[] = [];
 
-    for (let i = 0; i < 11; i++) statuses.push((await pair({ code: "nope", name: "flood", facts: FACTS }, from)).status);
+    // The limiter counts in windows on the minute: a flood that crosses one starts counting again, so it gets ten
+    // more. Twenty-one attempts are refused within one window or the next, never two later.
+    for (let i = 0; i < 21 && !statuses.includes(429); i++) statuses.push((await pair({ code: "nope", name: "flood", facts: FACTS }, from)).status);
 
-    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(401));
-    expect(statuses[10]).toBe(429);
+    const refused = statuses.indexOf(429);
+
+    expect(refused).toBeGreaterThanOrEqual(10);
+    expect(statuses.slice(0, refused)).toEqual(Array(refused).fill(401));
   });
 
   it("makes codes and removes machines only for the signed-in user", async () => {

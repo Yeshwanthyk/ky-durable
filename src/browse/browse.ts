@@ -128,11 +128,18 @@ export const savedLogins = (vault: () => LoginVault) =>
     Effect.map((secrets) => secrets.flatMap((secret) => (secret.kind === LOGIN_KIND ? [ownedLogin(secret.id)] : [])))
   );
 
+/** How many saved logins a fresh browser restores at once. */
+const RESTORING_AT_ONCE = 4;
+
 const restore = (desk: Desk, owner: string, seat: Seat) =>
   Effect.tryPromise(() => desk.vault().browserLogins(owner)).pipe(
     Effect.flatMap((logins) =>
-      Effect.forEach(logins, (login) =>
-        Schema.decodeUnknownEffect(SavedLogin)(login).pipe(Effect.flatMap(({ state }) => timed("restoring a login", () => seat.restore(state), NAVIGATION_TIMEOUT_MS)), Effect.ignore)
+      // Each login opens its own pages: a few at once, so a fresh browser waits on the slowest, not on all in turn.
+      Effect.forEach(
+        logins,
+        (login) =>
+          Schema.decodeUnknownEffect(SavedLogin)(login).pipe(Effect.flatMap(({ state }) => timed("restoring a login", () => seat.restore(state), NAVIGATION_TIMEOUT_MS)), Effect.ignore),
+        { concurrency: RESTORING_AT_ONCE, discard: true }
       )
     ),
     Effect.ignore
@@ -239,7 +246,7 @@ const keepLogins = (desk: Desk, owner: string, opened: Seat, sites: readonly str
           Effect.as([site]),
           Effect.orElseSucceed(() => [])
         );
-      })
+      }, { concurrency: "unbounded" })
     ),
     Effect.map((saved) => saved.flat()),
     Effect.orElseSucceed((): string[] => [])
@@ -277,7 +284,6 @@ export const move = (desk: Desk, from: string, site: string, to: string) =>
       const moved = yield* Effect.tryPromise({ try: () => desk.vault().move(LOGIN_KIND, ownedId(from, site), ownedId(to, site)), catch: (cause) => new Failed({ said: said(cause) }) });
 
       if (!moved) return yield* new NoLogin({ owner: from, site });
-      yield* end(desk, from);
-      yield* end(desk, to);
+      yield* Effect.all([end(desk, from), end(desk, to)], { concurrency: "unbounded", discard: true });
     })
   );

@@ -111,9 +111,14 @@ export class Push extends Context.Service<
               const origin = parts.origin();
 
               if (origin === null) throw new Error("ky doesn't know its own address yet.");
-              const sender = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
-              const body = await encrypt(payload, device, sender, crypto.getRandomValues(new Uint8Array(16)));
-              const authorization = await parts.vault().vapidAuth(new URL(device.endpoint).origin, origin);
+
+              // The Vault signs while the payload is sealed here.
+              const [body, authorization] = await Promise.all([
+                crypto.subtle
+                  .generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])
+                  .then((sender) => encrypt(payload, device, sender, crypto.getRandomValues(new Uint8Array(16)))),
+                parts.vault().vapidAuth(new URL(device.endpoint).origin, origin)
+              ]);
 
               return fetch(device.endpoint, {
                 method: "POST",

@@ -953,11 +953,13 @@ export class PiAgent extends DurableObject<Env> {
    * One whose container still runs, or whose first save is under way, is left for now.
    */
   async #dropLostDisks(): Promise<void> {
-    for (const kept of this.sandboxes.kept()) {
-      if (await this.env.FILES.head(saveKey(kept.id))) continue;
+    await Promise.all(
+      this.sandboxes.kept().map(async (kept) => {
+        if (await this.env.FILES.head(saveKey(kept.id))) return;
 
-      if (await this.env.CloudMachine.getByName(kept.id).settled()) this.sandboxes.forget(kept.id);
-    }
+        if (await this.env.CloudMachine.getByName(kept.id).settled()) this.sandboxes.forget(kept.id);
+      })
+    );
   }
 
   /** What a backup holds, for its manifest (src/backup.ts). */

@@ -320,7 +320,8 @@ export class Vault extends DurableObject<Env> {
       )
       .toArray();
 
-    for (const row of due) await this.#poll(row.id, JSON.parse(row.device), row.expires_at);
+    // Each sign-in polls OpenAI on its own row: together.
+    await Promise.all(due.map((row) => this.#poll(row.id, JSON.parse(row.device), row.expires_at)));
     await this.#arm();
   }
 
