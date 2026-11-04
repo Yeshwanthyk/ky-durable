@@ -42,7 +42,7 @@ import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
 import type { MemoryActions } from "./Memory";
 import { Soul, type SpecialistActions } from "./Soul";
-import { Executor } from "./Executor";
+import { Executor, ExecutorConnection } from "./Executor";
 import { PageAdd, PageAddSlot } from "./PageAdd";
 import { BrowserLogins } from "./BrowserLogins";
 import { Inbound } from "./Inbound";
@@ -738,7 +738,7 @@ function MachineList({
     <section className="group machines" id="settings-machines">
       <h3 className="group-label">Machines</h3>
       {machines.length === 0 ? (
-        <EmptyState icon="monitor">No machines yet</EmptyState>
+        <EmptyState>No machines yet</EmptyState>
       ) : (
         <ul className="card">
           {machines.map((machine) => (
@@ -1226,7 +1226,7 @@ function usePairing() {
 
 // The command that pairs a computer with `code`, until the code expires.
 function PairingCommand({ code, now }: { code: PairingCode; now: number }) {
-  if (code.expiresAt <= now) return <EmptyState icon="clock">That code expired. Make a new one.</EmptyState>;
+  if (code.expiresAt <= now) return <EmptyState>That code expired. Make a new one.</EmptyState>;
 
   return (
     <div className="card code-card machine-code">
@@ -1439,7 +1439,7 @@ function MachineGone({ name }: { name: string }) {
   return (
     <>
       <PageHead title={name} />
-      <EmptyState icon="monitor">This machine is no longer paired.</EmptyState>
+      <EmptyState>This machine is no longer paired.</EmptyState>
     </>
   );
 }
@@ -2086,7 +2086,7 @@ function ModelPickers({
 
 /** Why there is no model to show: Settings is still loading, or no provider is on. */
 function NoModels({ loading }: { loading: boolean }) {
-  return loading ? <p className="group-empty">Loading models…</p> : <EmptyState icon="plug">No model provider is on</EmptyState>;
+  return loading ? <p className="group-empty">Loading models…</p> : <EmptyState>No model provider is on</EmptyState>;
 }
 
 // A provider or tool: what it has, needs or last failed with under its name, and how it stands in a word.
@@ -2380,12 +2380,12 @@ type PageProps = SettingsProps & { page: SettingsPage; more: boolean; onMore: (o
 const keyOf = (page: SettingsPage) => JSON.stringify(page);
 
 /** Where each page's back button goes; every page not listed here goes back to Settings. */
-const PARENTS: Partial<Record<SettingsPage["kind"], SettingsPage>> = { model: { kind: "models" }, machine: { kind: "machines" } };
+const PARENTS: Partial<Record<SettingsPage["kind"], SettingsPage>> = { model: { kind: "models" }, machine: { kind: "machines" }, executor: { kind: "tools" } };
 
 const parentOf = (page: SettingsPage) => PARENTS[page.kind] ?? SETTINGS_HOME;
 
 /** What the back button says, by the page it goes to. */
-const BACK_LABELS: Partial<Record<SettingsPage["kind"], string>> = { models: "Models", machines: "Machines" };
+const BACK_LABELS: Partial<Record<SettingsPage["kind"], string>> = { models: "Models", machines: "Machines", tools: "Tools" };
 
 // A page's title, which takes focus when the page opens, the spot for its "+" at the right, and a line under it.
 function PageHead({ title, children }: { title: string; children?: ReactNode }) {
@@ -2711,7 +2711,7 @@ function MachinesPage({ machines, subscriptions, now }: PageProps) {
 function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
   return (
     <>
-      <PageHead title="Subscriptions">For machines that aren't signed in themselves.</PageHead>
+      <PageHead title="Subscriptions" />
       <Subscriptions {...subscriptions} now={now} paired={machines.length > 0} />
     </>
   );
@@ -2720,7 +2720,7 @@ function SubscriptionsPage({ subscriptions, machines, now }: PageProps) {
 function PeersPage() {
   return (
     <>
-      <PageHead title="Peers">Your ky and a friend's can ask each other questions.</PageHead>
+      <PageHead title="Peers" />
       <Peers />
     </>
   );
@@ -2729,7 +2729,7 @@ function PeersPage() {
 function MailPage() {
   return (
     <>
-      <PageHead title="Mail">ky's own address. It asks before writing to anyone new.</PageHead>
+      <PageHead title="Mail" />
       <Mail />
     </>
   );
@@ -2738,7 +2738,7 @@ function MailPage() {
 function InboundPage() {
   return (
     <>
-      <PageHead title="Webhooks">URLs a service posts to, into a chat, the API credentials ky calls with, and the sites its browser stays signed in to.</PageHead>
+      <PageHead title="Webhooks" />
       <Inbound />
       <BrowserLogins />
     </>
@@ -2757,7 +2757,7 @@ function ProactivityPage() {
 function SpendPage() {
   return (
     <>
-      <PageHead title="Spend">What the models cost, by day in your time zone.</PageHead>
+      <PageHead title="Spend" />
       <Spend />
     </>
   );
@@ -2768,7 +2768,35 @@ function ToolsPage({ catalog }: PageProps) {
     <>
       <PageHead title="Tools" />
       <ToolsGroup catalog={catalog} />
-      <Executor />
+      <Executor link={(url) => <ExecutorLink url={url} />} />
+    </>
+  );
+}
+
+// The connected Executor's row: where it is, and that it is connected; it opens Executor's page.
+function ExecutorLink({ url }: { url: string }) {
+  return (
+    <ul className="card">
+      <PageLink to={{ kind: "executor" }} label={hostOf(url)}>
+        <RowValue>Connected</RowValue>
+      </PageLink>
+    </ul>
+  );
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
+function ExecutorPage(_props: PageProps) {
+  return (
+    <>
+      <PageHead title="Executor" />
+      <ExecutorConnection />
     </>
   );
 }
@@ -2845,7 +2873,7 @@ function AccentRow() {
 function SelfEditsPage({ setup, onSetRepo }: PageProps) {
   return (
     <>
-      <PageHead title="Self-edits">ky opens pull requests here to change itself.</PageHead>
+      <PageHead title="Self-edits" />
       {setup ? <SelfEdits repo={setup.repo} url={setup.url} onSet={onSetRepo} /> : <p className="group-empty">Loading…</p>}
     </>
   );
@@ -2866,6 +2894,7 @@ const PAGE_VIEWS: Record<SettingsPage["kind"], (props: PageProps) => ReactNode> 
   proactivity: ProactivityPage,
   spend: SpendPage,
   tools: ToolsPage,
+  executor: ExecutorPage,
   appearance: AppearancePage,
   "self-edits": SelfEditsPage,
 };

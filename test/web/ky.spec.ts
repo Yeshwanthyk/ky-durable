@@ -82,7 +82,8 @@ async function settings(page: Page, ...rows: string[]): Promise<void> {
 async function connectExecutor(page: Page): Promise<void> {
   await settings(page, "Tools");
   const form = panel(page).getByRole("form", { name: "Connect Executor" });
-  const connected = panel(page).getByText(EXECUTOR.url, { exact: true });
+  // Connected, Executor is a row naming its host that opens its own page.
+  const connected = panel(page).locator("#settings-executor").getByRole("button", { name: new RegExp(`^${new URL(EXECUTOR.url).host}.*Connected`) });
   await expect(form.or(connected)).toBeVisible();
 
   if (await form.isVisible()) {
@@ -379,9 +380,12 @@ test("walks a new ky through setup from the main chat's first-run cards", async 
   await connectExecutor(page);
   await expect(cards.getByRole("button", { name: /Connect Executor/ })).toHaveAttribute("data-done", "true");
 
-  // Edit changes the URL and keeps the token when it is left blank; Edit again puts it back.
+  // Executor's row opens its page, where Edit changes the URL and keeps the token when it is left blank; Edit again puts it back.
+  await panel(page).locator("#settings-executor").getByRole("button", { name: /Connected/ }).click();
+  await expect(panel(page).getByRole("heading", { name: "Executor" })).toBeFocused();
+
   for (const url of [`${EXECUTOR.url}?elicitation_mode=browser`, EXECUTOR.url]) {
-    await panel(page).locator("#settings-executor").getByRole("button", { name: "Edit" }).click();
+    await panel(page).locator("#settings-executor-page").getByRole("button", { name: "Edit" }).click();
     const edit = panel(page).getByRole("form", { name: "Edit Executor" });
     await expect(edit.getByLabel("Executor token")).toHaveValue("");
     await edit.getByLabel("Executor URL").fill(url);
@@ -1361,7 +1365,7 @@ test("opens Settings' pages from its first page and comes back with the button o
 test("makes a peer invite in Settings › Peers, and refuses pairing with ky's own address", async ({ page }) => {
   await open(page);
   await settings(page, "Peers");
-  await expect(panel(page).getByText("No peers yet.")).toBeVisible();
+  await expect(panel(page).getByText("No peers yet")).toBeVisible();
 
   // One way of adding a peer at a time.
   await expect(panel(page).getByRole("form", { name: "Invite a peer" })).toBeHidden();

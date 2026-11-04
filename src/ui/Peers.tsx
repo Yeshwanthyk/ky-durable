@@ -101,7 +101,7 @@ function hostOf(address: string): string {
 function PeerList({ peers, onRemove }: { peers: PeerView[] | null; onRemove: (name: string) => Promise<string | undefined> }) {
   if (peers === null) return <p className="group-empty">Checking peers…</p>;
 
-  if (peers.length === 0) return <EmptyState icon="nodes">No peers yet.</EmptyState>;
+  if (peers.length === 0) return <EmptyState>No peers yet</EmptyState>;
 
   return (
     <div className="card">
@@ -240,7 +240,7 @@ function InviteForm({ onInvite, onCancel }: { onInvite: PeerActions["onInvite"];
 function Invite({ invite, expiresAt }: { invite: PeerInvite; expiresAt: number }) {
   const now = useNow();
 
-  if (expiresAt <= now) return <EmptyState icon="clock">That invite expired. Make a new one.</EmptyState>;
+  if (expiresAt <= now) return <EmptyState>That invite expired. Make a new one.</EmptyState>;
 
   return (
     <div className="code-card peer-invite">

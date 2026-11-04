@@ -1,5 +1,5 @@
 import { type HTMLAttributes, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
-import { Icon, type IconName } from "../chat-kit/Icon";
+import { Icon } from "../chat-kit/Icon";
 
 /** How far each arrow key moves a radio group's choice. */
 const ARROWS = new Map([
@@ -160,14 +160,9 @@ export function RowValue({ tone, children }: { tone?: Tone | undefined; children
 
 // Nothing to list yet, said inside a card where the list would be: an icon, one line, and what to do about it, if
 // anything. It takes a row's height and rhythm, so an empty section sits in the same grid as a full one.
-export function EmptyState({ icon, children, action }: { icon?: IconName; children: ReactNode; action?: ReactNode }) {
+export function EmptyState({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="card empty-state">
-      {icon ? (
-        <span className="row-tile">
-          <Icon name={icon} size={15} />
-        </span>
-      ) : null}
       <p className="empty-state-text">{children}</p>
       {action}
     </div>

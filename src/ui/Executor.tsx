@@ -1,8 +1,9 @@
-import { createContext, type FormEvent, useContext, useState } from "react";
+import { createContext, type FormEvent, type ReactNode, useContext, useState } from "react";
 import type { ToolPolicy } from "../approvals/contract";
 import type { ExecutorView } from "../protocol";
 import { Segmented, SegmentedOption, VaultBadge } from "./Controls";
 import { Problem } from "./Subscriptions";
+import { SettingsNavContext } from "./use-panel";
 
 type ExecutorActions = {
   /** Resolves with why the connection was refused, if it was. */
@@ -20,14 +21,15 @@ export const ExecutorContext = createContext<{ view: ExecutorView | null; action
 
 const filled = (...values: string[]) => values.every((value) => value.trim() !== "");
 
-// Executor, which gives ky your apps' tools: connected with its URL and a token, which ky tests before keeping.
-export function Executor() {
+// Executor, which gives ky your apps' tools: connected with its URL and a token, which ky tests before keeping. Once
+// connected it is a row that opens its own page, where it is edited or removed.
+export function Executor({ link }: { link: (url: string) => ReactNode }) {
   const { view, actions } = useContext(ExecutorContext);
 
   return (
     <section className="group" id="settings-executor">
       <h3 className="group-label">Executor</h3>
-      {view?.url ? <ConnectedExecutor url={view.url} actions={actions} /> : <ConnectExecutor onConnect={actions.onConnect} />}
+      {view?.url ? link(view.url) : <ConnectExecutor onConnect={actions.onConnect} />}
       {view?.url ? <ToolPolicies policies={view.policies} onPolicy={actions.onPolicy} /> : null}
     </section>
   );
@@ -67,6 +69,23 @@ function ToolPolicies({ policies, onPolicy }: { policies: ExecutorView["policies
       ))}
       <Problem text={refused} />
       <p className="card-foot quiet">Allow approves only while you're in the chat; in a routine or a peer's question it asks you.</p>
+    </section>
+  );
+}
+
+/** Executor's own page: the connection, to edit or remove; removing it goes back to Tools, where it can be connected again. */
+export function ExecutorConnection() {
+  const { view, actions } = useContext(ExecutorContext);
+  const { go } = useContext(SettingsNavContext);
+
+  const remove = () => {
+    actions.onRemove();
+    go({ kind: "tools" });
+  };
+
+  return (
+    <section className="group" id="settings-executor-page">
+      {view?.url ? <ConnectedExecutor url={view.url} actions={{ ...actions, onRemove: remove }} /> : <ConnectExecutor onConnect={actions.onConnect} />}
     </section>
   );
 }

@@ -47,7 +47,7 @@ function chatgptNote(view: SubscriptionView): string {
 
 function githubNote(view: SubscriptionView): string {
   // Actions too: shipping a self-edit watches the deploy workflow, and a rollback runs it.
-  if (!view.connected) return "For the cloud machine: a fine-grained token with Contents, Pull requests and Actions read and write";
+  if (!view.connected) return "Token with Contents, PRs and Actions";
   const repos = view.repos ?? [];
 
   return `${repos.length} ${repos.length === 1 ? "repo" : "repos"}: ${repos.join(", ")}`;
@@ -78,7 +78,6 @@ function PairFirst() {
 
   return (
     <EmptyState
-      icon="monitor"
       action={
         <button type="button" className="pill primary pressable" onClick={() => openSection("settings-machines")}>
           Go to Machines

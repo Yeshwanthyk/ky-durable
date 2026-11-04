@@ -51,7 +51,7 @@ export function BrowserLogins() {
     <section className="group" id="settings-browser-logins">
       <h3 className="group-label">Browser logins</h3>
       {logins.length === 0 ? (
-        <EmptyState icon="globe">None yet. When ky hands you its browser to sign in to a site, it keeps that login here.</EmptyState>
+        <EmptyState>None yet</EmptyState>
       ) : (
         groups.map(({ owner, own }) => (
           <div key={owner} data-owner={owner}>
