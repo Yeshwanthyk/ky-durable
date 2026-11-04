@@ -52,15 +52,15 @@ export async function meta(bucket: SiteBucket, id: string): Promise<SiteMeta | u
 const siteIds = async (bucket: SiteBucket) => (await bucket.list({ prefix: "sites/", delimiter: "/" })).delimitedPrefixes.map((prefix) => prefix.slice("sites/".length, -1));
 
 async function stored(bucket: SiteBucket): Promise<Array<{ id: string; site: SiteMeta }>> {
-  const all = [];
+  const ids = await siteIds(bucket);
+  // Each site's metadata is its own object: read them together.
+  const metas = await Promise.all(ids.map((id) => meta(bucket, id)));
 
-  for (const id of await siteIds(bucket)) {
-    const site = await meta(bucket, id);
+  return ids.flatMap((id, at) => {
+    const site = metas[at];
 
-    if (site) all.push({ id, site });
-  }
-
-  return all;
+    return site ? [{ id, site }] : [];
+  });
 }
 
 const putMeta = (bucket: SiteBucket, id: string, value: SiteMeta) => bucket.put(siteKey(id, META), JSON.stringify(value));
@@ -95,7 +95,7 @@ async function keys(bucket: SiteBucket, id: string): Promise<string[]> {
 }
 
 async function store(bucket: SiteBucket, id: string, files: ReadonlyMap<string, Uint8Array>): Promise<void> {
-  for (const [path, body] of files) await bucket.put(siteKey(id, path), body);
+  await Promise.all([...files].map(([path, body]) => bucket.put(siteKey(id, path), body)));
   const kept = new Set([...files.keys(), META].map((path) => siteKey(id, path)));
   const stale = (await keys(bucket, id)).filter((key) => !kept.has(key));
 
