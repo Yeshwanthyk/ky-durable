@@ -619,8 +619,13 @@ test("the main chat opens a side chat, steers it, and the side chat shows the ma
 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-run-side.png` });
 
-  // The side chat the main chat opened runs no chats of its own.
+  // The side chat the main chat opened finds every chat, but runs none of its own.
   await send(page, `tool chats ${JSON.stringify({ action: "inspect" })}`);
+  await expect(chat(page).getByText(/^tool said: The user's chats:/)).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/chats-run-find.png` });
+
+  await send(page, `tool chats ${JSON.stringify({ action: "create", message: "reply: Deeper." })}`);
   await expect(chat(page).getByText("tool said: Another chat opened this one, so this one runs none: answer here.")).toBeVisible();
 });
 
