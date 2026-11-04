@@ -11,7 +11,10 @@
     "test/web/outcomes.ts",
     "test/gate.ts",
     "test/gate-live.ts",
-    "test/effect-pin.ts"
+    "test/effect-pin.ts",
+    "perf/build.ts",
+    "perf/serve.ts",
+    "perf/*.bench.ts"
   ],
   "ignorePatterns": [
     "explainers/**",

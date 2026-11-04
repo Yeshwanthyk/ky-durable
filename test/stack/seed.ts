@@ -55,7 +55,8 @@ async function settings(page: Page, row: string): Promise<void> {
 async function executor(page: Page): Promise<void> {
   await settings(page, "Tools");
   const form = panel(page).getByRole("form", { name: "Connect Executor" });
-  const connected = panel(page).getByText("https://executor.test/mcp", { exact: true });
+  // Connected, Executor is a row naming its host that opens its own page.
+  const connected = panel(page).locator("#settings-executor").getByRole("button", { name: /^executor\.test.*Connected/ });
   await form.or(connected).first().waitFor({ timeout: TIMEOUT });
 
   if (await form.isVisible()) {

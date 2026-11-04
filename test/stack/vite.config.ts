@@ -7,6 +7,7 @@ import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vite";
 import { precache } from "../../sw-precache.ts";
+import { client } from "../../vite.client.ts";
 
 /**
  * The local stack: ky's web app and real Worker (src/tests/stack.ts) with
@@ -37,7 +38,8 @@ const preview = process.env.SCOTTY_HATCH?.replace("{port}", String(port)).replac
 /** Where a built stack goes; never dist/, which holds the release `pnpm ky` deploys. */
 const out = process.env.KY_STACK_OUT;
 
-const state = mkdtempSync(path.join(tmpdir(), "ky-stack-"));
+/** KY_STACK_STATE starts it on a state directory already there (perf/serve.ts copies a seeded one); else a fresh one. */
+const state = process.env.KY_STACK_STATE ?? mkdtempSync(path.join(tmpdir(), "ky-stack-"));
 
 console.log(`ky stack: state in ${state}`);
 
@@ -56,6 +58,8 @@ export default defineConfig({
     tailwindcss(),
     precache()
   ],
+  // The deploy's browser bundle (vite.client.ts), so a built stack loads what production ships.
+  environments: { client },
   ...(out && { build: { outDir: out } }),
   server: {
     host: "127.0.0.1",
