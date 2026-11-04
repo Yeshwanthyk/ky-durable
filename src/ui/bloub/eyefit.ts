@@ -8,7 +8,8 @@
  * masque l'ouvre vers l'exterieur. La gelule apparaissait comme une encoche dans le
  * corps sur `capsule`, `triangle`, `nuage` et `goutte`.
  *
- * Ce module resout le probleme UNE FOIS, au chargement, et rend une table de decalages.
+ * Ce module resout le probleme UNE FOIS par entree, a sa premiere lecture, et rend une table
+ * de decalages.
  * Ce choix est l'essentiel du correctif, bien plus que la geometrie qui suit :
  *
  * Resolue dans la boucle de rendu, la correction reagit a tout ce qui bouge a soixante
@@ -33,9 +34,9 @@
  * couvrir le pire cas de la derive du regard, ce qu'une version par image ne pouvait pas
  * se permettre.
  *
- * La table est une constante de module, batie a l'import a partir de donnees pures :
- * meme nature que le calendrier de clignements de `face.ts`, deterministe et sans etat,
- * donc sans effet sur la purete de `engine.sample(t)`.
+ * La table est un cache de module, rempli a partir de donnees pures : meme nature que le
+ * calendrier de clignements de `face.ts`. Une entree ne depend que de sa clef et ne change plus
+ * une fois lue, donc le cache est sans effet sur la purete de `engine.sample(t)`.
  */
 
 import { EXPRESSIONS, type BotExpression } from './expressions'
@@ -437,37 +438,31 @@ const NUL = { x: 0, y: 0 } as const
 /** Clef d'une entree : l'etat, et l'expression quand l'etat l'accepte. */
 const clef = (state: StateId, expr: string | null) => `${state}|${expr ?? ''}`
 
+/** Les formes du catalogue, par REFERENCE de leur tableau de rayons. */
+const FORMES = new Set(OUTLINES.map((forme) => forme.radii))
+
+/** Les etats a corps de base, les seuls dont la forme remplace le corps. */
+const ETATS = new Map(STATES.filter((def) => def.baseBody).map((def) => [def.id, def]))
+
+const PAR_ID = new Map<string, BotExpression>(EXPRESSIONS.map((expr) => [expr.id, expr]))
+
 /**
- * Table des decalages, batie a l'import : une entree par (forme, etat a corps de base,
- * expression). Seuls `idle` et `swirl` portent le visage de repos, donc seuls eux se
- * declinent par expression — les trois autres etats a corps de base ont un visage releve
- * sur la video et une seule entree.
+ * Table des decalages, remplie entree par entree a la premiere lecture : une entree par
+ * (forme, etat a corps de base, expression). Seuls `idle` et `swirl` portent le visage de
+ * repos, donc seuls eux se declinent par expression — les trois autres etats a corps de
+ * base ont un visage releve sur la video et une seule entree.
+ *
+ * Chaque entree est une fonction pure de sa clef, donc la calculer a la demande rend la
+ * meme valeur que la batir a l'import, sans payer au chargement les formes et expressions
+ * que la page n'affiche pas. Une fois lue, une entree est une constante : le moteur
+ * l'interpole et ne la recalcule jamais.
  *
  * Clef par REFERENCE du tableau de rayons, ce qui est deja la convention du moteur : ses
  * gardes `radii === this.outline` et `expression === this.expr` reposent sur la meme
  * stabilite. Un profil inconnu, ou `null`, ne corrige rien — l'API accepte n'importe quel
  * tableau et le moteur n'a pas a dependre de la prudence de ses appelants.
  */
-function batir(): Map<number[], Map<string, Point>> {
-  return new Map(
-  OUTLINES.map((forme) => {
-    const par = new Map<string, Point>()
-
-    for (const def of STATES) {
-      if (!def.baseBody) continue
-      const expressions = def.baseFace ? [null, ...EXPRESSIONS] : [null]
-
-      for (const expr of expressions) {
-        par.set(clef(def.id, expr?.id ?? null), decalagePour(def, forme.radii, expr))
-      }
-    }
-
-    return [forme.radii, par]
-  })
-  )
-}
-
-const DECALAGES = batir()
+const DECALAGES = new Map<number[], Map<string, Point>>()
 
 /**
  * Decalage a appliquer aux deux yeux pour cette forme sur cet etat, en unites de rayon
@@ -483,15 +478,28 @@ export function decalageDesYeux(
   state: StateId,
   expr: string | null
 ): Point {
-  if (!radii) return NUL
-  const par = DECALAGES.get(radii)
+  if (!radii || !FORMES.has(radii)) return NUL
+  const def = ETATS.get(state)
 
-  if (!par) return NUL
+  if (!def) return NUL
 
-  // un etat sans visage de repos n'a qu'une entree, quelle que soit l'expression
-  return par.get(clef(state, expr)) ?? par.get(clef(state, null)) ?? NUL
+  // un etat sans visage de repos n'a qu'une entree, quelle que soit l'expression ; une
+  // expression inconnue lit celle sans expression
+  const e = def.baseFace && expr !== null ? (PAR_ID.get(expr) ?? null) : null
+  const k = clef(state, e?.id ?? null)
+  let par = DECALAGES.get(radii)
+
+  if (!par) {
+    par = new Map()
+    DECALAGES.set(radii, par)
+  }
+
+  let point = par.get(k)
+
+  if (!point) {
+    point = decalagePour(def, radii, e)
+    par.set(k, point)
+  }
+
+  return point
 }
-
-/** Pour les tests : de quoi verifier la table sans refaire la geometrie. */
-/** Pour les tests : de quoi chronometrer la construction de la table. */
-const POUR_TESTS = { batir }

@@ -122,7 +122,6 @@
     "eslint(no-unused-vars)": 2
   },
   "src/ui/bloub/eyefit.ts": {
-    "eslint(no-unused-vars)": 1,
     "typescript(no-non-null-assertion)": 4
   },
   "src/ui/bloub/face.ts": {
