@@ -1357,6 +1357,16 @@ const ky = worker(access);
 /** GitHub's REST API, for the GitHub tools on the stack's github.internal. */
 const githubRest = fakeGithubRest();
 
+/** Access's login page on the stack: sets the Vault latency `vault-latency` names, then signs the owner in and goes home. */
+async function signIn(url: URL, env: Env): Promise<Response> {
+  const latency = Number(url.searchParams.get("vault-latency") ?? "0");
+
+  if (Number.isInteger(latency) && latency > 0) await agents(env).getByName("me").vaultLatency(latency);
+  const cookie = `CF_Authorization=${await new FakeAccess().sign()}; Path=/; HttpOnly; SameSite=Lax`;
+
+  return new Response(null, { status: 302, headers: { Location: "/", "Set-Cookie": cookie } });
+}
+
 const stack = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const ended = signInAgain(request);
@@ -1368,14 +1378,7 @@ const stack = {
     // Access's login page, for a person opening the stack in their own browser: it signs the owner in
     // with the fake's key and goes home. Playwright and the harness set the cookie themselves. With vault-latency=<ms>
     // it first sets the Vault latency, as POST /test/vault-latency does: a bench's first page can't send the cookie.
-    if (url.pathname === "/cdn-cgi/access/login") {
-      const latency = Number(url.searchParams.get("vault-latency") ?? "0");
-
-      if (Number.isInteger(latency) && latency > 0) await agents(env).getByName("me").vaultLatency(latency);
-      const cookie = `CF_Authorization=${await new FakeAccess().sign()}; Path=/; HttpOnly; SameSite=Lax`;
-
-      return new Response(null, { status: 302, headers: { Location: "/", "Set-Cookie": cookie } });
-    }
+    if (url.pathname === "/cdn-cgi/access/login") return await signIn(url, env);
 
     // The container's github.internal, which production intercepts in the container's network: the
     // fake container host's git and `ky github` reach it here, with no sign-in, as the container has none.
