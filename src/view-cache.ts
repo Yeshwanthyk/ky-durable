@@ -1,6 +1,7 @@
 import Type from "typebox";
 import { parseOr } from "./core/decode";
-import type { AutomationInfo, ChatRow, FileRow, MachineInfo, SettingsView, SkillRow, TaskRow, ToolInfo } from "./protocol";
+import type { AutomationInfo, ChatRow, FileRow, MachineInfo, SettingsView, SkillRow, SpecialistView, TaskRow, ToolInfo } from "./protocol";
+import type { AvatarsView } from "./avatars/contract";
 import type { PiMessage, PiMessagePart } from "./core/transcript";
 import type { PiSessionView } from "./view";
 
@@ -32,6 +33,9 @@ export type SharedLists = {
   readonly skills: readonly SkillRow[];
   readonly automations: readonly AutomationInfo[];
   readonly settings: SettingsView | null;
+  /** Kept so a returning page draws ky's and the specialists' own bloubs at once, not a stand-in until they come. */
+  readonly specialists: readonly SpecialistView[];
+  readonly avatars: AvatarsView;
 };
 
 type CachedView = Pick<PiSessionView, "messages" | "model" | "answers">;
@@ -93,7 +97,7 @@ function withoutImages(part: PiMessagePart): PiMessagePart[] {
 const lighter = (message: PiMessage): PiMessage => ({ ...message, parts: message.parts.flatMap(withoutImages) });
 
 /** Only the shared lists, from a state that carries more. */
-const sharedOf = ({ catalog, tasks, machines, files, chats, skills, automations, settings }: SharedLists): SharedLists => ({
+const sharedOf = ({ catalog, tasks, machines, files, chats, skills, automations, settings, specialists, avatars }: SharedLists): SharedLists => ({
   catalog,
   tasks,
   machines,
@@ -101,7 +105,9 @@ const sharedOf = ({ catalog, tasks, machines, files, chats, skills, automations,
   chats,
   skills,
   automations,
-  settings
+  settings,
+  specialists,
+  avatars
 });
 
 /** Keep what the session shows now, for the next cold start. */
