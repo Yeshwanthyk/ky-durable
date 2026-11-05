@@ -15,6 +15,7 @@ import {
   inside,
   type Tab,
   prompt,
+  ready,
   runner,
   said,
   shows,
@@ -58,7 +59,7 @@ function latest<T extends PiServerMessage["type"]>(client: Follower, type: T): F
 async function session(name: string, query = "", origin?: string): Promise<{ socket: WebSocket; client: Follower }> {
   const socket = await connect(name, query, origin);
   const client = follow(socket);
-  await client.until(() => client.frames.some((frame) => frame.type === "events") && client.frames.some((frame) => frame.type === "automations"));
+  await ready(client);
 
   return { socket, client };
 }

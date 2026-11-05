@@ -653,19 +653,21 @@ export class PiSessionSockets {
     send(connection, this.#tasksMessage());
     send(connection, this.#settingsMessage());
     send(connection, this.#setupMessage());
+    // Read here, without the Vault: the page draws the chat, its cards and avatars with them.
+    send(connection, this.#approvalsMessage());
+    send(connection, this.#chatsMessage());
+    send(connection, this.#skillsMessage());
+    send(connection, this.#soulMessage());
+    send(connection, this.#specialistsMessage());
+    send(connection, this.#avatarsMessage());
+    send(connection, this.#memoryMessage());
     // The socket opens only once this returns, and every message above waits with it: so it returns once the chat's
-    // history, what the page waits on to show anything, is sent, and the lists go when the Vault answers.
+    // history, what the page waits on to show anything, is sent, and what the Vault and the zone's booking hold goes
+    // when they answer.
     void asked
       .then(([subscriptions, executor, automations]) => {
         send(connection, subscriptions);
         send(connection, executor);
-        send(connection, this.#approvalsMessage());
-        send(connection, this.#chatsMessage());
-        send(connection, this.#skillsMessage());
-        send(connection, this.#soulMessage());
-        send(connection, this.#specialistsMessage());
-        send(connection, this.#avatarsMessage());
-        send(connection, this.#memoryMessage());
         send(connection, automations);
       })
       .catch((error) => {

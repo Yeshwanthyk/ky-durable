@@ -2,7 +2,7 @@ import type { JsonValue } from "@earendil-works/pi-ai";
 import { env, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
-import { agent, connect, connectExecutor, FACTS, follow, type Follower, inside, prompt, promptTool, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
+import { agent, connect, connectExecutor, FACTS, follow, type Follower, inside, prompt, promptTool, ready, runner, said, shows, snapshotView, taskChats, tasks, until } from "./drive";
 import { decodeNewChat } from "./frames";
 
 /** Specialists through ky's real PiAgent on the fake AI binding: briefs, asks, consults, and discussions. */
@@ -36,7 +36,7 @@ async function home(name: string, id: string): Promise<string> {
 async function session(name: string, query = ""): Promise<{ socket: WebSocket; client: Follower }> {
   const socket = await connect(name, query);
   const client = follow(socket);
-  await client.until(() => client.frames.some((frame) => frame.type === "events") && client.frames.some((frame) => frame.type === "automations"));
+  await ready(client);
 
   return { socket, client };
 }
