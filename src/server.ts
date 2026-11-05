@@ -29,7 +29,7 @@ import { ExecutorLink, executeOnce, executorExtension } from "./executor/wiring"
 import type { FileRow } from "./files/contract";
 import { download, saveImage } from "./files/files";
 import { FileStore, retype, uploadMedia } from "./files/wiring";
-import { History, startedByUser } from "./history/wiring";
+import { History, startedByUser, tookIn } from "./history/wiring";
 import { lookPost } from "./core/transcript";
 import type { SandboxNow } from "./cloud";
 import { machineSubject, saveKey, type Sandbox, type SandboxChange, type SandboxDraft } from "./runners/contract";
@@ -526,7 +526,9 @@ export class PiAgent extends DurableObject<Env> {
       const site = siteExtension(chat, this.sites, this.workspace, () => this.setup.origin());
       this.registry.install(site);
 
-      // A chat opens side chats and steers them; one it opened runs none, so control goes one way.
+      // A chat finds and reads every chat, opens side chats and steers them; it sends to one it didn't open only in a
+      // turn the user started, and one another chat opened sends nothing. With notify, the answer comes back once, to a
+      // turn that may ask for no more, so two chats never keep waking each other (.claude/skills/verify-formal-chats).
       const chats = chatsExtension({
         chats: this.chats,
         openedFor: (request) => this.chats.openedFor(request),
@@ -541,7 +543,9 @@ export class PiAgent extends DurableObject<Env> {
           return conversation.commit(async (tx) => (await tx.doc(LiveDoc, conversation.id)).run !== undefined, BACKGROUND_CONTEXT);
         },
         latest: (session) => this.history.latest(session),
-        chat
+        chat,
+        userStarted: (session) => startedByUser(this.ctx.storage.sql, session),
+        taken: (session, request) => tookIn(this.ctx.storage.sql, session, request)
       });
 
       this.registry.install(chats);

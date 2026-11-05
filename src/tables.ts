@@ -19,6 +19,7 @@ const CORE_TABLES = [
   "ky_avatars",
   // chats.ts
   "ky_chats",
+  "ky_chat_waits",
   "ky_main_chat",
   // files.ts
   "ky_files",

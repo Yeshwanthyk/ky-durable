@@ -1,10 +1,10 @@
 diff --git a/src/chats/chats.ts b/src/chats/chats.ts
-index a8eeee8..b05afeb 100644
+index fefd4837..6f8e4903 100644
 --- a/src/chats/chats.ts
 +++ b/src/chats/chats.ts
-@@ -9,7 +9,7 @@ import { type Edge, makeEdge } from "../core/edge";
+@@ -10,7 +10,7 @@ import { type Edge, makeEdge } from "../core/edge";
  import { Sql } from "../core/sql";
- import { CHAT_TABLES, ChatRow, type Opener } from "./contract";
+ import { CHAT_TABLES, ChatRow, ChatWait, type Opener } from "./contract";
  
 -const TITLE_CHARS = 60;
 +const TITLE_CHARS = 61;

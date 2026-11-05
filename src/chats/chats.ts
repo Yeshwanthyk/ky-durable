@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { type Edge, makeEdge } from "../core/edge";
 import { Sql } from "../core/sql";
-import { CHAT_TABLES, ChatRow, type Opener } from "./contract";
+import { CHAT_TABLES, ChatRow, ChatWait, type Opener } from "./contract";
 
 const TITLE_CHARS = 60;
 
@@ -38,6 +38,9 @@ interface ChatStore {
   readonly retitle: (session: string, was: string, title: string) => Effect.Effect<boolean>;
   readonly rename: (session: string, title: string) => Effect.Effect<boolean>;
   readonly archive: (session: string, archived: boolean) => Effect.Effect<boolean>;
+  readonly wait: (request: string, target: string, sender: string) => Effect.Effect<void>;
+  readonly waitsFor: (target: string) => Effect.Effect<ReadonlyArray<ChatWait>>;
+  readonly settle: (request: string) => Effect.Effect<void>;
 }
 
 class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
@@ -69,6 +72,12 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
       yield* exec(`CREATE TABLE IF NOT EXISTS ${CHAT_TABLES.main} (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       updated_at INTEGER NOT NULL)`);
+
+      yield* exec(`CREATE TABLE IF NOT EXISTS ${CHAT_TABLES.waits} (
+      request TEXT PRIMARY KEY,
+      target TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      created_at INTEGER NOT NULL)`);
 
       return {
         list: rows(ChatRow, `SELECT * FROM ${CHAT_TABLES.chats} ORDER BY updated_at DESC`),
@@ -117,7 +126,13 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
 
           return name === "" ? Effect.succeed(false) : written(`UPDATE ${CHAT_TABLES.chats} SET title = ? WHERE session = ?`, name, session);
         },
-        archive: (session, archived) => Effect.flatMap(Clock.currentTimeMillis, (now) => written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? now : null, session))
+        archive: (session, archived) => Effect.flatMap(Clock.currentTimeMillis, (now) => written(`UPDATE ${CHAT_TABLES.chats} SET archived_at = ? WHERE session = ?`, archived ? now : null, session)),
+        wait: (request, target, sender) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            Effect.asVoid(exec(`INSERT OR IGNORE INTO ${CHAT_TABLES.waits} (request, target, sender, created_at) VALUES (?, ?, ?, ?)`, request, target, sender, now))
+          ),
+        waitsFor: (target) => rows(ChatWait, `SELECT * FROM ${CHAT_TABLES.waits} WHERE target = ? ORDER BY created_at, request`, target),
+        settle: (request) => Effect.asVoid(exec(`DELETE FROM ${CHAT_TABLES.waits} WHERE request = ?`, request))
       };
     })
   );
@@ -199,6 +214,19 @@ export class ChatList {
 
   archive(session: string, archived: boolean): void {
     this.#emit(this.#run((chats) => chats.archive(session, archived)));
+  }
+
+  /** Remember that `sender` asked to be told when `target` answers the message sent as `request`; a replay keeps one. */
+  wait(request: string, target: string, sender: string): void {
+    this.#run((chats) => chats.wait(request, target, sender));
+  }
+
+  waitsFor(target: string): ReadonlyArray<ChatWait> {
+    return this.#run((chats) => chats.waitsFor(target));
+  }
+
+  settle(request: string): void {
+    this.#run((chats) => chats.settle(request));
   }
 }
 

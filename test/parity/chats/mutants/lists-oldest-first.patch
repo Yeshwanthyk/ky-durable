@@ -1,9 +1,9 @@
 diff --git a/src/chats/chats.ts b/src/chats/chats.ts
-index d25aab1..e93ca40 100644
+index fefd4837..f2d56449 100644
 --- a/src/chats/chats.ts
 +++ b/src/chats/chats.ts
-@@ -71,7 +71,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
-       updated_at INTEGER NOT NULL)`);
+@@ -80,7 +80,7 @@ class Chats extends Context.Service<Chats, ChatStore>()("ky/chats/Chats") {
+       created_at INTEGER NOT NULL)`);
  
        return {
 -        list: rows(ChatRow, `SELECT * FROM ${CHAT_TABLES.chats} ORDER BY updated_at DESC`),

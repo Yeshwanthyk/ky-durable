@@ -1,0 +1,42 @@
+title Chats that message each other
+sub Drawn from the intent before modeling: a chat sends another chat a message, may ask to be told when it answers, and no chain of chats waking chats outlives the user's message
+
+== graph Chats that message each other
+view: states
+tone idle: Quiet
+tone you: Working on your message
+tone chat: Working on another chat's message
+tone back: Working on an answer that came back
+[*] -> quiet
+group one: One chat
+quiet: Quiet, waiting for you {idle}
+yours: Working on what you wrote {you}
+asked: Working on what another chat sent it {chat}
+told: Working on another chat's answer, which came back {back}
+group end
+group done: Every chat
+settled: Every chat quiet again, the answer came back once
+  state: AllQuiet /\ Noticed # {}
+group end
+!loop: Chats keep waking each other after your message
+  fails: BoundedChain
+!twice: The same answer comes back twice
+  fails: NoticeOnce
+!early: Told before the other chat took the message in
+  fails: NoticeAfterAnswer
+quiet -> yours: you write
+quiet -> asked: another chat sends it a message
+quiet -> told: an answer it asked for comes back
+yours -> asked: another chat's message joins the turn
+yours -> told: the answer comes back during the turn
+asked -> yours: you write during the turn
+asked -> told: the answer comes back during the turn
+told -> yours: you write during the turn
+told -> asked: another chat's message joins the turn
+yours -> quiet: it answers
+asked -> quiet: it answers
+told -> quiet: it answers
+write: quiet > yours => quiet | you write | You write in a chat and it answers you there.
+ask: quiet > asked => quiet | ask another chat | You ask the main chat to ask Reading something; Reading answers in Reading.
+back: quiet > yours > quiet > told => quiet | told when done | The main chat asks Reading and asks to be told; when Reading answers, the answer comes back to the main chat, which answers you.
+once: quiet > yours > quiet > told => settled | settles | After the answer comes back, every chat goes quiet: nothing sends again until you write.

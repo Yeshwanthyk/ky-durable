@@ -31,7 +31,7 @@ const PROOFS = {
   machines: ["test/invariants/machines.test.ts", "test/parity/machines/at-b.test.ts"],
   settings: ["test/invariants/settings.test.ts", "test/parity/settings/at-b.test.ts"],
   files: ["test/invariants/files.test.ts", "test/parity/files/at-b.test.ts"],
-  chats: ["test/invariants/chats.test.ts", "test/parity/chats/at-b.test.ts"],
+  chats: ["test/invariants/chats.test.ts", "test/invariants/chats-messaging.test.ts", "test/parity/chats/at-b.test.ts"],
   mail: ["test/invariants/mail.test.ts", "test/parity/mail/at-b.test.ts"],
   sites: ["test/invariants/sites.test.ts", "test/parity/sites/at-b.test.ts"],
   browse: ["test/invariants/browse.test.ts", "test/parity/browse/at-b.test.ts"],
