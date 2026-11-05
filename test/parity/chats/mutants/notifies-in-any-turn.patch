@@ -1,0 +1,12 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index 144d756f..18063c88 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -189,7 +189,6 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string,
+ 
+   // An answer that comes back starts a turn that is not the user's, so it can ask for no answer of its own: one user
+   // message brings back each answer it asked for once, and nothing more.
+-  if (send.notify && !parts.userStarted(from)) return reply(new NoticeNotTheUsersTurn().refusal, true);
+ 
+   if (args.action === "create") return send.message === "" ? reply(new NothingToStart().refusal, true) : create(parts, send, args.title);
+ 

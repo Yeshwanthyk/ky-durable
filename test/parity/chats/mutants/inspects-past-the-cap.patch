@@ -1,10 +1,10 @@
 diff --git a/src/chats/tool.ts b/src/chats/tool.ts
-index ff434b45..eec899ae 100644
+index 144d756f..1b37d30c 100644
 --- a/src/chats/tool.ts
 +++ b/src/chats/tool.ts
-@@ -5,7 +5,7 @@ import { toolReply as reply } from "../core/reply";
- import type { ChatList } from "./chats";
- import { type ChatRow, NoSuchChat, NotAChat, NothingToStart, NothingToSteer, NotTheUsersTurn, OpenedByAnother, type Opener, ThisChat } from "./contract";
+@@ -18,7 +18,7 @@ import {
+   ThisChat
+ } from "./contract";
  
 -const LAST_CHARS = 16_000;
 +const LAST_CHARS = 16_001;

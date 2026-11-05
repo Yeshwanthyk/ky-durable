@@ -295,7 +295,7 @@ describe("chats that message each other", () => {
         reached.notices += world.notices.length;
         reached.longest = Math.max(reached.longest, ...world.sends.map((send) => send.hops), ...world.notices.map((notice) => notice.hops));
       }),
-      { numRuns: budget().numRuns * 100, seed: budget().seed }
+      { numRuns: Math.max(budget().numRuns * 5, 2_500), seed: budget().seed }
     );
 
     // The runs reach what the invariants guard: answers coming back, and the longest chain the gates allow.

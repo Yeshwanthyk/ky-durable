@@ -1,0 +1,12 @@
+diff --git a/src/chats/tool.ts b/src/chats/tool.ts
+index 144d756f..136fedef 100644
+--- a/src/chats/tool.ts
++++ b/src/chats/tool.ts
+@@ -205,7 +205,6 @@ async function call(parts: ChatsParts, args: Static<typeof Args>, from: string,
+  */
+ async function tellWaiting(parts: ChatsParts, target: string, answer: string): Promise<void> {
+   for (const wait of parts.chats.waitsFor(target)) {
+-    if (!parts.taken(target, wait.request)) continue;
+     await parts.steer(wait.sender, answeredHere(senderName(parts, target), cut(answer, NOTICE_CHARS) || "(no text)"), `chat-notice:${wait.request}`);
+     parts.chats.settle(wait.request);
+   }
