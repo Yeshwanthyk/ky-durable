@@ -420,6 +420,11 @@ export class Vault extends ProductionVault {
     this.#slow = { count, ms };
   }
 
+  /** Answer nothing for `ms`: calls that arrive meanwhile wait, as on a Vault that is waking or far away. */
+  hold(ms: number): void {
+    void this.ctx.blockConcurrencyWhile(() => scheduler.wait(ms));
+  }
+
   override async mint(kind: TokenKind, subject: string, ttlMs?: number): Promise<string> {
     if (kind === "machine" && this.#slow.count > 0) {
       this.#slow.count -= 1;
@@ -900,9 +905,36 @@ function answer(prompt: string): Reply {
 
 const NoParameters = Type.Object({});
 
+/** Where the agent keeps the Vault latency `POST /test/vault-latency` sets, so it outlives the object's eviction. */
+const VAULT_LATENCY_KEY = "test:vault-latency-ms";
+
 /** The real agent with the fakes above, a multiply tool, and gate tools the test opens. */
 export class PiAgent extends ProductionAgent {
   declare readonly boundary: TestBoundary;
+
+  /**
+   * The lifecycle's fetch; with a Vault latency set, a page's socket first holds the Vault, so what the page asks the
+   * Vault as it opens waits as on a Vault that is asleep or placed away from the agent, and nothing else does.
+   */
+  async fetch(request: Request): Promise<Response> {
+    const ms = this.ctx.storage.kv.get<number>(VAULT_LATENCY_KEY) ?? 0;
+
+    if (ms > 0 && request.headers.get("Upgrade") === "websocket") {
+      // SAFETY: src/tests/wrangler.jsonc binds Vault to this module's subclass.
+      const vault = (this.env.Vault as DurableObjectNamespace<Vault>).getByName("owner");
+
+      // Not awaited: the hold's own answer waits out the hold, and only the Vault's callers should.
+      this.ctx.waitUntil(vault.hold(ms));
+    }
+
+    return this.lifecycle.fetch(request);
+  }
+
+  /** Make the Vault answer each later page's opening `ms` late; 0 answers at once again. */
+  vaultLatency(ms: number): void {
+    this.ctx.storage.kv.put(VAULT_LATENCY_KEY, ms);
+  }
+
   /** Task token issues still to fail; read only once the hub calls, after this field is set. */
   #failingIssues = 0;
 
@@ -1276,6 +1308,18 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
+  // Each later page's opening finds the Vault ms late (PiAgent.vaultLatency); 0 answers at once again.
+  [
+    "POST /test/vault-latency",
+    async (me, url) => {
+      const ms = Number(url.searchParams.get("ms") ?? "0");
+
+      if (!Number.isInteger(ms) || ms < 0) return new Response("ms is a whole number of milliseconds", { status: 400 });
+      await me.vaultLatency(ms);
+
+      return new Response(null, { status: 204 });
+    }
+  ],
   // The cloud machine's fake container host (url), fake github.com (github), idle time in ms (idle) and start deadline in ms (startDeadline).
   [
     "POST /test/cloud-host",
@@ -1313,6 +1357,17 @@ const ky = worker(access);
 /** GitHub's REST API, for the GitHub tools on the stack's github.internal. */
 const githubRest = fakeGithubRest();
 
+/** Access's login page on the stack: sets the Vault latency `vault-latency` names (0 without it), then signs the owner in and goes home. */
+async function signIn(url: URL, env: Env): Promise<Response> {
+  const latency = Number(url.searchParams.get("vault-latency") ?? "0");
+
+  // Every sign-in sets it, 0 without the parameter: a latency one bench case set must not slow the next one's page.
+  await agents(env).getByName("me").vaultLatency(Number.isInteger(latency) && latency > 0 ? latency : 0);
+  const cookie = `CF_Authorization=${await new FakeAccess().sign()}; Path=/; HttpOnly; SameSite=Lax`;
+
+  return new Response(null, { status: 302, headers: { Location: "/", "Set-Cookie": cookie } });
+}
+
 const stack = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const ended = signInAgain(request);
@@ -1322,12 +1377,9 @@ const stack = {
     const url = new URL(signed.url);
 
     // Access's login page, for a person opening the stack in their own browser: it signs the owner in
-    // with the fake's key and goes home. Playwright and the harness set the cookie themselves.
-    if (url.pathname === "/cdn-cgi/access/login") {
-      const cookie = `CF_Authorization=${await new FakeAccess().sign()}; Path=/; HttpOnly; SameSite=Lax`;
-
-      return new Response(null, { status: 302, headers: { Location: "/", "Set-Cookie": cookie } });
-    }
+    // with the fake's key and goes home. Playwright and the harness set the cookie themselves. With vault-latency=<ms>
+    // it first sets the Vault latency, as POST /test/vault-latency does (0 without it): a bench's first page can't send the cookie.
+    if (url.pathname === "/cdn-cgi/access/login") return await signIn(url, env);
 
     // The container's github.internal, which production intercepts in the container's network: the
     // fake container host's git and `ky github` reach it here, with no sign-in, as the container has none.

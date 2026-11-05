@@ -20,6 +20,14 @@ const READY_TEXT = "The rest are receipts and newsletters.";
 const MAIN_CHAT_READY = { selector: THREAD, text: READY_TEXT };
 
 /**
+ * How long load-slow's Vault takes to answer as the page opens (src/tests/stack.ts). Deployed, the Vault is another
+ * Durable Object the agent calls, and opening the page asks it twice, together (Subscriptions and Executor): one
+ * asleep, or placed away from the agent, answers in a few hundred ms instead of locally's ~1 ms. An estimate, not a
+ * measured live number.
+ */
+const VAULT_LATENCY_MS = 200;
+
+/**
  * Opens the long chat from the sidebar and waits for a rendered answer. Only answers draw a table (the owner's
  * message shows its markdown raw), and the stream case keeps adding turns, so no fixed turn number stays on the page.
  */
@@ -63,7 +71,8 @@ export default bench({
     web: web({
       viewport: { width: 1366, height: 860 },
       // The stack's fake Access signs the owner in and redirects to `/` (src/tests/stack.ts): one 302 on both variants.
-      url: "/cdn-cgi/access/login"
+      // load-slow's login first sets the stack's Vault latency (src/tests/stack.ts).
+      url: ({ case: name }) => (name === "load-slow" ? `/cdn-cgi/access/login?vault-latency=${VAULT_LATENCY_MS}` : "/cdn-cgi/access/login")
     })
   },
 
@@ -80,6 +89,13 @@ export default bench({
   cases: {
     /** First visit: a fresh browser, no service worker or HTTP cache, until the main chat shows. */
     "load-cold": {
+      primary: "launch.ready",
+      metrics: ["cpu.work", "main.work", "net.bytes"],
+      launch: { until: MAIN_CHAT_READY, profile: "fresh" }
+    },
+
+    /** load-cold with a Vault as slow as a deployed one can be (VAULT_LATENCY_MS): what opening the page waits on it. */
+    "load-slow": {
       primary: "launch.ready",
       metrics: ["cpu.work", "main.work", "net.bytes"],
       launch: { until: MAIN_CHAT_READY, profile: "fresh" }

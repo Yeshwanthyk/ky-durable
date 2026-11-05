@@ -154,6 +154,11 @@ export function follow(socket: WebSocket): Follower {
   return { view: () => view, frames, until };
 }
 
+/** Until a page's opening frames are in: the chat's history, and the lists that wait on the Vault, automations last. */
+export function ready(client: Follower): Promise<void> {
+  return client.until(() => client.frames.some((frame) => frame.type === "events") && client.frames.some((frame) => frame.type === "automations"));
+}
+
 /** Whether a view has a message with text containing `text`. */
 export function shows(view: PiSessionView, text: string): boolean {
   return view.messages.some((message) =>
