@@ -157,15 +157,16 @@ test("starts cold with no network: the shell, the last chat from its cache, and 
 test("starts cold with ky's own avatar from the cache, not a stand-in until the Vault answers", async ({ page, context }) => {
   await online(page);
   const pip = { name: "Pip", body: { w: 108, h: 108, corner: 54, color: "#3d8bff" }, eyes: { count: 2, size: 15 }, top: { kind: "leaf", color: "#3cc46a" }, cheeks: true, feet: true };
-  await send(page, `tool avatar ${JSON.stringify({ action: "set", for: "ky", spec: pip })}`);
-  await expect(page.getByText("Saved as ky's avatar.")).toBeVisible();
-  await kept(page, "#3d8bff");
-  await kept(page, '"specialists":');
-  await page.close();
-
-  const { page: cold, errors } = await coldOffline(context);
 
   try {
+    await send(page, `tool avatar ${JSON.stringify({ action: "set", for: "ky", spec: pip })}`);
+    await expect(page.getByText("Saved as ky's avatar.")).toBeVisible();
+    await kept(page, "#3d8bff");
+    await kept(page, '"specialists":');
+    await page.close();
+
+    const { page: cold, errors } = await coldOffline(context);
+
     await expect(panel(cold).getByRole("img", { name: "ky", exact: true }).locator(`rect[fill="#3d8bff"]`)).not.toHaveCount(0);
     expect(errors.filter((error) => BROKEN.test(error))).toEqual([]);
   } finally {
