@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
 
-export const CHAT_TABLES = { chats: "ky_chats", main: "ky_main_chat" } as const;
+export const CHAT_TABLES = { chats: "ky_chats", main: "ky_main_chat", waits: "ky_chat_waits" } as const;
 
 export const ChatRow = Schema.Struct({
   session: Schema.String,
@@ -16,6 +16,11 @@ export const ChatRow = Schema.Struct({
 export type ChatRow = typeof ChatRow.Type;
 
 export type Opener = { readonly by: string; readonly request: string };
+
+/** A chat waiting to be told when another chat answers what it sent: `request` is the send's request id. */
+export const ChatWait = Schema.Struct({ request: Schema.String, target: Schema.String, sender: Schema.String, created_at: Schema.Number });
+
+export type ChatWait = typeof ChatWait.Type;
 
 export class NotAChat extends Schema.TaggedError<NotAChat>()("NotAChat", {}) implements Refusable {
   get refusal(): string {
@@ -56,5 +61,17 @@ export class ThisChat extends Schema.TaggedError<ThisChat>()("ThisChat", {}) imp
 export class NotTheUsersTurn extends Schema.TaggedError<NotTheUsersTurn>()("NotTheUsersTurn", { title: Schema.String }) implements Refusable {
   get refusal(): string {
     return `"${this.title}" exists, but this turn was not started by the user, so it sends only to chats this chat opened (chats never keep each other going). Tell the user here; their next message here can send it.`;
+  }
+}
+
+export class NoticeNotTheUsersTurn extends Schema.TaggedError<NoticeNotTheUsersTurn>()("NoticeNotTheUsersTurn", {}) implements Refusable {
+  get refusal(): string {
+    return "notify is only for a turn the user started: an answer that comes back starts a turn here, and that turn asks for no more. Send without notify, or tell the user here.";
+  }
+}
+
+export class SeveralChats extends Schema.TaggedError<SeveralChats>()("SeveralChats", { chat: Schema.String, matches: Schema.Array(Schema.String) }) implements Refusable {
+  get refusal(): string {
+    return `Several chats match ${JSON.stringify(this.chat)}; give one's id:\n${this.matches.join("\n")}`;
   }
 }

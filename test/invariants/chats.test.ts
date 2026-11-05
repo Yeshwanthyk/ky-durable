@@ -81,7 +81,8 @@ function partsFor(chats: ChatList, seen: Seen) {
     busy: async (session: string) => Number(session) % 2 === 0,
     latest: (session: string) => (session === "3" ? null : session === "21" ? LONG_SAID : `said in ${session}`),
     chat: (session: string) => session !== NOT_A_CHAT_SESSION,
-    userStarted: () => seen.userTurn === true
+    userStarted: () => seen.userTurn === true,
+    taken: () => true
   };
 }
 

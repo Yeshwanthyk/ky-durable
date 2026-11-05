@@ -152,6 +152,49 @@ describe("the chats tool", () => {
     expect((await run(name, reading, 9, { action: "steer", chat: ROOT_SESSION, message: "reply: Back at you." })).text).toMatch(/^"main chat" exists, but this turn was not started by the user/);
   });
 
+  it("takes a chat by its title: one match sends, several list their ids, none says so", async () => {
+    const name = crypto.randomUUID();
+    const reading = await userChat(name);
+    await inside(name, (instance) => instance.chats.rename(reading, "Reading"));
+    const first = await create(name, ROOT_SESSION, 1, "reply: One.", "Trip to Lisbon");
+    const second = await create(name, ROOT_SESSION, 2, "reply: Two.", "Trip to Porto");
+
+    expect((await run(name, ROOT_SESSION, 3, { action: "inspect", chat: "reading" })).text).toMatch(/^"Reading" is /);
+    expect((await run(name, reading, 3, { action: "inspect", chat: "main" })).text).toMatch(/^"main chat" is /);
+    expect((await run(name, ROOT_SESSION, 4, { action: "inspect", chat: "Lisbon" })).text).toMatch(/^"Trip to Lisbon" is /);
+
+    const several = await run(name, ROOT_SESSION, 5, { action: "steer", chat: "trip", message: "reply: Which?" });
+    expect(several.failed).toBe(true);
+    expect(several.text).toMatch(/^Several chats match "trip"; give one's id:/);
+    expect(several.text).toContain(first);
+    expect(several.text).toContain(second);
+    expect((await run(name, ROOT_SESSION, 6, { action: "steer", chat: "Madrid", message: "reply: No." })).failed).toBe(true);
+  });
+
+  it("with notify, the other chat's answer comes back to the asking chat once, as a turn that can send nothing on", async () => {
+    const name = crypto.randomUUID();
+    const reading = await userChat(name);
+    await inside(name, (instance) => instance.chats.rename(reading, "Reading"));
+
+    // notify is the user's to ask for: a turn they did not start cannot.
+    expect((await run(name, ROOT_SESSION, 1, { action: "steer", chat: "Reading", notify: true, message: "reply: Too early." })).text).toMatch(/^notify is only for a turn the user started/);
+
+    const said = await inside(name, async (instance) =>
+      (await instance.harness.prompt(`tool chats ${JSON.stringify({ action: "steer", chat: "Reading", notify: true, message: "reply: Three books." })}`)).text ?? ""
+    );
+
+    expect(said).toMatch(/^tool said: Sent to "Reading".*Its answer comes back here when it has one; end the turn\.$/s);
+
+    await until(async () => (await latest(name, reading)) === "Three books.", "Reading's answer");
+
+    // The answer comes back to the main chat as one notice, whose turn is not the user's.
+    await until(async () => (await placed(name, ROOT_SESSION)).some((request) => request?.startsWith("chat-notice:")), "the notice in the main chat");
+    const notices = (await placed(name, ROOT_SESSION)).filter((request) => request?.startsWith("chat-notice:"));
+    expect(notices).toEqual([`chat-notice:${(await placed(name, reading)).at(-1)}`]);
+    expect(await inside(name, (instance) => instance.chats.waitsFor(reading))).toEqual([]);
+    expect((await run(name, ROOT_SESSION, 9, { action: "steer", chat: "Reading", message: "reply: Again." })).text).toMatch(/this turn was not started by the user/);
+  });
+
   it("opens a chat when the main chat's model calls it, as the user asked", async () => {
     const name = crypto.randomUUID();
     const said = await inside(name, async (instance) => (await instance.harness.prompt(`tool chats ${JSON.stringify({ action: "create", message: "reply: On it.", title: "HN yesterday" })}`)).text ?? "");

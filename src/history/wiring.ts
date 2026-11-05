@@ -29,6 +29,19 @@ export function startedByUser(sql: SqlStorage, conversation: string): boolean {
   return newest !== undefined && ownMessages(sql, [newest]).has(newest);
 }
 
+/** Whether `conversation` took in the input submitted as `request`: the harness placed it, so a run has read it. */
+export function tookIn(sql: SqlStorage, conversation: string, request: string): boolean {
+  return (
+    sql
+      .exec(
+        `SELECT 1 FROM pi_submissions WHERE conversation_id = ? AND json_extract(record, '$.requestId') = ? AND json_extract(record, '$.entry') IS NOT NULL LIMIT 1`,
+        Number(conversation),
+        request
+      )
+      .toArray().length > 0
+  );
+}
+
 export function runOpener(sql: SqlStorage, conversation: string, before = Number.MAX_SAFE_INTEGER): number | undefined {
   const [opener] = idsOf(
     sql.exec(
