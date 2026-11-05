@@ -36,7 +36,7 @@ async function home(name: string, id: string): Promise<string> {
 async function session(name: string, query = ""): Promise<{ socket: WebSocket; client: Follower }> {
   const socket = await connect(name, query);
   const client = follow(socket);
-  await client.until(() => client.frames.some((frame) => frame.type === "events"));
+  await client.until(() => client.frames.some((frame) => frame.type === "events") && client.frames.some((frame) => frame.type === "automations"));
 
   return { socket, client };
 }
