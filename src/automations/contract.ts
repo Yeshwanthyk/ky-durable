@@ -27,6 +27,22 @@ export const EXTENSIONS = Object.freeze({ automations: "automations", checkInGua
 
 export const CHECK_IN_TOOLS: readonly string[] = Object.freeze(["executor_skills", "executor_execute", "browse"]);
 
+const CHECK_IN_ENDS = `If you find nothing new, or nothing they could act on now, answer exactly NOTHING_NEW and nothing else. Otherwise answer with only the new facts, each with its source link, in a few lines.
+
+What to look at:
+`;
+
+const DATED_CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
+
+${CHECK_IN_ENDS}`;
+
+const WATCH_CHECK_IN = `[check-in] You are looking at something ky watches for the user: its gate's answer changed, and what it returned is under "Gate found:" below. Say what changed and what it means for them. Look further only where that answer needs it, and never put the user's name, their family's names or their address in a web search. Read only; change nothing anywhere.
+
+${CHECK_IN_ENDS}`;
+
+/** What a check-in's run is told before its prompt: a look's watch reads what its gate found; a dream's dated check-in searches the web. */
+export const checkInPreamble = (watch: boolean): string => (watch ? WATCH_CHECK_IN : DATED_CHECK_IN);
+
 export const AUTOMATION_SOURCE = "automation:";
 
 const ModelColumn = Schema.NullOr(

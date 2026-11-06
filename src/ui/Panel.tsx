@@ -1892,9 +1892,9 @@ function TaskItem({
 
 /** What each purpose is called, and what it does. */
 const PURPOSE_TEXT = {
-  main: { label: "Main agent", hint: "Talks to you, in every chat" },
+  main: { label: "Main agent", hint: "Talks to you, and dreams, looks and reviews for you" },
   worker: { label: "Worker", hint: "Subagents, specialists and automations" },
-  background: { label: "Background", hint: "Titles, memory, dreams and skill reviews. Small and quick is best" },
+  background: { label: "Background", hint: "Titles and memory summaries. Small and quick is best" },
   fallback: { label: "Fallback", hint: "Answers when a provider is down" },
 } as const satisfies Record<Purpose, { label: string; hint: string }>;
 

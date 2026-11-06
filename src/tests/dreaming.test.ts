@@ -5,7 +5,7 @@ import { DREAM_MEMORY_TOOLS, DREAMING_TABLES, MEMORY_WRITE_TOOLS, SOUL_EDIT } fr
 import { DREAM_NOTES } from "../dreaming/dreaming";
 import { dreamCron, dreamingTools, Memory, Soul } from "../dreaming/wiring";
 import { runDurableObjectAlarm } from "cloudflare:test";
-import { agent, browser, dreamTonight, inside, mail, type Tab, prompt, shows } from "./drive";
+import { agent, browser, dreamTonight, inside, mail, type Tab, prompt, shows, snapshotView } from "./drive";
 
 /**
  * Dreaming's invariants that need a Durable Object; the pure ones are in test/invariants/dreaming.test.ts.
@@ -156,6 +156,9 @@ describe("the night's dream", () => {
     expect(await dreams(name)).toEqual([]);
 
     await dreamTonight(name);
+    // The dream judges on the user's main model, as their chats do.
+    const [session] = (await dreams(name)).map((task) => task.session);
+    expect((await snapshotView(name, session ?? undefined)).model).toEqual({ provider: "ky", modelId: "main" });
 
     await page.until(() => page.latest("memory")!.memory.count >= notes + DREAM_NOTES);
     await page.say('tool anticipate {"action":"list"}');

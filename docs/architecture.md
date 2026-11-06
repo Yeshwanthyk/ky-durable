@@ -90,7 +90,7 @@ optional `check()` runs before a refresh places records, and `src/sockets.ts` re
   own messages from the stretch of the chat it read) and listing; the main chat and side chats as `user` ("remind me", "that's done"), citing the user's message.
   Episode reflections (`src/dreaming/episodes.ts`) keep them between dreams: after a main-chat or side-chat turn at
   least 30 minutes after the chat's last pass, busy enough for a skill review with 2 of the user's own messages since,
-  or once 6 of them came, ky forks the chat when it is idle and asks the fork, on the background model, what is still
+  or once 6 of them came, ky forks the chat when it is idle and asks the fork, on the main model, what is still
   open, with the messages since the last pass and their ids. A user entry is the user's own only when its submission's
   request id is a bare UUID (`src/history.ts` `ownMessages`); a relay is a `notice:` line and never a turn.
   The fork may call only `anticipate` and `memory_recall`, is told to answer [SILENT] when nothing is open, and shows in
@@ -109,7 +109,7 @@ optional `check()` runs before a refresh places records, and `src/sockets.ts` re
 - Looks (`src/dreaming/looks.ts`): while Proactivity is on, ky looks over the user's day at their look times
   (local HH:MM in `ky_proactivity`, 08:00, 13:00 and 18:00 until they change them in Settings › Proactivity, at most
   4), each a `look` cron in the Automations Scheduler, booked again on start, when the zone changes, and when the
-  times or on and off change. A look is a fresh conversation on the background model that wakes with memory, shown in
+  times or on and off change. A look is a fresh conversation on the main model that wakes with memory, shown in
   Activity like a dream, and may only read: memory_recall, memory_zoom, chat_search, anticipate (list only) and the
   check-in tools. Its digest holds the open anticipations, the last day of the chats and what looks said lately; it
   weighs what is needed against what is current and answers with rows (ref, needed, current, tell, prepare or skip,
@@ -255,7 +255,7 @@ you added in Settings, else on Workers AI.
 Open pages reload by themselves after a deploy (`CF_VERSION_METADATA`), unless you have a draft.
 
 **Models.** Settings picks a model for each of four purposes (`src/settings.ts`): main; worker (subagents,
-specialists, automations); background (titles, memory summaries, dreams, skill reviews); and fallback. Each
+specialists, automations); background (titles, memory summaries); dreams, looks, episodes, skill reviews, mail and peer answers run on main; and fallback. Each
 provider is a row in `ky_providers`, made live by its module in `src/providers/`. `src/models.ts` owns the
 one pi registry, the catalog, the defaults and `resolve(purpose, need)`, the only way a model is picked.
 Each call checks its provider as it starts (VibeProxy's probe, and a breaker that opens on 401/402/429/5xx);

@@ -26,6 +26,7 @@ import {
   type AutomationStatus,
   type AutomationView,
   CannotSchedule,
+  checkInPreamble,
   type CheckIns,
   draftProblem,
   type Runner,
@@ -120,13 +121,6 @@ const CHECK_INS_WAITING = 6;
 const POSTED = "\n\nYour answer is posted to the user as ky's own message, exactly as written: write only that message, no preamble.";
 
 const CHECK_IN_POSTS = "A check-in's report goes to the main agent, not posted.";
-
-const CHECK_IN = `[check-in] You are looking again at something the user asked about, on the day it matters. Search the web for it in general terms: never put the user's name, their family's names or their address in a query. Read only; change nothing anywhere.
-
-If you find nothing new, or nothing they could act on now, answer exactly NOTHING_NEW and nothing else. Otherwise answer with only the new facts, each with its source link, in a few lines.
-
-What to look at:
-`;
 
 const GATE_TIMEOUT_MS = 30_000;
 
@@ -749,7 +743,7 @@ const make = Effect.gen(function* () {
             const checkIn = isCheckIn(row);
             await runtime.spawn(tx, conversationOf(chat), {
               name: workerOf(row.id),
-              message: `${checkIn ? CHECK_IN : ""}${row.prompt}${row.post ? POSTED : ""}`,
+              message: `${checkIn ? checkInPreamble(row.watch !== null) : ""}${row.prompt}${row.post ? POSTED : ""}`,
               model: models.worker(row.model ?? owner?.model ?? null),
               feedId: task,
               label: labelOf(row),
