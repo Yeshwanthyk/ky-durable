@@ -1,7 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { localCron } from "../dreaming/contract";
-import { browser, connectExecutor, fire, inside, type Tab, until } from "./drive";
+import { browser, connectExecutor, fire, inside, snapshotView, type Tab, until } from "./drive";
 
 /**
  * ky's looks over the day (src/dreaming/looks.ts) on its real Worker: booked at the user's look times while
@@ -96,6 +96,9 @@ describe("a look", () => {
     expect(rows).toMatchObject([{ ref, text: said }]);
     expect(rows[0]?.item).toMatch(new RegExp(`^look:\\d{4}-\\d{2}-\\d{2}:08:00:${ref}$`));
     expect(looks).toBe(1);
+    // A look judges on the user's main model, as their chats do.
+    const [session] = await inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "looks").map((task) => task.session));
+    expect((await snapshotView(name, session ?? undefined)).model).toEqual({ provider: "ky", modelId: "main" });
 
     // The next look weighs the same row: the user has not written since and its anticipation is still open, so it is
     // not said again.

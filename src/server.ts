@@ -263,13 +263,13 @@ export class PiAgent extends DurableObject<Env> {
     owners: (owner) => (owner === KY || this.specialists.has(owner) ? { profile: this.specialists.profile(owner), model: this.specialists.get(owner)?.model ?? null } : undefined)
   });
   readonly registry = createRegistry();
-  /** Where skill reviews and dreams run and report. */
-  readonly #background: ReviewHost = {
+  /** Where the runs that judge for the user run and report: dreams, looks, episodes, skill reviews, mail and peer answers. They run on the user's main model, as chats do. */
+  readonly #judging: ReviewHost = {
     conversation: (session) => this.harness.conversation(session),
     feed: this.feed,
     later: (work) => this.ctx.waitUntil(work),
     context: BACKGROUND_CONTEXT,
-    model: () => slotModel("background"),
+    model: () => slotModel("main"),
     allows: (work) => this.spend.allows(work)
   };
   /** When the user was last here; the dream waits until they are away. */
@@ -384,10 +384,10 @@ export class PiAgent extends DurableObject<Env> {
     memory: this.memory,
     skills: this.skills,
     reviews: this.reviews,
-    host: this.#background,
+    host: this.#judging,
     create: async () => {
       const { id } = await this.harness.sessions.create();
-      await this.#configure(id, "background");
+      await this.#configure(id);
 
       return id;
     },
@@ -405,11 +405,11 @@ export class PiAgent extends DurableObject<Env> {
     history: this.history,
     anticipations: this.anticipations,
     reviews: this.reviews,
-    host: this.#background,
+    host: this.#judging,
     // A look may read the web as a check-in does, so it keeps browse.
     create: async () => {
       const { id } = await this.harness.sessions.create();
-      await this.#configure(id, "background", { browse: true });
+      await this.#configure(id, "main", { browse: true });
 
       return id;
     },
@@ -433,7 +433,7 @@ export class PiAgent extends DurableObject<Env> {
     asker: this.approvals,
     unattended: (session) => this.unattended(session),
     tell: (session, content, requestId) => this.inbound.desk.tell(session, content, requestId),
-    draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#background, session, demo),
+    draft: (session, demo) => draftFromDemo(this.skills, this.reviews, this.#judging, session, demo),
     later: (work) => this.ctx.waitUntil(work)
   });
   readonly browse = this.browsing.extension;
@@ -451,7 +451,7 @@ export class PiAgent extends DurableObject<Env> {
         reviews: this.reviews,
         chat,
         storage: this.ctx.storage,
-        background: this.#background,
+        background: this.#judging,
         busyAfter: () => this.skills.reviewAfter,
         proactivity: this.proactivity
       });
@@ -463,7 +463,7 @@ export class PiAgent extends DurableObject<Env> {
         feed: this.feed,
         models: this.models,
         automations: this.automations,
-        background: this.#background,
+        background: this.#judging,
         chat,
         peer: (session) => this.peerAsks.peerConversation(session),
         deliver: (item) => this.deliveries.deliver(item),
@@ -1090,14 +1090,14 @@ export class PiAgent extends DurableObject<Env> {
     return taken === "new" || taken === "known" ? undefined : taken;
   }
 
-  /** Answer a peer's question in a conversation of its own on the background model, shown in Activity, and send the answer back. */
+  /** Answer a peer's question in a conversation of its own on the main model, shown in Activity, and send the answer back. */
   async #answerPeer(name: string, id: string, question: string): Promise<void> {
     const { id: session } = await this.harness.sessions.create();
     this.peerAsks.answering(name, id, session);
     this.outside.mark(session, "peer");
-    await this.#configure(session, "background");
+    await this.#configure(session);
 
-    const said = await runInFeed(this.#background, await this.harness.conversation(session), {
+    const said = await runInFeed(this.#judging, await this.harness.conversation(session), {
       id: crypto.randomUUID(),
       worker: name,
       title: `${name} asks`,
@@ -1126,13 +1126,13 @@ export class PiAgent extends DurableObject<Env> {
     this.ctx.waitUntil(receive(this.mailDesk, mail));
   }
 
-  /** Read a mail in a triage conversation of its own on the background model, shown in Activity: what it said. */
+  /** Read a mail in a triage conversation of its own on the main model, shown in Activity: what it said. */
   async #triageMail(id: string, sender: string, content: string, started: (session: string) => void): Promise<string | undefined> {
     const { id: session } = await this.harness.sessions.create();
     started(session);
-    await this.#configure(session, "background");
+    await this.#configure(session);
 
-    return runInFeed(this.#background, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
+    return runInFeed(this.#judging, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
   }
 
   /** Settings › Webhooks: the hooks, and the chats a hook can post to. */

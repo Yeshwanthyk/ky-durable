@@ -174,12 +174,12 @@ describe("who a model's answer was for", () => {
     task: (session: string) => tasks.get(session) as TaskRow | undefined
   };
 
-  it("is the chat, a background review, an automation, a triage, a subagent, or other", () => {
+  it("is the chat, a review on the main model, an automation, a triage, a subagent, or other", () => {
     expect(["chat", "fork", "routine", "triage", "sub", "stray"].map((session) => attribution(whose, session))).toEqual([
       { purpose: "main", source: "chat" },
-      { purpose: "background", source: "episode" },
+      { purpose: "main", source: "episode" },
       { purpose: "worker", source: "automation" },
-      { purpose: "background", source: "mail" },
+      { purpose: "main", source: "mail" },
       { purpose: "worker", source: "subagent" },
       { purpose: "main", source: "other" }
     ]);

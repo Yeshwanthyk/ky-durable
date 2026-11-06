@@ -29,14 +29,14 @@ export function attribution(whose: Whose, session: string): Attribution {
   if (whose.chat(session)) return { purpose: "main", source: "chat" };
   const review = whose.review(session);
 
-  if (review !== undefined) return { purpose: "background", source: REVIEWS[review] };
+  if (review !== undefined) return { purpose: "main", source: REVIEWS[review] };
   const task = whose.task(session);
 
   if (task === undefined) return { purpose: "main", source: "other" };
 
   if (task.source.startsWith(AUTOMATION_SOURCE)) return { purpose: "worker", source: "automation" };
 
-  if (task.source === BACKGROUND_SOURCE) return { purpose: "background", source: task.worker === "mail" ? "mail" : "peer" };
+  if (task.source === BACKGROUND_SOURCE) return { purpose: "main", source: task.worker === "mail" ? "mail" : "peer" };
 
   return { purpose: "worker", source: "subagent" };
 }

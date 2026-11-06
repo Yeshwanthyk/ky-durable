@@ -11,6 +11,7 @@ import {
   AutomationToolInput,
   BY_ID_ACTIONS,
   CHECK_IN_TOOLS,
+  checkInPreamble,
   AUTOMATION_TABLES,
   taskRows,
   TOOL_ACTIONS
@@ -307,5 +308,25 @@ describe("stored data", () => {
       { id: "a1", zone: "UTC", owner: "ky", gate: null, gate_errors: 0, post: false, watch: null, model: { provider: "workers-ai", modelId: "glm", thinkingLevel: "off" }, last: null }
     ]);
     world.db.close();
+  });
+});
+
+describe("what a check-in's run is told", () => {
+  it("a watch is told its gate found something and to say what changed, not to search the web for something the user asked about", () => {
+    const watch = checkInPreamble(true);
+
+    expect(watch).toMatch(/^\[check-in\]/);
+    expect(watch).toContain("Gate found:");
+    expect(watch).not.toContain("Search the web for it");
+    expect(watch).toContain("NOTHING_NEW");
+    expect(watch).toMatch(/\nWhat to look at:\n$/);
+  });
+
+  it("a dream's check-in still searches the web for what the user asked about, on the day it matters", () => {
+    const dream = checkInPreamble(false);
+
+    expect(dream).toContain("Search the web for it in general terms");
+    expect(dream).toContain("NOTHING_NEW");
+    expect(dream).toMatch(/\nWhat to look at:\n$/);
   });
 });
