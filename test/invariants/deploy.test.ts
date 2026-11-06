@@ -9,7 +9,7 @@ import { type Context, deployCommand } from "../../cli/commands.ts";
 import { overlayFor, readOverlay, writeOverlay } from "../../cli/config.ts";
 import { initCommand } from "../../cli/init.ts";
 import type { Release } from "../../cli/release.ts";
-import { type FakeAccount, type FakeApp, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare } from "../fakes/cloudflare.ts";
+import { earlierKy, type FakeAccount, type FakeApp, type FakeCloudflare, type FakeScript, fakeAccount, fakeCloudflare } from "../fakes/cloudflare.ts";
 import { fakeSystem } from "../fakes/system.ts";
 import { budget } from "../parity/kit.ts";
 
@@ -191,10 +191,15 @@ function trespasses(start: FakeAccount, now: FakeAccount): string[] {
 
 const same = <T,>(a: T, b: T | undefined) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Whether a deploy, today's or an earlier ky's, marked it as its own. */
+const ourTags = (tags: readonly string[] | undefined) => ["self-hosted-agent", "ky"].some((tag) => tags?.includes(tag));
+
+const ourBucket = (keys: Set<string>) => keys.has(".self-hosted-agent") || keys.has(".ky");
+
 function foreignChanged(start: FakeAccount, now: FakeAccount): string[] {
-  const workers = [...start.scripts].filter(([name, script]) => !script.tags.includes("ky") && !same(scriptData(script), mapOr(now.scripts.get(name), scriptData)));
-  const buckets = [...start.buckets].filter(([name, keys]) => !keys.has(".ky") && !same(sorted(keys), sorted(now.buckets.get(name) ?? ["(gone)"])));
-  const apps = [...start.apps].filter(([id, app]) => !app.tags?.includes("ky") && !same(app, now.apps.get(id)));
+  const workers = [...start.scripts].filter(([name, script]) => !ourTags(script.tags) && !same(scriptData(script), mapOr(now.scripts.get(name), scriptData)));
+  const buckets = [...start.buckets].filter(([name, keys]) => !ourBucket(keys) && !same(sorted(keys), sorted(now.buckets.get(name) ?? ["(gone)"])));
+  const apps = [...start.apps].filter(([id, app]) => !ourTags(app.tags) && !same(app, now.apps.get(id)));
 
   return [
     ...workers.map(([name]) => `changed someone else's Worker ${name}`),
@@ -204,10 +209,10 @@ function foreignChanged(start: FakeAccount, now: FakeAccount): string[] {
 }
 
 function untaggedMade(start: FakeAccount, now: FakeAccount): string[] {
-  const workers = [...now.scripts].filter(([name, script]) => !start.scripts.has(name) && !script.tags.includes("ky"));
-  const apps = [...now.apps].filter(([id, app]) => !start.apps.has(id) && !app.tags?.includes("ky"));
+  const workers = [...now.scripts].filter(([name, script]) => !start.scripts.has(name) && !script.tags.includes("self-hosted-agent"));
+  const apps = [...now.apps].filter(([id, app]) => !start.apps.has(id) && !app.tags?.includes("self-hosted-agent"));
 
-  return [...workers.map(([name]) => `made Worker ${name} without the ky tag`), ...apps.map(([id]) => `made Access app ${id} without the ky tag`)];
+  return [...workers.map(([name]) => `made Worker ${name} without the self-hosted-agent tag`), ...apps.map(([id]) => `made Access app ${id} without the self-hosted-agent tag`)];
 }
 
 function mapOr<T, U>(value: T | undefined, f: (value: T) => U): U | undefined {
@@ -291,7 +296,7 @@ describe("ky deploy, on any account", () => {
 
       if (keys.length === 0 && !bound) {
         expect(ok, where).toBe(true);
-        expect(now, where).toEqual([".ky"]);
+        expect(now, where).toEqual([".self-hosted-agent"]);
       } else {
         expect(ok, where).toBe(false);
         expect(now, where).toEqual(keys);
@@ -334,6 +339,54 @@ describe("ky deploy, on any account", () => {
     expect([...broken].sort()).toEqual([]);
   });
 
+  it("I-D8: a ky an earlier release deployed is moved over; cut off after any request, its bucket keeps a marker and the rerun converges", async () => {
+    const earlier = async () => {
+      const at = await after(["now"]);
+
+      at.account.buckets.get("ky-files")?.add("chat/a.png");
+      earlierKy(at.account);
+
+      return at;
+    };
+
+    const clean = await earlier();
+    const start = copy(clean.account);
+    const before = clean.fake.served;
+
+    expect((await deploy(clean, "now")).ok).toBe(true);
+    const expected = snapshot(clean.account);
+    const requests = clean.fake.served - before;
+
+    await clean.fake.close();
+    expect(clean.account.scripts.get("ky")?.tags).toEqual(["self-hosted-agent", "self-hosted-agent-release-r1"]);
+    expect([...clean.account.apps.values()].flatMap((app) => (app.name.startsWith("ky") ? [app.tags] : []))).toEqual([["self-hosted-agent"], ["self-hosted-agent"]]);
+    expect(sorted(clean.account.buckets.get("ky-files") ?? [])).toEqual([".self-hosted-agent", "chat/a.png"]);
+    expect(trespasses(start, clean.account)).toEqual([]);
+
+    const broken = new Set<string>();
+
+    for (let k = 0; k < requests; k++) {
+      const at = await earlier();
+      const { last } = await deploy(at, "now", k);
+      const keys = new Set(at.account.buckets.get("ky-files"));
+      const rerun = await deploy(at, "now");
+      const where = `cut after ${last}`;
+
+      if (!keys.has(".ky") && !keys.has(".self-hosted-agent")) broken.add(`${where}: the bucket has no marker`);
+
+      if (!rerun.ok) broken.add(`${where}: the rerun fails`);
+      else {
+        const different = difference(expected, snapshot(at.account));
+
+        if (different) broken.add(`${where}: ${different}`);
+      }
+
+      await at.fake.close();
+    }
+
+    expect([...broken].sort()).toEqual([]);
+  });
+
   it("I-D1, I-D3, I-D4, I-D5 hold through any run of deploys, cuts and secrets", async () => {
     type Model = { secrets: Map<string, string> };
 
@@ -344,7 +397,7 @@ describe("ky deploy, on any account", () => {
 
       expect(trespasses(real.start, real.at.account)).toEqual([]);
 
-      if (!ky?.tags.includes("ky")) return;
+      if (!ky?.tags.includes("self-hosted-agent")) return;
 
       const order = ky.migrations.map((migration) => ORDER.indexOf(migration.new_tag ?? ""));
 
@@ -378,7 +431,7 @@ describe("ky deploy, on any account", () => {
         const mine = real.at.account.scripts.get("ky");
         const theirs = real.shadow.account.scripts.get("ky");
 
-        if (!mine?.tags.includes("ky") || !theirs?.tags.includes("ky")) return;
+        if (!mine?.tags.includes("self-hosted-agent") || !theirs?.tags.includes("self-hosted-agent")) return;
 
         mine.secrets.set(name, value);
         theirs.secrets.set(name, value);
