@@ -6,6 +6,8 @@ import type { Refusable } from "../core/edge.ts";
 import type { MachineInfo } from "../protocol.ts";
 import { AGENT_EFFORTS, AGENT_MODELS, AGENT_NAMES, AgentModelSchema, AgentSchema, type Agent, type AgentModel, FactsSchema, Integer, type MachineFacts, type RunCreds, type TaskReport } from "./runner-protocol.ts";
 
+export { envNames, fromEnv, HEADERS, isRunnerEnv, readHeader, setHeader, toEnv, toHeaders } from "./wire-names.ts";
+
 export {
   AGENT_EFFORTS,
   AGENT_MODELS,
@@ -20,7 +22,6 @@ export {
   isPipeReport,
   ISSUED_TTL_MS,
   OUTDATED,
-  PAIRING_HEADER,
   PROTOCOL,
   REPLACED,
   REVOKED,

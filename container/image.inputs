@@ -28,6 +28,7 @@ wrangler-overlay.ts
 cli/runner/
 src/machines/contract.ts
 src/machines/runner-protocol.ts
+src/machines/wire-names.ts
 src/core/decode.ts
 src/files/contract.ts
 src/step-labels.ts

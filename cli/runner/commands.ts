@@ -22,6 +22,7 @@ import { github } from "./github.ts";
 import { attach, diff } from "./share.ts";
 import { asInstance, compiled, defaultWorkdir, type System } from "./system.ts";
 import { deleteToken, describeStore, keychainRemoval, readToken, tokenStore, writeToken } from "./token.ts";
+import { fromEnv } from "../../src/machines/contract.ts";
 
 export type RunnerFlags = { name?: string; as?: string; replace?: boolean; yes?: boolean; "no-service"?: boolean; follow?: boolean; json?: boolean };
 
@@ -38,7 +39,7 @@ type Found = { agents: Record<Agent, AgentFacts>; chrome: boolean; folders: { fo
 
 async function detect(context: Context): Promise<Found> {
   const { env, system } = context;
-  const [claude, codex] = await Promise.all([ASK.claude(env.KY_CLAUDE ?? "claude"), ASK.codex(env.KY_CODEX ?? "codex")]);
+  const [claude, codex] = await Promise.all([ASK.claude(fromEnv(env, "CLAUDE") ?? "claude"), ASK.codex(fromEnv(env, "CODEX") ?? "codex")]);
   const open = await Promise.all(LOCAL_SERVERS.map(async (server) => ((await system.listening(server.port)) ? [server] : [])));
 
   return {
@@ -202,13 +203,13 @@ async function pairHere(context: Context, out: Output, positionals: string[], fl
   if (!typedUrl || !code) throw new Error("usage: ky runner add <ky url> <code>; the code is in ky's Settings, Machines, Add a machine");
   const url = kyUrl(typedUrl);
   const before = await earlier(context, url, Boolean(flags.replace));
-  const name = machineName(flags.name ?? env.KY_MACHINE);
-  const workdir = env.KY_WORKDIR ?? defaultWorkdir(system);
+  const name = machineName(flags.name ?? fromEnv(env, "MACHINE"));
+  const workdir = fromEnv(env, "WORKDIR") ?? defaultWorkdir(system);
   const found = await out.waiting("Looking at what this computer has", () => detect(context));
 
   out.done(`Found ${foundWords(found)}`);
   const shared = await choose(found, terminal() && !flags.yes, workdir);
-  const settings: Settings = { url, name, token: tokenStore(system, env), workdir, permissionMode: env.KY_PERMISSION_MODE ?? "bypassPermissions", ...shared };
+  const settings: Settings = { url, name, token: tokenStore(system, env), workdir, permissionMode: fromEnv(env, "PERMISSION_MODE") ?? "bypassPermissions", ...shared };
   const paired = await out.waiting(`Pairing with ${url}`, () => pair(url, code, name, factsFor(settings, found)));
 
   settings.name = paired.machine;
@@ -234,7 +235,11 @@ async function addCommand(context: Context, positionals: string[], flags: Runner
   }
 
   const since = Date.now();
-  const dirs = Object.entries(serviceDirs(context.system)).map(([name, value]) => `${name}=${value}`);
+
+  // Each variable once, by its new name: PR5b drops the filter with the KY_ twin it skips.
+  const dirs = Object.entries(serviceDirs(context.system))
+    .filter(([name]) => !name.startsWith("KY_"))
+    .map(([name, value]) => `${name}=${value}`);
 
   // A trial's setting would stay in the service: say so, as it is kept until the next `ky runner add`.
   if (dirs.length > 0) out.done(`The service keeps ${dirs.join(" and ")}, as this shell has it. For the default, unset it and run ky runner add again`);
@@ -275,7 +280,7 @@ async function runCommand(context: Context): Promise<number> {
   const token = await readToken(system, settings.token);
   const version = compiled() ? (await context.release()).version : checkoutVersion();
 
-  await runRunner({ settings, token, state: system.state, version, ky: system.ky, service: env.KY_RUNNER_SERVICE === "1", ...(env.KY_RUNNER_PROBE_MS && { probe: Number(env.KY_RUNNER_PROBE_MS) }) });
+  await runRunner({ settings, token, state: system.state, version, ky: system.ky, service: fromEnv(env, "RUNNER_SERVICE") === "1", ...(fromEnv(env, "RUNNER_PROBE_MS") && { probe: Number(fromEnv(env, "RUNNER_PROBE_MS")) }) });
 
   return 0;
 }
@@ -449,7 +454,7 @@ function sameKy(one: string, other: string): boolean {
 export async function runnerCommand(given: Context, positionals: string[], flags: RunnerFlags): Promise<number> {
   const [command, ...rest] = positionals;
   // A second runner, for another ky: `--as`, or KY_RUNNER_AS, which its service sets.
-  const as = flags.as ?? (given.env.KY_RUNNER_AS || undefined);
+  const as = flags.as ?? (fromEnv(given.env, "RUNNER_AS") || undefined);
   const context = as ? { ...given, system: asInstance(given.system, as) } : given;
 
   const commands = new Map<string, () => Promise<number>>([
