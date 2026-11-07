@@ -1505,6 +1505,44 @@ test("sets how many posts a day notify right away in Settings › Proactivity, n
   await expect(rightAway).toHaveValue("6");
 });
 
+test("sets how often ky looks between look times in Settings › Proactivity, and keeps it after a reload", async ({ page }) => {
+  await open(page);
+  await settings(page, "Proactivity");
+  const pace = panel(page).getByRole("radiogroup", { name: "Pace" });
+  await expect(pace.getByRole("radio", { name: "Balanced" })).toHaveAttribute("aria-checked", "true");
+
+  await pace.getByRole("radio", { name: "Eager" }).click();
+  await expect(panel(page).getByText(/every hour and when mail arrives/)).toBeVisible();
+  await page.reload();
+  await settings(page, "Proactivity");
+  await expect(pace.getByRole("radio", { name: "Eager" })).toHaveAttribute("aria-checked", "true");
+
+  // Back to the default for the tests after.
+  await pace.getByRole("radio", { name: "Balanced" }).click();
+  await page.reload();
+  await settings(page, "Proactivity");
+  await expect(pace.getByRole("radio", { name: "Balanced" })).toHaveAttribute("aria-checked", "true");
+});
+
+test("shows what the user is working toward on Activity's Desk, with its next step, once ky puts it on the work map", async ({ page }) => {
+  await open(page);
+  const title = `Launch ${crypto.randomUUID().slice(0, 6)}`;
+  await send(page, `tool work_map {"action":"add","title":"${title}","next":"Draft the announcement"}`);
+  await expect(chat(page).getByText(new RegExp(`map:\\d+ \\[open\\] ${title}`)).first()).toBeVisible();
+
+  // The Desk reads when the page connects.
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const desk = panel(page).getByRole("region", { name: "Desk" });
+  const item = desk.getByRole("listitem", { name: title });
+  await expect(item).toBeVisible();
+  await expect(item.getByText("Next: Draft the announcement")).toBeVisible();
+  await expect(item.getByText("Open")).toBeVisible();
+
+  if (SHOTS) await desk.screenshot({ path: `${SHOTS}/desk.png` });
+});
+
 test("switches to a tapped notification's chat without reloading the page", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();

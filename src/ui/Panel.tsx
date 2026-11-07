@@ -49,6 +49,7 @@ import { Inbound } from "./Inbound";
 import { Mail } from "./Mail";
 import { Proactivity, ProactivityValue } from "./Proactivity";
 import { Spend, SpendValue } from "./Spend";
+import { Desk } from "./Desk";
 import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
@@ -472,6 +473,7 @@ function Activity({
         <Timeline now={feed.now} zone={zone} busy={live.length + running.length > 0} finished={finished} onView={show} onRun={openRun} />
       </section>
       {run ? <TaskSheet task={run} now={feed.now} onClose={() => setRun(null)} onOpen={feed.onOpen} /> : null}
+      <Desk now={feed.now} onOpen={feed.onOpen} />
       <LastNight now={feed.now} />
       <History past={earlier} {...feed} />
     </div>

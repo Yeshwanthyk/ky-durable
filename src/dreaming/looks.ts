@@ -15,7 +15,10 @@ import { type History, wroteSince } from "../history/wiring";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
 import { type Anticipation, localCron, localNow } from "./contract";
-import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS, UNWANTED_MS } from "./decide";
+import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS, starts, UNWANTED_MS } from "./decide";
+import type { LookEvent, LookEvents } from "./events";
+import { mapLine, type WorkMap } from "./map";
+import { fingerprint, heartbeats, shouldAsk, STARTS_A_DAY, type Trigger, triggerOf } from "./pace";
 import { MEMORIES_DISAGREE } from "./dreaming";
 import type { Proactivity } from "./proactivity";
 import type { Surfaced } from "./surfaced";
@@ -33,19 +36,20 @@ const WATCH_CRON = "*/15 * * * *";
 
 const WATCH_TITLE_CHARS = 60;
 
-const LOOK_PROMPT = `[look] You are ky taking a look over the user's day, a background run at one of their look times. Nobody reads your answer but the Activity panel; what you decide to say, ky posts in the main chat as written.
+const LOOK_PROMPT = `[look] You are ky taking a look over the user's day, a background run at one of their look times, a heartbeat between them, or because something arrived. Nobody reads your answer but the Activity panel; what you decide to say, ky posts in the main chat as written.
 
 You may call only memory_recall, memory_zoom, chat_search, anticipate (action list only), executor_skills, executor_execute and browse. Read only: change nothing anywhere, and create no automation.
 
 Compare what is NEEDED with what is CURRENT:
-- Needed: the open anticipations below (open loops, upcoming dates, likely asks, things to watch) and the lasting memories you woke with (the user's people, plans, preferences, routines).
-- Current: what was said in the chats lately, below, and what the user's connections say now (the weather, their mail, the web through Executor) where a needed thing turns on it.
+- Needed: the open anticipations below (open loops, upcoming dates, likely asks, things to watch), the work map below (what the user is working toward and its next step) and the lasting memories you woke with (the user's people, plans, preferences, routines).
+- Current: what was said in the chats lately, what arrived since the last look, below, and what the user's connections say now (the weather, their mail, the web through Executor) where a needed thing turns on it.
 
 Answer with only a JSON array, one row for each needed thing you weighed:
-{"ref": "anticipation:12" or "memory:34", "needed": "...", "current": "...", "action": "tell" or "prepare" or "skip", "by": "2026-10-17T09:00:00+02:00", "message": "..."}
-- ref: the open anticipation (#12) or the memory (#34) the row rests on.
+{"ref": "anticipation:12" or "map:5" or "memory:34", "needed": "...", "current": "...", "action": "tell" or "prepare" or "start" or "skip", "by": "2026-10-17T09:00:00+02:00", "message": "..."}
+- ref: the open anticipation (#12), the map item (map:5) or the memory (#34) the row rests on.
 - tell: something the user should hear now.
 - prepare: something the user will need ready before by: message holds it drafted in full.
+- start: work ky should begin now, in a chat of its own the user can read and keep or discard, because a next step is clear, needs no decision of the user's, and would take them a while (a draft, research, a comparison). prompt is the task as the user would give it, in full; message tells the user what ky started and why. Rare: only when STARTS LEFT TODAY below is above 0, and never anything that sends, buys, books, deletes or speaks for the user.
 - skip: nothing worth saying now; no message.
 - message: the whole message as ky would say it in the chat: natural and short, no preamble, no ref or #id.
 - changed, only on a row whose ref has a 👎 under How your recent posts landed: what is new since that post. Without it, ky does not post on that ref.
@@ -80,6 +84,10 @@ type LookParts = {
   readonly deliver: (item: Delivery, now: number) => Promise<void>;
   readonly automations: Automations;
   readonly verdicts: Verdicts;
+  readonly events: LookEvents;
+  readonly map: WorkMap;
+  /** Open a chat by ky on `task`, the user's to keep or discard; its session. */
+  readonly start: (task: string, request: string) => Promise<string>;
 };
 
 const CountRow = Schema.Struct({ n: Schema.Number });
@@ -104,7 +112,7 @@ class Looking extends Context.Service<
       Effect.gen(function* () {
         const sql = yield* Sql;
 
-        const { history, anticipations, reviews, host, surfaced, proactivity, automations, verdicts } = parts;
+        const { history, anticipations, reviews, host, surfaced, proactivity, automations, verdicts, events, map } = parts;
 
         const looking = yield* Ref.make(false);
         const level = Effect.sync(() => proactivity.level());
@@ -132,7 +140,7 @@ class Looking extends Context.Service<
           );
         });
 
-        const ask = Effect.fn("Looks.ask")(function* (time: string, now: number, next: NextLook | undefined) {
+        const ask = Effect.fn("Looks.ask")(function* (time: string, now: number, next: NextLook | undefined, arrived: readonly LookEvent[], startsLeft: number) {
           const zone = yield* Effect.sync(() => parts.zone());
 
           const digest = yield* Effect.sync(() =>
@@ -142,6 +150,15 @@ class Looking extends Context.Service<
                 "Open anticipations, oldest first:",
                 anticipations.open().map((row) => anticipationLine(row, now))
               ),
+              ...section(
+                "The work map, what the user is working toward:",
+                map.open().map(mapLine)
+              ),
+              ...section(
+                "Arrived since the last look, oldest first:",
+                arrived.map((event) => `- [${event.kind}] ${event.line}`)
+              ),
+              `STARTS LEFT TODAY: ${startsLeft}`,
               ...section(
                 'What was said in the last day, oldest first ("user:" is the user\'s own words; "notice:" was relayed for someone else):',
                 history.since({ seq: 0, at: now - RECENT_MS }, SAID_CHARS, now).lines
@@ -174,7 +191,7 @@ class Looking extends Context.Service<
           );
         });
 
-        const post = Effect.fn("Looks.post")(function* (prefix: string, rows: readonly LookRow[], open: ReadonlySet<string>, next: number | null) {
+        const post = Effect.fn("Looks.post")(function* (prefix: string, rows: readonly LookRow[], open: ReadonlySet<string>, next: number | null, startsLeft: number) {
           const now = yield* Clock.currentTimeMillis;
           const memories: string[] = [];
 
@@ -182,7 +199,7 @@ class Looking extends Context.Service<
             if (yield* isMemory(row.ref)) memories.push(row.ref);
           }
 
-          const known = new Set([...open, ...memories]);
+          const known = new Set([...open, ...memories, ...map.open().map((item) => `map:${item.id}`)]);
 
           const said = yield* Effect.sync(
             () =>
@@ -200,13 +217,22 @@ class Looking extends Context.Service<
 
           const unwanted = yield* Effect.sync(() => verdicts.unwanted(now - UNWANTED_MS));
 
-          for (const [index, row] of decide(rows, {
-            now,
-            next,
-            known,
-            said,
-            unwanted
-          }).entries()) {
+          const context = { now, next, known, said, unwanted };
+
+          // A start opens its chat before its post, so the post can name it; its id keeps a retried look from starting it twice.
+          for (const row of starts(rows, context, startsLeft)) {
+            if ((yield* level) === "off") return;
+            const id = `${prefix}:start:${row.ref}`;
+
+            if (events.starts(0).some((each) => each.id === id)) continue;
+            const session = yield* Effect.promise(() => parts.start(row.prompt, id));
+            yield* Effect.sync(() => events.started({ id, ref: row.ref, session, title: row.message.slice(0, 120), at: now }));
+            yield* Effect.promise(() =>
+              parts.deliver({ id, session: ROOT_SESSION, content: row.message, line: row.message, ref: row.ref, kind: "look" }, now)
+            );
+          }
+
+          for (const [index, row] of decide(rows, context).entries()) {
             if ((yield* level) === "off") return;
             const message = row.message ?? "";
             yield* Effect.promise(() =>
@@ -270,19 +296,44 @@ class Looking extends Context.Service<
           }
         });
 
-        const look = Effect.fn("Looks.look")(function* (time: string) {
+        // What a look reads, so a heartbeat can tell nothing changed without asking the model (invariant 2).
+        const reads = (now: number) =>
+          Effect.sync(() =>
+            fingerprint({
+              anticipations: anticipations.open().map((row) => row.id),
+              map: map.open().map((item) => `${item.id}:${item.state}:${item.updated_at}`),
+              // No line is newer than now, so this reads only the newest seq any chat has.
+              wrote: String(history.since({ seq: 0, at: now }, 1, now).through),
+              verdicts: verdicts.recent(LANDED).length
+            })
+          );
+
+        const look = Effect.fn("Looks.look")(function* (time: string, trigger: Trigger) {
           const now = yield* Clock.currentTimeMillis;
           const local = localNow(parts.zone(), now);
+          const pace = proactivity.pace();
+          const read = yield* reads(now);
 
+          const asks = shouldAsk({ trigger, pace, changed: read !== events.last(), waiting: events.waiting().length, extraToday: events.extraToday(now) });
+
+          if (!asks) return;
           const next = nextLook(proactivity.looks().map(minutesOf), local.minutes);
 
           const open = new Set(anticipations.open().map((row) => `anticipation:${row.id}`));
 
-          const answer = yield* ask(time, now, next);
+          const startsLeft = Math.max(0, STARTS_A_DAY[pace] - events.starts(now - DAY_MS).length);
 
-          if (answer === undefined) return;
+          // Every waiting event goes to this look alone; a look that fails gives them back for the next (invariant 1).
+          const id = `look-${crypto.randomUUID()}`;
+          const arrived = yield* Effect.sync(() => events.claim(id));
+
+          const answer = yield* ask(time, now, next, arrived, startsLeft).pipe(Effect.onError(() => Effect.sync(() => events.release(id))));
+
+          if (answer === undefined) return yield* Effect.sync(() => events.release(id));
+          yield* Effect.sync(() => events.ran(id, trigger, read, now));
           const rows = lookRows(answer);
-          yield* post(`look:${local.date}:${time}`, rows, open, next === undefined ? null : now + next.ahead * 60_000);
+          // A heartbeat or an event look posts under its own minute, so it never shares an id with the look at a time.
+          yield* post(`look:${local.date}:${trigger === "look" ? time : clock(local.minutes)}`, rows, open, next === undefined ? null : now + next.ahead * 60_000, startsLeft);
           yield* watch(rows);
         });
 
@@ -292,7 +343,9 @@ class Looking extends Context.Service<
 
             if ((yield* level) === "off") return [];
 
-            return proactivity.looks().map((time) => ({
+            const looks = proactivity.looks();
+
+            return [...looks, ...heartbeats(looks, proactivity.pace())].map((time) => ({
               time,
               cron: localCron(minutesOf(time), zone, now)
             }));
@@ -302,7 +355,7 @@ class Looking extends Context.Service<
 
             if (!(yield* Effect.sync(() => host.allows("look")))) return;
             yield* Ref.set(looking, true);
-            yield* Effect.suspend(() => look(time)).pipe(
+            yield* Effect.suspend(() => look(time, triggerOf(time, proactivity.looks()))).pipe(
               Effect.catchCause((cause) => warn("look failed", Cause.squash(cause))),
               Effect.ensuring(Ref.set(looking, false))
             );
@@ -335,6 +388,8 @@ export class Looks {
 }
 
 const MINUTES_A_DAY = 24 * 60;
+
+const DAY_MS = 86_400_000;
 
 type NextLook = {
   readonly at: number;

@@ -164,6 +164,12 @@ export const ClientMessageSchema = Type.Union([
   message("set-proactivity", { level: ProactivityLevelSchema }),
   /** Set the look times, each local HH:MM; answers with Settings › Proactivity, or fails saying what is wrong. */
   message("set-looks", { looks: Texts }),
+  /** Set how often ky looks on its own between look times: quiet, balanced or eager; answers with Settings › Proactivity. */
+  message("set-pace", { pace: Type.Union([Type.Literal("quiet"), Type.Literal("balanced"), Type.Literal("eager")]) }),
+  /** Answers with the Desk: the work map, what arrived, what ky started and the day's extra looks. */
+  message("desk", {}),
+  /** Keep or discard work ky started, by its id; answers with the Desk, or `{ refused }`. */
+  message("judge-start", { start: Text, verdict: Type.Union([Type.Literal("kept"), Type.Literal("discarded")]) }),
   /** Set how many posts a day push to the user's devices; answers with Settings › Proactivity. */
   message("set-right-away", { most: Type.Integer({ minimum: 0, maximum: RIGHT_AWAY_MOST }) }),
   /** Answers with Settings › Spend: today, this month, today by purpose and source, and the daily cap. */

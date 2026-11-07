@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { Sql } from "../core/sql";
 import { LOOK_TIME, LOOK_TIMES, type ProactivityLevel, type ProactivityView, RIGHT_AWAY_MOST } from "./contract";
+import { DEFAULT_PACE, Pace } from "./pace";
 
 const DEFAULT_LOOKS = ["08:00", "13:00", "18:00"];
 
@@ -23,6 +24,8 @@ const decodeLevel = Schema.decodeUnknownOption(Schema.Struct({ level: Proactivit
 const decodeLooks = Schema.decodeUnknownOption(Schema.Struct({ looks: ProactivityRow.fields.looks }));
 
 const decodeRightAway = Schema.decodeUnknownOption(Schema.Struct({ right_away: ProactivityRow.fields.right_away }));
+
+const decodePace = Schema.decodeUnknownOption(Schema.Struct({ pace: Pace }));
 
 const ColumnRow = Schema.Struct({ name: Schema.String });
 
@@ -53,6 +56,8 @@ class ProactivityStore extends Context.Service<
     readonly set: (level: ProactivityLevel) => Effect.Effect<void>;
     readonly setLooks: (times: readonly string[]) => Effect.Effect<void, NotATime | TooManyLooks>;
     readonly setRightAway: (most: number) => Effect.Effect<void, NotRightAway>;
+    readonly pace: Effect.Effect<Pace>;
+    readonly setPace: (pace: Pace) => Effect.Effect<void>;
     readonly view: Effect.Effect<ProactivityView>;
   }
 >()("ky/dreaming/Proactivity") {
@@ -73,6 +78,8 @@ class ProactivityStore extends Context.Service<
 
       if (!columns.includes("right_away")) yield* exec("ALTER TABLE ky_proactivity ADD COLUMN right_away INTEGER");
 
+      if (!columns.includes("pace")) yield* exec("ALTER TABLE ky_proactivity ADD COLUMN pace TEXT");
+
       const level = Effect.map(first("SELECT level FROM ky_proactivity WHERE id = 1"), (row): ProactivityLevel => (Option.exists(decodeLevel(row), (stored) => stored.level === "off") ? "off" : "on"));
 
       const looks = Effect.map(first("SELECT looks FROM ky_proactivity WHERE id = 1"), (row) =>
@@ -89,10 +96,21 @@ class ProactivityStore extends Context.Service<
         )
       );
 
+      const pace = Effect.map(first("SELECT pace FROM ky_proactivity WHERE id = 1"), (row) =>
+        Option.getOrElse(
+          Option.map(decodePace(row), (stored) => stored.pace),
+          () => DEFAULT_PACE
+        )
+      );
+
       return ProactivityStore.of({
         level,
         looks,
         rightAway,
+        pace,
+        setPace: Effect.fn("Proactivity.setPace")(function* (to) {
+          yield* exec("INSERT INTO ky_proactivity (id, level, pace) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET pace = excluded.pace", yield* level, to);
+        }),
         set: (to) => exec("INSERT INTO ky_proactivity (id, level) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET level = excluded.level", to),
         setLooks: Effect.fn("Proactivity.setLooks")(function* (times) {
           const sorted = [...new Set(times)].toSorted();
@@ -106,7 +124,7 @@ class ProactivityStore extends Context.Service<
           if (!Number.isInteger(most) || most < 0 || most > RIGHT_AWAY_MOST) return yield* new NotRightAway();
           yield* exec("INSERT INTO ky_proactivity (id, level, right_away) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET right_away = excluded.right_away", yield* level, most);
         }),
-        view: Effect.all({ level, looks, rightAway })
+        view: Effect.all({ level, looks, rightAway, pace })
       });
     })
   );
@@ -131,6 +149,16 @@ export class Proactivity {
 
   looks(): string[] {
     return this.#edge.run(ProactivityStore.use((store) => store.looks));
+  }
+
+  pace(): Pace {
+    return this.#edge.run(ProactivityStore.use((store) => store.pace));
+  }
+
+  setPace(pace: Pace): ProactivityView {
+    this.#edge.run(ProactivityStore.use((store) => store.setPace(pace)));
+
+    return this.#changed();
   }
 
   rightAway(): number {

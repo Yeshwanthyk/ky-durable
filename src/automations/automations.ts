@@ -1,4 +1,5 @@
 import { defineDoc, type ConversationId, ROOT_CONVERSATION_ID, type Tx } from "@earendil-works/pi-durable";
+import { EVENT_TIME } from "../dreaming/contract";
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Schedule, Scheduler } from "agents/schedules";
 import * as Clock from "effect/Clock";
@@ -603,7 +604,8 @@ const make = Effect.gen(function* () {
       const keep = new Set(wanted.map((look) => key(look.time, look.cron)));
 
       for (const old of yield* scheduled((scheduler) => scheduler.list())) {
-        if (old.callback === "look" && !keep.has(key(Option.getOrUndefined(decodeLook(old.payload))?.time, old.type === "cron" ? old.cron : undefined))) {
+        // An event look (one alarm, not a cron) is the events' own, not a look time's: rebooking the times keeps it.
+        if (old.callback === "look" && old.type === "cron" && !keep.has(key(Option.getOrUndefined(decodeLook(old.payload))?.time, old.type === "cron" ? old.cron : undefined))) {
           yield* cancel(old.id);
         }
       }
@@ -1152,6 +1154,14 @@ const make = Effect.gen(function* () {
         const status = (yield* get(source.slice(SOURCE.length)))?.status;
 
         return status === "active" || status === "done";
+      }),
+
+    // One event look at a time: events that arrive while one is booked share it.
+    eventLookAt: (at: number) =>
+      Effect.gen(function* () {
+        const booked = (yield* scheduled((scheduler) => scheduler.list())).some((each) => each.callback === "look" && each.type !== "cron");
+
+        if (!booked) yield* scheduled((scheduler) => scheduler.set(new Date(at), "look", { time: EVENT_TIME }));
       }),
 
     bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),

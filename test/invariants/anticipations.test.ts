@@ -917,26 +917,36 @@ describe("what was surfaced", () => {
     ));
 });
 
+/** Why setLooks refuses these times, from the contract: each HH:MM, at most 4 once repeats are dropped. */
+function looksRefused(times: readonly string[]): string | null {
+  const looks = unique(times);
+
+  if (looks.some((time) => !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time))) return "A look time is HH:MM, like 08:00.";
+
+  return looks.length > 4 ? "At most 4 look times." : null;
+}
+
 describe("Settings › Proactivity", () => {
   const aCall = fc.oneof(
     fc.record({ kind: fc.constant("level" as const), level: fc.constantFrom("off" as const, "on" as const) }),
     fc.record({ kind: fc.constant("looks" as const), times: fc.subarray(["08:00", "12:30", "23:59", "24:00", "8:00", "18:00", "08:00", "21:15", "07:60"], { maxLength: 6 }) }),
     fc.record({ kind: fc.constant("looks" as const), times: fc.subarray(["06:45", "08:00", "12:30", "18:00", "21:15", "23:59"], { minLength: 3, maxLength: 6 }) }),
     fc.record({ kind: fc.constant("rightAway" as const), most: fc.constantFrom(-1, 0, 1, 3, 24, 25, 2.5) }),
+    fc.record({ kind: fc.constant("pace" as const), pace: fc.constantFrom("quiet" as const, "balanced" as const, "eager" as const) }),
     fc.constant({ kind: "view" as const })
   );
 
-  it("keeps the level, at most 4 valid look times earliest first and a right-away count of 0 to 24, each defaulted until set, telling listeners of level and look changes", () =>
+  it("keeps the level, at most 4 valid look times earliest first, a right-away count of 0 to 24 and a pace, each defaulted until set, telling listeners of level, look and pace changes", () =>
     fc.assert(
       fc.property(fc.array(aCall, { maxLength: 12, size: "max" }), (calls) => {
         const world = here();
         const proactivity = new Proactivity(storageFor(world.db));
         let changed = 0;
         let told = 0;
-        let row: { id: number; level: string; looks: string | null; right_away: number | null } | undefined;
+        let row: { id: number; level: string; looks: string | null; right_away: number | null; pace: string | null } | undefined;
         proactivity.onChange(() => void told++);
-        const view = () => ({ level: row?.level === "off" ? "off" : "on", looks: row?.looks ? looksOf(row.looks) : ["08:00", "13:00", "18:00"], rightAway: row?.right_away ?? 6 });
-        const upsert = (change: Partial<NonNullable<typeof row>>) => (row = { id: 1, level: view().level, looks: null, right_away: null, ...row, ...change });
+        const view = () => ({ level: row?.level === "off" ? "off" : "on", looks: row?.looks ? looksOf(row.looks) : ["08:00", "13:00", "18:00"], rightAway: row?.right_away ?? 6, pace: row?.pace ?? "balanced" });
+        const upsert = (change: Partial<NonNullable<typeof row>>) => (row = { id: 1, level: view().level, looks: null, right_away: null, pace: null, ...row, ...change });
 
         for (const call of calls) {
           const got = (() => {
@@ -948,7 +958,9 @@ describe("Settings › Proactivity", () => {
                     ? proactivity.setLooks(call.times)
                     : call.kind === "rightAway"
                       ? proactivity.setRightAway(call.most)
-                      : proactivity.view()
+                      : call.kind === "pace"
+                        ? proactivity.setPace(call.pace)
+                        : proactivity.view()
               );
             } catch (error) {
               return no(error instanceof Error ? error.message : String(error));
@@ -962,18 +974,21 @@ describe("Settings › Proactivity", () => {
             }
 
             if (call.kind === "looks") {
-              const looks = unique(call.times).sort();
+              const refused = looksRefused(call.times);
 
-              if (looks.some((time) => !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time))) return no("A look time is HH:MM, like 08:00.");
-
-              if (looks.length > 4) return no("At most 4 look times.");
-              upsert({ looks: JSON.stringify(looks) });
+              if (refused !== null) return no(refused);
+              upsert({ looks: JSON.stringify(unique(call.times).sort()) });
               changed++;
             }
 
             if (call.kind === "rightAway") {
               if (!Number.isInteger(call.most) || call.most < 0 || call.most > 24) return no("Right away is a whole number from 0 to 24.");
               upsert({ right_away: call.most });
+            }
+
+            if (call.kind === "pace") {
+              upsert({ pace: call.pace });
+              changed++;
             }
 
             return yes(view());

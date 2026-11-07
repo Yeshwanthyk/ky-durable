@@ -39,7 +39,7 @@ import { CARD_ANSWER } from "./cards/contract";
 import { AUTOMATION_SOURCE, type AutomationAction, type Automations, type TaskRow, type ZoneView } from "./automations/contract";
 import type { ChatList } from "./chats/chats";
 import type { Avatars, Setup } from "./avatars/wiring";
-import { decodeVerdict, type DreamLedger, type Memory, type Presence, type Proactivity, type Recall, type Soul } from "./dreaming/contract";
+import { decodeVerdict, type Desk, type DreamLedger, type Memory, type Presence, type Proactivity, type Recall, type Soul } from "./dreaming/contract";
 import type { Verdicts } from "./dreaming/wiring";
 import { mentions, type Skills, type Specialists } from "./skills/contract";
 import { deleteSpecialist, type Leftovers } from "./skills/wiring";
@@ -237,6 +237,7 @@ export class PiSessionSockets {
   readonly #automations: Automations;
   readonly #presence: Presence;
   readonly #proactivity: Proactivity;
+  readonly #desk: Desk;
   readonly #verdicts: Verdicts;
   /** This device's notifications, from Settings › Proactivity. */
   readonly #pushes: Pushes;
@@ -284,6 +285,7 @@ export class PiSessionSockets {
     recall: Recall,
     setup: Setup,
     spend: Spend,
+    desk: Desk,
     /** What this deploy has no config for now, sent with the setup. */
     notSetUp: () => readonly NotSetUp[],
     newChat: () => Promise<PiSessionId>,
@@ -322,6 +324,7 @@ export class PiSessionSockets {
     this.#recall = recall;
     this.#setup = setup;
     this.#spend = spend;
+    this.#desk = desk;
     this.#notSetUp = notSetUp;
     this.#newChat = newChat;
     this.#leftovers = leftovers;
@@ -1140,6 +1143,9 @@ export class PiSessionSockets {
     "set-proactivity": (message) => this.#proactivity.set(message.level),
     "set-looks": (message) => this.#proactivity.setLooks(message.looks),
     "set-right-away": (message) => this.#proactivity.setRightAway(message.most),
+    "set-pace": (message) => this.#proactivity.setPace(message.pace),
+    desk: () => this.#desk.view(),
+    "judge-start": (message) => this.#desk.judge(message.start, message.verdict),
     spend: () => this.#spend.view(),
     "set-spend-cap": (message) => this.#spend.setCap(message.usd),
     "push-key": () => this.#pushes.key(),

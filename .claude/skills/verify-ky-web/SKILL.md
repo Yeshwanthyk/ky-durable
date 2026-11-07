@@ -60,6 +60,10 @@ Everything here runs on this Mac against the local stack. It never touches the d
 - Programs the fake Executor understands (`src/tests/fake-executor.ts`), once `connectExecutor(page)` has connected it:
   - `answer TEXT`: returns TEXT. As an automation's `gate`, `answer null` skips a fire and `answer ["x"]` runs it.
   - `fail TEXT`: fails with TEXT.
+- How often ky looks, and Activity › Desk (src/ui/Proactivity.tsx, src/ui/Desk.tsx):
+  - Pace is the radiogroup "Pace" in Settings › Proactivity, under the look times, shown while proactivity is on. Restore Balanced at the end; the stack keeps it.
+  - The Desk is the region "Desk" on the Activity tab, hidden while empty. To fill it, send `tool work_map {"action":"add","title":"…","next":"…"}` from the main chat, then reload: the Desk reads when the socket opens, never live. Each map item is a listitem named by its title, with "Next: …" and its state word.
+  - Specs: "sets how often ky looks between look times…" and "shows what the user is working toward on Activity's Desk…". The look's own logic (claiming waiting mail, the budget) is covered by `src/tests/looks.test.ts` and verify-formal-looks, not here.
 - Assert what the user sees: text, roles, enabled or disabled, and counts. To check what reached the server, use `network(page)`. It records each socket's submits, results and errors.
 
 ## Evidence
