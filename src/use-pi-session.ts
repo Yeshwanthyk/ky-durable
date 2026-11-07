@@ -26,6 +26,7 @@ import type {
   ModelChoice,
   PostVerdict,
   PostVerdicts,
+  Pace,
   ProactivityLevel,
   Purpose,
   ServerMessage,
@@ -614,6 +615,12 @@ export function usePiSession(session: string) {
     [ask, open]
   );
 
+  /** Activity › Desk's: the map, arrivals and starts, and keeping or discarding a start. */
+  const deskActions = useMemo(
+    () => ({ open, onView: () => ask("desk", {}), onJudge: (start: string, verdict: "kept" | "discarded") => ask("judge-start", { start, verdict }) }),
+    [ask, open]
+  );
+
   const verdictActions = useVerdicts(ask, open);
   const loadEarlier = useLoadEarlier(ask, session, state.before, setState);
 
@@ -643,6 +650,7 @@ export function usePiSession(session: string) {
     proactivityActions,
     spendActions,
     ledgerActions,
+    deskActions,
     verdictActions,
     newChat,
     archiveChat,
@@ -996,6 +1004,7 @@ function proactivityActionsOf(ask: AskFn, open: boolean) {
     onSet: (level: ProactivityLevel) => ask("set-proactivity", { level }),
     onLooks: (looks: readonly string[]) => ask("set-looks", { looks }),
     onRightAway: (most: number) => ask("set-right-away", { most }),
+    onPace: (pace: Pace) => ask("set-pace", { pace }),
     onZone: () => ask("zone", {}),
     onSetZone: (zone: string | null) => ask("set-zone", { zone }),
     onPushKey: () => ask("push-key", {}),

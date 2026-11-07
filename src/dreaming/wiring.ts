@@ -1,6 +1,7 @@
 import type { History } from "../history/wiring";
 import type { ReviewHost, Reviews } from "../skills/contract";
 import { type Actor, anticipateTool, type Anticipations } from "./anticipations";
+import { mapTool, type WorkMap } from "./map";
 import { DreamNotes } from "./dreaming";
 import { episodeExtension } from "./episodes";
 import { memoryExtension, type Memory } from "./memory";
@@ -15,7 +16,13 @@ export { dreamCron, Dreaming } from "./dreaming";
 
 export { DreamLedger } from "./ledger";
 
+export { LookEvents } from "./events";
+
 export { Looks } from "./looks";
+
+export { WorkMap } from "./map";
+
+export { awake, EVENT_DELAY_MS, EXTRA_A_DAY } from "./pace";
 
 export { Memory } from "./memory";
 
@@ -51,10 +58,12 @@ export type DreamingWiring = {
   readonly busyAfter: () => number;
   /** Settings › Proactivity: off starts no episode reflection. */
   readonly proactivity: Proactivity;
+  /** The user's work map (src/dreaming/map.ts). */
+  readonly map: WorkMap;
 };
 
 /** SOUL.md's tool and sections, memory's, the episode reflections after chat turns and turn-start recall; the agent installs them, soul first. */
-export function dreamingTools({ soul, memory, anticipations, recall, history, reviews, chat, storage, background, busyAfter, proactivity }: DreamingWiring) {
+export function dreamingTools({ soul, memory, anticipations, recall, history, reviews, chat, storage, background, busyAfter, proactivity, map }: DreamingWiring) {
   // A dream's and an episode's rows are a machine's to prune; anything else that may call it (the main chat, a side chat) acts for the user.
   const actor = (session: string): Actor => {
     const kind = reviews.kind(session);
@@ -78,7 +87,12 @@ export function dreamingTools({ soul, memory, anticipations, recall, history, re
       history,
       (session) => chat(session) || reviews.has(session),
       anticipate,
-      new DreamNotes(storage, (session) => reviews.kind(session) === "dream")
+      new DreamNotes(storage, (session) => reviews.kind(session) === "dream"),
+      mapTool(
+        map,
+        (session) => actor(session),
+        (session) => reviews.kind(session) === "look" || reviews.kind(session) === "episode"
+      )
     ),
     episodes: episodeExtension({ sql: storage.sql, reviews, host: background, chat, busyAfter, proactivity }),
     recall: recallExtension(recall)

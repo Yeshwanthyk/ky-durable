@@ -753,7 +753,8 @@
         "08:00",
         "18:00"
       ],
-      "rightAway": 3
+      "rightAway": 3,
+      "pace": "balanced"
     },
     "presence": 1793037600000,
     "notes": {},

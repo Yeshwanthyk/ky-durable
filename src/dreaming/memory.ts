@@ -14,6 +14,7 @@ import { Sql } from "../core/sql";
 import type { Span } from "../history/contract";
 import type { History } from "../history/wiring";
 import type { anticipateTool } from "./anticipations";
+import type { mapTool } from "./map";
 import {
   CHAT_SEARCH,
   localNow,
@@ -716,7 +717,8 @@ export function memoryExtension(
   history: History,
   remembers: (session: string) => boolean,
   anticipate: ReturnType<typeof anticipateTool>,
-  notes: NoteRoom
+  notes: NoteRoom,
+  map: ReturnType<typeof mapTool>
 ): Extension {
   return defineExtension({
     name: "memory",
@@ -782,7 +784,8 @@ export function memoryExtension(
         replay: "safe",
         execute: async ({ block }, api) => text(memory.forget(block, String(api.conversationId)))
       }),
-      anticipate
+      anticipate,
+      map
     ]
   });
 }

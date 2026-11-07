@@ -1,6 +1,7 @@
 import { ROOT_SESSION } from "agents/harness/pi";
 import { describe, expect, it } from "vitest";
 import { localCron } from "../dreaming/contract";
+import { heartbeats } from "../dreaming/pace";
 import { browser, connectExecutor, fire, inside, snapshotView, type Tab, until } from "./drive";
 
 /**
@@ -19,9 +20,9 @@ const booked = (name: string) =>
       .toSorted()
   );
 
-/** What the looks are booked as in `zone` at `times`. */
+/** What the looks are booked as in `zone` at `times`, with the default pace's heartbeats between them. */
 const wanted = (times: readonly string[], zone: string | null) =>
-  times.map((time) => `${JSON.stringify({ time })} ${localCron(Number(time.slice(0, 2)) * 60 + Number(time.slice(3)), zone)}`).toSorted();
+  [...times, ...heartbeats(times, "balanced")].map((time) => `${JSON.stringify({ time })} ${localCron(Number(time.slice(0, 2)) * 60 + Number(time.slice(3)), zone)}`).toSorted();
 
 const bookedAs = async (name: string, times: readonly string[], zone: string | null) => {
   await until(async () => JSON.stringify(await booked(name)) === JSON.stringify(wanted(times, zone)), `looks booked at ${times.join(", ")}`);
@@ -110,6 +111,73 @@ describe("a look", () => {
     await page.until(() => !page.view().running);
     const asked = await inside(name, (instance) => instance.boundary.asked.find((users) => users.at(-1) === "Thanks, calling now."));
     expect(asked?.at(-2)).toBe(`[ky posted to the user, unasked] ${said}`);
+    page.close();
+  });
+
+  it("between look times asks the model only when something changed, and a mail wakes one look that takes it once", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    const asked = () => inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "looks").length);
+    await page.say('tool anticipate {"action":"add","kind":"open_loop","text":"Call the bank about the card"}');
+    await page.until(() => !page.view().running);
+
+    // A look at a time always asks; the heartbeat after it, with nothing new, does not.
+    await inside(name, (instance) => instance.looks.run("08:00"));
+    expect(await asked()).toBe(1);
+    await inside(name, (instance) => instance.looks.run("10:00"));
+    expect(await asked()).toBe(1);
+
+    // The user writes: the next heartbeat asks.
+    await page.say("I moved the bank call to Friday.");
+    await page.until(() => !page.view().running);
+    await inside(name, (instance) => instance.looks.run("12:00"));
+    expect(await asked()).toBe(2);
+
+    // A mail is kept once however often it arrives, and the event look that reads it takes it alone.
+    await inside(name, (instance) => {
+      instance.arrived("mail:1", "mail", "Mail from the bank: your card is ready");
+      instance.arrived("mail:1", "mail", "Mail from the bank: your card is ready");
+    });
+    expect(await inside(name, (instance) => instance.lookEvents.waiting().map((event) => event.id))).toEqual(["mail:1"]);
+    await inside(name, (instance) => instance.looks.run("event"));
+    expect(await asked()).toBe(3);
+    const taken = await inside(name, (instance, state) => state.storage.sql.exec<{ look: string | null }>("SELECT look FROM ky_look_events").toArray());
+    expect(taken).toHaveLength(1);
+    expect(taken[0]?.look).toMatch(/^look-/);
+
+    // Nothing waits now, so another event look asks nothing.
+    await inside(name, (instance) => instance.looks.run("event"));
+    expect(await asked()).toBe(3);
+
+    // Quiet keeps to the look times: a heartbeat asks nothing even when the user wrote.
+    expect(await page.send({ type: "set-pace", pace: "quiet" })).toMatchObject({ type: "result" });
+    await page.say("And the card PIN arrived.");
+    await page.until(() => !page.view().running);
+    await inside(name, (instance) => instance.looks.run("14:00"));
+    expect(await asked()).toBe(3);
+    page.close();
+  });
+
+  it("starts work in a chat of its own, once, and says so", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    await page.say('tool work_map {"action":"add","title":"Pick a moving company","next":"compare the three quotes"}');
+    await page.until(() => !page.view().running);
+    const [item] = await inside(name, (instance) => instance.map.open().map((row) => row.id));
+    const ref = `map:${item}`;
+    const said = "I started comparing the three moving quotes.";
+    await page.say(look({ ref, needed: "a mover", current: "three quotes in", action: "start", prompt: "Compare the three moving quotes.", message: said }));
+    await page.until(() => !page.view().running);
+
+    await inside(name, (instance) => instance.looks.run("08:00"));
+    await page.until(() => kySaid(page).includes(said));
+    const starts = await inside(name, (instance) => instance.lookEvents.starts(0));
+    expect(starts).toHaveLength(1);
+    expect(await inside(name, (instance) => instance.chats.openedBy(starts[0]?.session ?? ""))).toBe("ky");
+
+    // The next look weighs the same row: the day's one start is spent.
+    await inside(name, (instance) => instance.looks.run("13:00"));
+    expect(await inside(name, (instance) => instance.lookEvents.starts(0))).toHaveLength(1);
     page.close();
   });
 
@@ -262,7 +330,7 @@ describe("a look's watches", () => {
 
     // Paused as from Activity, so the chat the fake look reads still ends with its rows.
     await inside(name, (instance) => instance.automations.pause(five[0]?.id ?? ""));
-    await inside(name, (instance) => instance.looks.run("19:00"));
+    await inside(name, (instance) => instance.looks.run("13:00"));
     expect((await watchIds(name)).map((row) => row.watch)).toEqual(ids);
     page.close();
   });

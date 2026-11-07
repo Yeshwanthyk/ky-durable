@@ -1,0 +1,27 @@
+title A look takes the mail that arrived
+sub Drawn from the intent before modeling: mail that arrives between looks is taken by one look, shown once, and given back when the look fails or ky restarts mid-look
+
+== graph A look takes the mail that arrived
+view: states
+tone idle: Waiting
+tone work: Working
+[*] -> idle
+group one: One look
+idle: Waiting for its time {idle}
+asking: Asking the model, with the mail it took {work}
+posting: Posting what it found {work}
+group end
+group done: All mail
+once: Every mail that arrived was shown once
+  state: AllShownOnce
+group end
+!twice: The same mail is shown twice
+  fails: ShownOnce
+!stranded: A mail no look will ever show
+  fails: NoneStranded
+idle -> asking: its time comes
+asking -> posting: the model answers
+posting -> idle: it posts
+asking -> idle: the model fails, or ky restarts
+look: idle > asking > posting > idle => once | a look | At its time the look takes the waiting mail, asks, and posts it.
+retry: idle > asking > idle > asking > posting > idle => once | fails, then the next look | The model fails; the mail goes back, and the next look shows it once.

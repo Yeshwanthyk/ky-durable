@@ -375,9 +375,9 @@ const REVIEW_TOOLS = [TOOLS.skillView, TOOLS.skillManage, "memory_recall", "memo
 
 export const REVIEW_ALLOWED: Readonly<Record<ReviewKind, readonly string[]>> = Object.freeze({
   review: REVIEW_TOOLS,
-  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "automation"],
+  dream: [...REVIEW_TOOLS, "memory_note", "memory_forget", "chat_search", "anticipate", "work_map", "automation"],
   episode: ["anticipate", "memory_recall"],
-  look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", ...CHECK_IN_TOOLS]
+  look: ["memory_recall", "memory_zoom", "chat_search", "anticipate", "work_map", ...CHECK_IN_TOOLS]
 });
 
 /** How a specialist answers in a conversation; a run is one of an automation it owns. */
