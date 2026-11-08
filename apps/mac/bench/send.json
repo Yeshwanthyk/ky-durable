@@ -1,0 +1,6 @@
+[
+  {"t": 2.0, "type": "tap", "key": "composer"},
+  {"t": 2.2, "type": "type", "text": "Hello from the Mac app", "every": 0.01},
+  {"t": 2.8, "type": "key", "name": "Enter"},
+  {"t": 6.0, "type": "mark", "name": "end"}
+]

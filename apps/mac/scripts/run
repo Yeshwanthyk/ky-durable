@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Build the app and start it on your own ky (the one you last opened, or pick one on the welcome screen).
+# An ad-hoc signed build is a new app to the Keychain each time, so macOS asks again before it reads
+# the saved Access sign-in. Signing with your Apple Development identity keeps "Always Allow" across builds.
+#   apps/mac/scripts/run                 # release build
+#   apps/mac/scripts/run --profile perf  # what ships
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+profile=release
+if [[ "${1:-}" == "--profile" ]]; then profile="$2"; shift 2; fi
+(cd "$here" && cargo build --profile "$profile" -q)
+dir="$profile"; [[ "$profile" == dev ]] && dir=debug
+exe="$here/target/$dir/ky-mac"
+identity="$(security find-identity -v -p codesigning | awk '/"Apple Development: /{print $2; exit}')"
+if [ -n "$identity" ]; then
+  codesign --force --identifier ky-mac --sign "$identity" "$exe"
+else
+  echo "No Apple Development identity: macOS will ask for Keychain access after each build." >&2
+fi
+exec "$exe" "$@"

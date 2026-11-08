@@ -9,5 +9,15 @@
     "ready": "http://127.0.0.1:{port}/manifest.webmanifest"
   },
   "benches": ["perf/*.bench.ts"],
+  "apps": {
+    // The Mac app (apps/mac), a build perf/mac/stage.sh staged, signed in to the perf stack perf/mac/bench.sh serves.
+    "ky-mac": {
+      "kind": "native",
+      "exe": "perf/.out/mac/base/ky-mac",
+      "env": { "KY_URL": "http://127.0.0.1:8791" },
+      // Its list of kys is under HOME, which strobe moves into the launch's own home.
+      "moved": ["~/Library/Application Support/ky-mac"]
+    }
+  },
   "harness": ["perf", "test/stack/vite.config.ts", "vite.client.ts"]
 }

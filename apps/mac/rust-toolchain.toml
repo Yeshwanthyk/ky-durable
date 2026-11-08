@@ -1,0 +1,4 @@
+# Rune's own pin: it is built and tested on this toolchain.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

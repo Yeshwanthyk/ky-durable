@@ -14,7 +14,8 @@
     "test/effect-pin.ts",
     "perf/build.ts",
     "perf/serve.ts",
-    "perf/*.bench.ts"
+    "perf/*.bench.ts",
+    "apps/mac/scripts/*.ts"
   ],
   "ignorePatterns": [
     "explainers/**",
