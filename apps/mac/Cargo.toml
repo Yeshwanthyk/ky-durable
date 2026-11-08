@@ -1,0 +1,59 @@
+[package]
+name = "ky-mac"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "ky for macOS, drawn with Rune"
+
+[[bin]]
+name = "ky-mac"
+path = "src/main.rs"
+
+[dependencies]
+# Rune is pre-release: pin a commit of `dev`, which is never rewritten.
+rune = { git = "https://github.com/anomalyco/rune", rev = "59f0326b8a12f360736e5ca29a09fad29ad73d71" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "59f0326b8a12f360736e5ca29a09fad29ad73d71", features = ["markdown", "mermaid"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Signing in through Cloudflare Access (src/signin.rs): HTTP, the sealed token hand-off, the
+# metadata JWT's signature, and the Keychain.
+ureq = { version = "2", default-features = false, features = ["tls", "native-certs"] }
+crypto_box = { version = "0.9", features = ["std", "salsa20"] }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+jsonwebtoken = { version = "9", default-features = false }
+security-framework = "3"
+# Local time for the sidebar's day headings (src/time.rs).
+libc = "0.2"
+
+# The Dock icon's count of running tasks, and whether ky is in front (src/os.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# The pages ky builds, live in the chat (src/pages.rs).
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSResponder"] }
+
+[features]
+# Live Rust edits through Rune's devserver (scripts/rune-dev in Rune's repo).
+hot = ["rune/hot"]
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1
+
+[profile.release]
+codegen-units = 16
+incremental = true
+
+# Frame timings: release codegen, no incremental, which moves them.
+[profile.perf]
+inherits = "release"
+incremental = false
+
+[profile.rune-hot]
+inherits = "dev"
+debug = 0
+incremental = true

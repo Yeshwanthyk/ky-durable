@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run the Mac app against the local stack (`pnpm stack`), signed in. Extra args go to the app.
+#   apps/mac/scripts/dev                 # release build, the main chat
+#   apps/mac/scripts/dev --profile perf  # what ships
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "$here/../.." && pwd)"
+profile=release
+if [[ "${1:-}" == "--profile" ]]; then profile="$2"; shift 2; fi
+export KY_URL="${KY_URL:-http://127.0.0.1:8790}"
+export KY_TOKEN="$(cd "$root" && node --experimental-strip-types --no-warnings apps/mac/scripts/dev-token.ts)"
+(cd "$here" && cargo build --profile "$profile" -q)
+dir="$profile"; [[ "$profile" == dev ]] && dir=debug
+exec "$here/target/$dir/ky-mac" "$@"
