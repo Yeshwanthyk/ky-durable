@@ -21,6 +21,7 @@ import { MailContext } from "./ui/Mail";
 import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
 import { SpendContext } from "./ui/Spend";
 import { LedgerContext } from "./ui/LastNight";
+import { DeskContext } from "./ui/Desk";
 import { VerdictContext } from "./ui/PostVerdict";
 import { PeerContext } from "./ui/Peers";
 import { OnlineContext } from "./ui/online";
@@ -568,6 +569,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
           <MailContext.Provider value={ky.mailActions}>
           <ProactivityContext.Provider value={ky.proactivityActions}>
           <LedgerContext.Provider value={ky.ledgerActions}>
+          <DeskContext.Provider value={ky.deskActions}>
           <SpendContext.Provider value={ky.spendActions}>
           <VerdictContext.Provider value={ky.verdictActions}>
             <SettingsNavContext.Provider value={nav}>
@@ -612,6 +614,7 @@ function KyPanel({ ky, view, status, panel, shell, setTheme }: Parts) {
             </SettingsNavContext.Provider>
           </VerdictContext.Provider>
           </SpendContext.Provider>
+          </DeskContext.Provider>
           </LedgerContext.Provider>
           </ProactivityContext.Provider>
           </MailContext.Provider>

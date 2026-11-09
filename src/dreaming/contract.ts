@@ -2,6 +2,7 @@ import Type, { type Static } from "typebox";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { decodeOr } from "../core/decode.ts";
+import type { Pace } from "./pace";
 
 /**
  * The dreaming domain's contract: the shapes, tool names, frozen table names and row decoders of
@@ -36,7 +37,15 @@ export const DREAMING_TABLES = {
   /** The memories each dream run noted, against its cap: one row per dream conversation. */
   dreamNotes: "ky_dream_notes",
   /** The user's 👍 or 👎 on each of ky's unasked posts, by the post's delivery id. */
-  postVerdicts: "ky_post_verdicts"
+  postVerdicts: "ky_post_verdicts",
+  /** What woke ky between looks (a mail), each taken by one look. */
+  lookEvents: "ky_look_events",
+  /** Each look that asked the model: its trigger and what it read. */
+  lookRuns: "ky_look_runs",
+  /** The user's work map: what they are working toward and its next step. */
+  workMap: "ky_map",
+  /** Work ky started on its own, and what the user made of it. */
+  starts: "ky_starts"
 } as const;
 
 // Tool names.
@@ -197,7 +206,27 @@ export const LOOK_TIMES = 4;
 export const RIGHT_AWAY_MOST = 24;
 
 /** Settings › Proactivity: the level, the look times, earliest first, and how many posts a day push right away. */
-export type ProactivityView = { readonly level: ProactivityLevel; readonly looks: readonly string[]; readonly rightAway: number };
+/** The Desk: what ky is tracking and doing on its own (src/ui/Desk.tsx). */
+export type DeskView = {
+  readonly pace: Pace;
+  readonly map: ReadonlyArray<{ readonly id: number; readonly title: string; readonly state: string; readonly next: string; readonly by: string; readonly updated_at: number }>;
+  readonly events: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly line: string; readonly at: number; readonly look: string | null }>;
+  readonly starts: ReadonlyArray<{ readonly id: string; readonly ref: string; readonly session: string; readonly title: string; readonly at: number; readonly verdict: "kept" | "discarded" | null }>;
+  /** Heartbeat and event looks that asked the model in the last day, and the pace's budget for them. */
+  readonly extra: { readonly used: number; readonly most: number };
+};
+
+export type Desk = {
+  readonly view: () => DeskView;
+  /** Keep or discard what ky started; discarding archives its chat. Once each. */
+  readonly judge: (id: string, verdict: "kept" | "discarded") => DeskView | { readonly refused: string };
+};
+
+export type ProactivityView = { readonly level: ProactivityLevel; readonly looks: readonly string[]; readonly rightAway: number; readonly pace: Pace };
+
+export { EVENT_TIME } from "./pace";
+
+export type { Pace };
 
 // SOUL.md.
 

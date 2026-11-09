@@ -40,7 +40,8 @@ import type { DataAnswer, DataCaller, DataOp, LinkMode, SiteLink, SiteVersion } 
 import { meter, Spend, spendExtension } from "./spend/wiring";
 import { CHATGPT_RESPONSES, CLOUD, type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
-import { Anticipations, dreamCron, DreamLedger, Dreaming, dreamingTools, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts } from "./dreaming/wiring";
+import { type Desk, localNow } from "./dreaming/contract";
+import { Anticipations, awake, dreamCron, DreamLedger, Dreaming, dreamingTools, EVENT_DELAY_MS, EXTRA_A_DAY, LookEvents, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts, WorkMap } from "./dreaming/wiring";
 import { type ModelsBoundary, type Slot, SLOT_PROVIDER, slotModel } from "./providers/contract";
 import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
@@ -276,6 +277,34 @@ export class PiAgent extends DurableObject<Env> {
   readonly presence = new Presence(this.ctx.storage);
   /** What the user will need soon; a done one becomes a memory. */
   readonly anticipations = new Anticipations(this.ctx.storage, this.memory, (session) => this.isChat(session));
+  /** The user's work map: what they are working toward, read by the looks and tended by the dream. */
+  readonly map = new WorkMap(this.ctx.storage);
+  /** What woke ky between looks, kept once each until a look takes it. */
+  readonly lookEvents = new LookEvents(this.ctx.storage);
+  /** The Desk page: the map, what arrived, what ky started, and the day's extra looks against the pace. */
+  readonly desk: Desk = {
+    view: () => {
+      const now = Date.now();
+      const pace = this.proactivity.pace();
+
+      return {
+        pace,
+        map: this.map.open(),
+        events: this.lookEvents.recent(now - 2 * 86_400_000),
+        starts: this.lookEvents.starts(now - 7 * 86_400_000),
+        extra: { used: this.lookEvents.extraToday(now), most: EXTRA_A_DAY[pace] }
+      };
+    },
+    judge: (id, verdict) => {
+      const start = this.lookEvents.judge(id, verdict);
+
+      if (start === undefined || start.verdict !== verdict) return { refused: "That start is gone or judged already." };
+
+      if (verdict === "discarded") this.chats.archive(start.session, true);
+
+      return this.desk.view();
+    }
+  };
   /** What ky put in front of the user unasked, and what they did with it. */
   readonly surfaced = new Surfaced(this.ctx.storage);
   /** The user's 👍 or 👎 on each unasked post. */
@@ -418,7 +447,16 @@ export class PiAgent extends DurableObject<Env> {
     zone: () => this.automations.checkIns().zone,
     deliver: (item, now) => this.deliveries.deliver(item, now),
     automations: this.automations,
-    verdicts: this.verdicts
+    verdicts: this.verdicts,
+    events: this.lookEvents,
+    map: this.map,
+    // A start is a side chat ky opened, as the chats tool opens one, steered with the task as its first message.
+    start: async (task, request) => {
+      const session = await this.newChat({ by: "ky", request });
+      await (await this.harness.conversation(session)).submit({ type: "input", content: `[ky started this on its own; the user may keep or discard it] ${task}`, whenBusy: "steer", requestId: request }, BACKGROUND_CONTEXT);
+
+      return session;
+    }
   });
   /** ky's browser: subagents browse, the main agent delegates it, since a page can take a minute; a chat hands it to the user. */
   readonly browsing = new Browsing(this.ctx.storage, {
@@ -453,7 +491,8 @@ export class PiAgent extends DurableObject<Env> {
         storage: this.ctx.storage,
         background: this.#judging,
         busyAfter: () => this.skills.reviewAfter,
-        proactivity: this.proactivity
+        proactivity: this.proactivity,
+        map: this.map
       });
 
       const skilling: SkillsWiring = {
@@ -633,6 +672,7 @@ export class PiAgent extends DurableObject<Env> {
     this.recall,
     this.setup,
     this.spend,
+    this.desk,
     () => notSetUp(this.boundary, this.models.catalog().map((provider) => provider.id)),
     () => this.newChat(),
     {
@@ -1132,7 +1172,22 @@ export class PiAgent extends DurableObject<Env> {
     started(session);
     await this.#configure(session);
 
-    return runInFeed(this.#judging, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
+    const said = await runInFeed(this.#judging, await this.harness.conversation(session), { id: crypto.randomUUID(), worker: "mail", title: `Mail from ${sender}`, content: `${content}\n\n(mail ${id})` });
+    this.arrived(`mail:${id}`, "mail", `Mail from ${sender}${said === undefined ? "" : `: ${said}`}`);
+
+    return said;
+  }
+
+  /**
+   * Something arrived a look should weigh (a mail): kept once by its id, and, unless the pace is quiet or it is
+   * outside the waking window, a look booked shortly to read it (src/dreaming/pace.ts).
+   */
+  arrived(id: string, kind: string, line: string, now = Date.now()): void {
+    if (this.proactivity.level() === "off" || !this.lookEvents.add(id, kind, line, now)) return;
+
+    if (this.proactivity.pace() !== "quiet" && awake(this.proactivity.looks(), localNow(this.automations.checkIns().zone, now).minutes)) {
+      this.ctx.waitUntil(this.automations.eventLookAt(now + EVENT_DELAY_MS));
+    }
   }
 
   /** Settings › Webhooks: the hooks, and the chats a hook can post to. */

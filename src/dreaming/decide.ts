@@ -5,7 +5,7 @@ const LookRow = Schema.Struct({
   ref: Schema.String,
   needed: Schema.String,
   current: Schema.String,
-  action: Schema.Literals(["tell", "prepare", "skip"]),
+  action: Schema.Literals(["tell", "prepare", "skip", "start"]),
   by: Schema.optionalKey(Schema.String),
   message: Schema.optionalKey(Schema.String),
   gate: Schema.optionalKey(Schema.String),
@@ -58,19 +58,35 @@ function due(row: LookRow, { now, next }: LookContext): boolean {
   return by > now && (next === null || by <= next);
 }
 
+/** A tell or prepare row with a message, on a known ref the user still wants and was not told about lately. */
+function postable(row: LookRow, context: LookContext): boolean {
+  if (row.action === "skip" || row.action === "start" || (row.message ?? "").trim() === "") return false;
+  const said = context.said.get(row.ref);
+
+  return context.known.has(row.ref) && !unwanted(row, context) && (said === undefined || sayAgain(said, context.now));
+}
+
 export function decide(rows: readonly LookRow[], context: LookContext): LookRow[] {
-  const wanted = rows.filter((row) => {
-    if (row.action === "skip" || (row.message ?? "").trim() === "" || !context.known.has(row.ref) || unwanted(row, context)) return false;
-    const said = context.said.get(row.ref);
-
-    if (said !== undefined && !sayAgain(said, context.now)) return false;
-
-    return row.action === "tell" || due(row, context);
-  });
+  const wanted = rows.filter((row) => postable(row, context) && (row.action === "tell" || due(row, context)));
 
   const ordered = [...wanted.filter((row) => row.action === "prepare"), ...wanted.filter((row) => row.action === "tell")];
 
   return ordered.filter((row, index) => ordered.findIndex((other) => other.ref === row.ref) === index).slice(0, LOOK_POSTS);
+}
+
+/**
+ * The work a look starts on its own: start rows with a task (prompt) and a message, on a known ref not said lately and
+ * not 👎'd, one per ref, at most `left` (what the day's STARTS_A_DAY leaves).
+ */
+export function starts(rows: readonly LookRow[], context: LookContext, left: number): Array<LookRow & { readonly prompt: string; readonly message: string }> {
+  const wanted = rows.filter((row): row is LookRow & { readonly prompt: string; readonly message: string } => {
+    if (row.action !== "start" || (row.prompt ?? "").trim() === "" || (row.message ?? "").trim() === "" || !context.known.has(row.ref) || unwanted(row, context)) return false;
+    const said = context.said.get(row.ref);
+
+    return said === undefined || sayAgain(said, context.now);
+  });
+
+  return wanted.filter((row, index) => wanted.findIndex((other) => other.ref === row.ref) === index).slice(0, Math.max(0, left));
 }
 
 export const WATCHES = 5;

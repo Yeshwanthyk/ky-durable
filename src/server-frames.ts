@@ -18,6 +18,7 @@ import type {
   ChatGptState,
   ChatRow,
   ClientMessage,
+  DeskView,
   DreamLedgerRow,
   FileRow,
   MachineInfo,
@@ -44,6 +45,8 @@ import type {
 const Text = Type.String();
 
 const Texts = Type.Array(Text);
+
+const PaceSchema = Type.Union([Type.Literal("quiet"), Type.Literal("balanced"), Type.Literal("eager")]);
 
 const Event = Type.Unsafe<AgentEvent>(Type.Object({ type: Text }));
 
@@ -155,7 +158,20 @@ const Versions = Type.Array(Type.Object({ id: Type.Number(), action: Text, actor
 
 /** Settings › Proactivity: the level, the look times and the right-away number. */
 const Proactivity = Type.Unsafe<ProactivityView>(
-  Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer() })
+  Type.Object({ level: Type.Union([Type.Literal("off"), Type.Literal("on")]), looks: Texts, rightAway: Type.Integer(), pace: PaceSchema })
+);
+
+/** Activity › Desk: the work map, what arrived, what ky started and the extra looks it used today. */
+const Desk = Type.Unsafe<DeskView>(
+  Type.Object({
+    pace: PaceSchema,
+    map: Type.Array(Type.Object({ id: Type.Number(), title: Text, state: Text, next: Text, by: Text, updated_at: Type.Number() })),
+    events: Type.Array(Type.Object({ id: Text, kind: Text, line: Text, at: Type.Number(), look: Type.Union([Text, Type.Null()]) })),
+    starts: Type.Array(
+      Type.Object({ id: Text, ref: Text, session: Text, title: Text, at: Type.Number(), verdict: Type.Union([Type.Literal("kept"), Type.Literal("discarded"), Type.Null()]) })
+    ),
+    extra: Type.Object({ used: Type.Number(), most: Type.Number() })
+  })
 );
 
 const Totals = { costUsd: Type.Number(), tokensIn: Type.Number(), tokensOut: Type.Number(), calls: Type.Number() };
@@ -248,6 +264,9 @@ export const ANSWERS = {
   "set-proactivity": Proactivity,
   "set-looks": Proactivity,
   "set-right-away": Proactivity,
+  "set-pace": Proactivity,
+  desk: Desk,
+  "judge-start": Type.Union([Desk, Refused]),
   spend: Spend,
   "set-spend-cap": Type.Union([Spend, Refused]),
   zone: Zone,

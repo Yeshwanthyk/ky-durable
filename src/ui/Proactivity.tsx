@@ -1,6 +1,6 @@
 import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, useState } from "react";
 import { RIGHT_AWAY_MOST } from "../dreaming/contract";
-import type { ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
+import type { Pace, ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Problem } from "./Subscriptions";
 import { RowValue, Segmented, SegmentedOption, Stepper, Switch } from "./Controls";
 import { Icon } from "../chat-kit/Icon";
@@ -12,6 +12,7 @@ type ProactivityActions = {
   readonly onSet: (level: ProactivityLevel) => Promise<ProactivityView>;
   readonly onLooks: (looks: readonly string[]) => Promise<ProactivityView>;
   readonly onRightAway: (most: number) => Promise<ProactivityView>;
+  readonly onPace: (pace: Pace) => Promise<ProactivityView>;
   readonly onZone: () => Promise<ZoneView>;
   readonly onSetZone: (zone: string | null) => Promise<ZoneView>;
   readonly onPushKey: () => Promise<string>;
@@ -30,6 +31,7 @@ export const ProactivityContext = createContext<ProactivityActions>({
   onSet: () => Promise.reject(new Error("Not connected.")),
   onLooks: () => Promise.reject(new Error("Not connected.")),
   onRightAway: () => Promise.reject(new Error("Not connected.")),
+  onPace: () => Promise.reject(new Error("Not connected.")),
   onZone: () => Promise.reject(new Error("Not connected.")),
   onSetZone: () => Promise.reject(new Error("Not connected.")),
   onPushKey: () => Promise.reject(new Error("Not connected.")),
@@ -46,6 +48,32 @@ const LEVELS: ReadonlyArray<{ level: ProactivityLevel; label: string; sub: strin
   { level: "on", label: "On", sub: "When you're needed" },
   { level: "off", label: "Off", sub: "Only when you write" },
 ];
+
+/** How often ky looks between the look times, and the line under the choice that says what it means. */
+const PACES: ReadonlyArray<{ pace: Pace; label: string; sub: string }> = [
+  { pace: "quiet", label: "Quiet", sub: "Only at the look times" },
+  { pace: "balanced", label: "Balanced", sub: "Also every two hours and when mail arrives, when something changed" },
+  { pace: "eager", label: "Eager", sub: "Also every hour and when mail arrives, when something changed" }
+];
+
+// The pace as one segmented radio group, under the schedule's looks.
+function PaceRow({ pace, onChoose }: { readonly pace: Pace; readonly onChoose: (pace: Pace) => void }) {
+  return (
+    <div className="row">
+      <span className="row-text">
+        <span className="row-label">Between looks</span>
+        <span className="row-sub">{PACES.find((each) => each.pace === pace)?.sub}</span>
+      </span>
+      <Segmented small role="radiogroup" aria-label="Pace" chosen={pace}>
+        {PACES.map((each) => (
+          <SegmentedOption key={each.pace} checked={pace === each.pace} onChoose={() => onChoose(each.pace)}>
+            {each.label}
+          </SegmentedOption>
+        ))}
+      </Segmented>
+    </div>
+  );
+}
 
 /** The levels as one segmented radio group: the chosen one takes Tab, and the arrows move the choice. */
 function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonly onChoose: (level: ProactivityLevel) => void }) {
@@ -462,6 +490,12 @@ export function Proactivity() {
     actions.onRightAway(most).then(setView, fail);
   };
 
+  const setPace = (pace: Pace) => {
+    setProblem(null);
+    setView({ ...view, pace });
+    actions.onPace(pace).then(setView, fail);
+  };
+
   return (
     <div id="settings-proactivity">
       <section className="group" aria-label="Unasked">
@@ -472,6 +506,7 @@ export function Proactivity() {
         <h3 className="group-label">Schedule</h3>
         <div className="card">
           {view.level === "off" ? null : <Looks looks={view.looks} onChange={setLooks} />}
+          {view.level === "off" ? null : <PaceRow pace={view.pace} onChoose={setPace} />}
           <TimeZone onFail={fail} />
         </div>
       </section>

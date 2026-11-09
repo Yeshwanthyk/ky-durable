@@ -154,6 +154,11 @@ export class Automations {
     return this.#void(Automator.use((automator) => automator.bookAt("sites", at)));
   }
 
+  /** Book the look that reads what arrived, unless one is booked already. */
+  eventLookAt(at: number): Promise<void> {
+    return this.#void(Automator.use((automator) => automator.eventLookAt(at)));
+  }
+
   dreamAt(at: number): Promise<void> {
     return this.#void(Automator.use((automator) => automator.dreamAt(at)));
   }
