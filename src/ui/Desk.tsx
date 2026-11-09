@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { DeskView } from "../protocol";
 import { Icon } from "../chat-kit/Icon";
-import { day } from "./time";
+import { clock, day } from "./time";
 
 type DeskActions = {
   /** Whether the socket is open: the Desk reads when it opens, and again on each reconnect. */
@@ -36,7 +36,7 @@ export function Desk({ now, onOpen }: { now: number; onOpen: (session: string) =
     if (actions.open) void load();
   }, [actions.open, load]);
 
-  if (view === null || (view.map.length === 0 && view.starts.length === 0 && view.events.length === 0)) return null;
+  if (view === null || (view.map.length === 0 && view.starts.length === 0 && view.events.length === 0 && view.next === null)) return null;
 
   const judge = (start: string, verdict: "kept" | "discarded") => {
     setRefusal(null);
@@ -54,6 +54,11 @@ export function Desk({ now, onOpen }: { now: number; onOpen: (session: string) =
           </span>
         ) : null}
       </h3>
+      {view.next === null ? null : (
+        <p className="ledger-reason" aria-label="Next look">
+          Next look {clock(view.next.at)}: {view.next.why}
+        </p>
+      )}
       <ul className="feed">
         {view.starts.map((start) => (
           <li key={start.id} className="feed-item desk-start" aria-label={`Started: ${start.title}`}>

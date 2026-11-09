@@ -22,7 +22,7 @@ export { Looks } from "./looks";
 
 export { WorkMap } from "./map";
 
-export { awake, EVENT_DELAY_MS, EXTRA_A_DAY } from "./pace";
+export { awake, EVENT_DELAY_MS } from "./pace";
 
 export { Memory } from "./memory";
 

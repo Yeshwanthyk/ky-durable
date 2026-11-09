@@ -42,6 +42,8 @@ export const DREAMING_TABLES = {
   lookEvents: "ky_look_events",
   /** Each look that asked the model: its trigger and what it read. */
   lookRuns: "ky_look_runs",
+  /** The look ky booked for itself next, and why. One row, or none. */
+  lookNext: "ky_look_next",
   /** The user's work map: what they are working toward and its next step. */
   workMap: "ky_map",
   /** Work ky started on its own, and what the user made of it. */
@@ -212,8 +214,10 @@ export type DeskView = {
   readonly map: ReadonlyArray<{ readonly id: number; readonly title: string; readonly state: string; readonly next: string; readonly by: string; readonly updated_at: number }>;
   readonly events: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly line: string; readonly at: number; readonly look: string | null }>;
   readonly starts: ReadonlyArray<{ readonly id: string; readonly ref: string; readonly session: string; readonly title: string; readonly at: number; readonly verdict: "kept" | "discarded" | null }>;
-  /** Heartbeat and event looks that asked the model in the last day, and the pace's budget for them. */
+  /** Heartbeat, event and booked looks that asked the model in the last day, and the day's budget for them. */
   readonly extra: { readonly used: number; readonly most: number };
+  /** The look ky booked for itself, and why; null when none is. */
+  readonly next: { readonly at: number; readonly why: string } | null;
 };
 
 export type Desk = {
@@ -224,7 +228,7 @@ export type Desk = {
 
 export type ProactivityView = { readonly level: ProactivityLevel; readonly looks: readonly string[]; readonly rightAway: number; readonly pace: Pace };
 
-export { EVENT_TIME } from "./pace";
+export { EVENT_TIME, NEXT_TIME } from "./pace";
 
 export type { Pace };
 

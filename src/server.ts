@@ -41,7 +41,7 @@ import { meter, Spend, spendExtension } from "./spend/wiring";
 import { CHATGPT_RESPONSES, CLOUD, type CloudHook, isMac, type MachineFacts, type TaskTokens } from "./machines/contract";
 import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring";
 import { type Desk, localNow } from "./dreaming/contract";
-import { Anticipations, awake, dreamCron, DreamLedger, Dreaming, dreamingTools, EVENT_DELAY_MS, EXTRA_A_DAY, LookEvents, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts, WorkMap } from "./dreaming/wiring";
+import { Anticipations, awake, dreamCron, DreamLedger, Dreaming, dreamingTools, EVENT_DELAY_MS, LookEvents, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts, WorkMap } from "./dreaming/wiring";
 import { type ModelsBoundary, type Slot, SLOT_PROVIDER, slotModel } from "./providers/contract";
 import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
@@ -281,6 +281,13 @@ export class PiAgent extends DurableObject<Env> {
   readonly map = new WorkMap(this.ctx.storage);
   /** What woke ky between looks, kept once each until a look takes it. */
   readonly lookEvents = new LookEvents(this.ctx.storage);
+  /** The look ky booked itself, while it is still ahead and the pace not quiet. */
+  #nextLook(pace: string, now: number) {
+    const next = this.lookEvents.next();
+
+    return pace === "quiet" || next === null || next.at <= now ? null : next;
+  }
+
   /** The Desk page: the map, what arrived, what ky started, and the day's extra looks against the pace. */
   readonly desk: Desk = {
     view: () => {
@@ -292,7 +299,8 @@ export class PiAgent extends DurableObject<Env> {
         map: this.map.open(),
         events: this.lookEvents.recent(now - 2 * 86_400_000),
         starts: this.lookEvents.starts(now - 7 * 86_400_000),
-        extra: { used: this.lookEvents.extraToday(now), most: EXTRA_A_DAY[pace] }
+        extra: { used: this.lookEvents.extraToday(now), most: this.looks.budget(now) },
+        next: this.#nextLook(pace, now)
       };
     },
     judge: (id, verdict) => {

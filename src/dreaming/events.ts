@@ -39,6 +39,13 @@ export type Start = typeof Start.Type;
 
 const decodeStart = Schema.decodeUnknownOption(Start);
 
+const NextBooked = Schema.Struct({ at: Schema.Number, why: Schema.String });
+
+/** The look ky booked for itself, and why, for the Desk. */
+export type NextBooked = typeof NextBooked.Type;
+
+const decodeNext = Schema.decodeUnknownOption(NextBooked);
+
 const LastRun = Schema.Struct({ fingerprint: Schema.String });
 
 const decodeLast = Schema.decodeUnknownOption(LastRun);
@@ -65,6 +72,8 @@ class EventStore extends Context.Service<
     readonly started: (start: Omit<Start, "verdict">) => Effect.Effect<void>;
     readonly starts: (since: number) => Effect.Effect<Start[]>;
     readonly judge: (id: string, verdict: "kept" | "discarded") => Effect.Effect<Start | undefined>;
+    readonly book: (next: NextBooked | null) => Effect.Effect<void>;
+    readonly next: Effect.Effect<NextBooked | null>;
   }
 >()("ky/dreaming/LookEvents") {
   static readonly layer = Layer.effect(
@@ -92,6 +101,10 @@ class EventStore extends Context.Service<
         title TEXT NOT NULL,
         at INTEGER NOT NULL,
         verdict TEXT)`);
+      yield* exec(`CREATE TABLE IF NOT EXISTS ky_look_next (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        at INTEGER NOT NULL,
+        why TEXT NOT NULL)`);
       const starts = (query: string, ...params: SqlStorageValue[]) => Effect.map(exec(query, ...params), (rows) => rows.flatMap((row) => Option.toArray(decodeStart(row))));
 
       return EventStore.of({
@@ -125,7 +138,10 @@ class EventStore extends Context.Service<
         started: (start) => Effect.asVoid(exec("INSERT OR IGNORE INTO ky_starts (id, ref, session, title, at, verdict) VALUES (?, ?, ?, ?, ?, NULL)", start.id, start.ref, start.session, start.title, start.at)),
         starts: (since) => starts("SELECT id, ref, session, title, at, verdict FROM ky_starts WHERE at >= ? ORDER BY at DESC", since),
         judge: (id, verdict) =>
-          Effect.andThen(exec("UPDATE ky_starts SET verdict = ? WHERE id = ? AND verdict IS NULL", verdict, id), Effect.map(starts("SELECT id, ref, session, title, at, verdict FROM ky_starts WHERE id = ?", id), ([start]) => start))
+          Effect.andThen(exec("UPDATE ky_starts SET verdict = ? WHERE id = ? AND verdict IS NULL", verdict, id), Effect.map(starts("SELECT id, ref, session, title, at, verdict FROM ky_starts WHERE id = ?", id), ([start]) => start)),
+        book: (next) =>
+          next === null ? Effect.asVoid(exec("DELETE FROM ky_look_next")) : Effect.asVoid(exec("INSERT OR REPLACE INTO ky_look_next (id, at, why) VALUES (1, ?, ?)", next.at, next.why.slice(0, LINE_CHARS))),
+        next: Effect.map(exec("SELECT at, why FROM ky_look_next WHERE id = 1"), ([row]) => Option.getOrNull(decodeNext(row)))
       });
     })
   );
@@ -185,7 +201,17 @@ export class LookEvents {
     return this.#edge.run(EventStore.use((store) => store.judge(id, verdict)));
   }
 
-  /** Heartbeat and event looks that asked the model in the day before `now`. */
+  /** Records the look ky booked for itself (null: none booked). */
+  book(next: NextBooked | null): void {
+    this.#edge.run(EventStore.use((store) => store.book(next)));
+  }
+
+  /** The look ky booked for itself, if one is. */
+  next(): NextBooked | null {
+    return this.#edge.run(EventStore.use((store) => store.next));
+  }
+
+  /** Heartbeat, event and booked looks that asked the model in the day before `now`. */
   extraToday(now: number): number {
     return this.#edge.run(EventStore.use((store) => store.extraSince(now - DAY_MS)));
   }
