@@ -2,7 +2,8 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { decide, type LookContext, type LookRow, starts } from "../../src/dreaming/decide";
 import { canMove, type MapState } from "../../src/dreaming/map";
-import { awake, EVENT_TIME, EXTRA_A_DAY, fingerprint, HEARTBEAT_EVERY, heartbeats, NEAR_A_LOOK, type Pace, shouldAsk, triggerOf } from "../../src/dreaming/pace";
+import { askedNext } from "../../src/dreaming/decide";
+import { awake, budgetOf, DUE_LEAD_MS, EVENT_TIME, EXTRA_A_DAY, fingerprint, HEARTBEAT_EVERY, heartbeats, MAX_GAP_MS, MIN_GAP_MS, NEAR_A_LOOK, NEXT_TIME, nextAt, type Pace, shouldAsk, triggerOf } from "../../src/dreaming/pace";
 
 /**
  * How often ky looks on its own (src/dreaming/pace.ts, docs/research/proactivity/night-shift-model.md), over
@@ -10,8 +11,11 @@ import { awake, EVENT_TIME, EXTRA_A_DAY, fingerprint, HEARTBEAT_EVERY, heartbeat
  *
  * - a look at one of the user's times always asks the model; nothing else does when the pace is quiet;
  * - a heartbeat asks only when what it reads changed or an event waits, an event look only when an event waits,
- *   and neither once the day's extra budget is spent (invariants 2, 3, 4);
- * - over any day of triggers, extra runs that ask never pass EXTRA_A_DAY;
+ *   a look ky booked itself whenever budget is left, and none once the day's budget is spent (invariants 2, 3, 4);
+ * - over any day of triggers, extra runs that ask never pass the budget;
+ * - the budget stays between half and twice the pace's base, follows the user's reactions, and quiet stays 0;
+ * - a booked look falls between MIN_GAP_MS and MAX_GAP_MS from now, while awake, no later than what the look asked
+ *   for or DUE_LEAD_MS before the first due date in range;
  * - heartbeats sit strictly inside the waking window, on the pace's grid, at least NEAR_A_LOOK from every look,
  *   and quiet has none;
  * - the fingerprint is the same for the same reads in any order, and differs when any read does;
@@ -30,30 +34,31 @@ const someLooks = fc.uniqueArray(aTime, { maxLength: 4 }).map((times) => [...tim
 
 const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 
-describe("when a look asks the model", () => {
-  it("follows the trigger, the pace, what changed, what waits and the day's budget", () => {
-    fc.assert(
-      fc.property(fc.constantFrom("look" as const, "heartbeat" as const, "event" as const), fc.constantFrom(...PACES), fc.boolean(), fc.nat(3), fc.nat(12), (trigger, pace, changed, waiting, extraToday) => {
-        const asks = shouldAsk({ trigger, pace, changed, waiting, extraToday });
-        // The oracle, from the model's invariants, not the code.
-        const budgetLeft = pace === "balanced" ? extraToday < 4 : pace === "eager" ? extraToday < 10 : false;
-        const somethingNew = trigger === "event" ? waiting > 0 : changed || waiting > 0;
+const TRIGGERS = ["look", "heartbeat", "event", "next"] as const;
 
-        expect(asks).toBe(trigger === "look" || (budgetLeft && somethingNew));
+describe("when a look asks the model", () => {
+  it("follows the trigger, what changed, what waits and the day's budget", () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...TRIGGERS), fc.boolean(), fc.nat(3), fc.nat(12), fc.nat(20), (trigger, changed, waiting, extraToday, most) => {
+        const asks = shouldAsk({ trigger, changed, waiting, extraToday, most });
+        // The oracle, from the model's invariants, not the code.
+        const somethingNew = trigger === "next" ? true : trigger === "event" ? waiting > 0 : changed || waiting > 0;
+
+        expect(asks).toBe(trigger === "look" || (extraToday < most && somethingNew));
       })
     );
   });
 
-  it("never runs more extra looks in a day than the pace allows, however the triggers fall", () => {
+  it("never runs more extra looks in a day than the budget allows, however the triggers fall", () => {
     fc.assert(
-      fc.property(fc.constantFrom(...PACES), fc.array(fc.record({ trigger: fc.constantFrom("look" as const, "heartbeat" as const, "event" as const), changed: fc.boolean(), waiting: fc.nat(2) }), { maxLength: 60 }), (pace, day) => {
+      fc.property(fc.nat(20), fc.array(fc.record({ trigger: fc.constantFrom(...TRIGGERS), changed: fc.boolean(), waiting: fc.nat(2) }), { maxLength: 60 }), (most, day) => {
         let extra = 0;
 
         for (const fire of day) {
-          if (shouldAsk({ ...fire, pace, extraToday: extra }) && fire.trigger !== "look") extra += 1;
+          if (shouldAsk({ ...fire, most, extraToday: extra }) && fire.trigger !== "look") extra += 1;
         }
 
-        expect(extra).toBeLessThanOrEqual(EXTRA_A_DAY[pace]);
+        expect(extra).toBeLessThanOrEqual(most);
       })
     );
   });
@@ -62,6 +67,7 @@ describe("when a look asks the model", () => {
     fc.assert(
       fc.property(someLooks, aTime, (looks, time) => {
         expect(triggerOf(EVENT_TIME, looks)).toBe("event");
+        expect(triggerOf(NEXT_TIME, looks)).toBe("next");
         expect(triggerOf(time, looks)).toBe(looks.includes(time) ? "look" : "heartbeat");
       })
     );
@@ -133,7 +139,7 @@ const aRow: fc.Arbitrary<LookRow> = fc.record(
     ref: fc.constantFrom(...REFS),
     needed: fc.constant(""),
     current: fc.constant(""),
-    action: fc.constantFrom("tell" as const, "start" as const, "skip" as const),
+    action: fc.constantFrom("tell" as const, "start" as const, "skip" as const, "next" as const),
     message: fc.constantFrom("", "Drafted the reply.", "Started the comparison."),
     prompt: fc.constantFrom("", " ", "Compare the three quotes.")
   },
@@ -160,7 +166,7 @@ describe("the starts", () => {
         // As many as room allows: every eligible ref is started until left runs out.
         const eligible = new Set(rows.filter((row) => row.action === "start" && (row.prompt ?? "").trim() !== "" && (row.message ?? "").trim() !== "" && new Set<string>(known).has(row.ref)).map((row) => row.ref));
         expect(started.length).toBe(Math.min(left, eligible.size));
-        expect(decide(rows, context).every((row) => row.action !== "start")).toBe(true);
+        expect(decide(rows, context).every((row) => row.action === "tell" || row.action === "prepare")).toBe(true);
       })
     );
   });
@@ -171,5 +177,79 @@ describe("a map item", () => {
     const STATES: readonly MapState[] = ["open", "doing", "waiting", "done"];
 
     for (const from of STATES) for (const to of STATES) expect(canMove(from, to)).toBe(from !== "done" && from !== to);
+  });
+});
+
+describe("the day's budget", () => {
+  it("stays between half and twice the pace's base, quiet stays 0, and it follows the user's reactions", () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...PACES), fc.nat(30), fc.nat(30), (pace, liked, disliked) => {
+        const base = EXTRA_A_DAY[pace];
+        const most = budgetOf(pace, { liked, disliked });
+
+        if (base === 0) {
+          expect(most).toBe(0);
+
+          return;
+        }
+
+        expect(most).toBeGreaterThanOrEqual(Math.ceil(base / 2));
+        expect(most).toBeLessThanOrEqual(base * 2);
+        expect(budgetOf(pace, { liked: liked + 1, disliked })).toBeGreaterThanOrEqual(most);
+        expect(budgetOf(pace, { liked, disliked: disliked + 1 })).toBeLessThanOrEqual(most);
+        expect(budgetOf(pace, { liked: 0, disliked: 0 })).toBe(base);
+      })
+    );
+  });
+});
+
+const HOUR = 60 * 60 * 1000;
+
+describe("when ky books its next look", () => {
+  it("lands in the gap, while awake, no later than what was asked or the first due date's lead", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 1e12 }),
+        fc.option(fc.integer({ min: -10 * HOUR, max: 10 * HOUR })),
+        fc.array(fc.integer({ min: -2 * HOUR, max: 10 * HOUR }), { maxLength: 5 }),
+        fc.boolean(),
+        (now, askedIn, duesIn, up) => {
+          const asked = askedIn === null ? null : now + askedIn;
+          const dues = duesIn.map((due) => now + due);
+          const at = nextAt({ now, asked, dues, awake: () => up });
+          // The oracle: every time a look would want, clamped or dropped, without the code's arithmetic.
+          const inGap = (time: number) => time >= now + MIN_GAP_MS && time <= now + MAX_GAP_MS;
+          const leads = dues.map((due) => due - DUE_LEAD_MS).filter(inGap);
+          const wanted = asked === null ? [] : [Math.min(now + MAX_GAP_MS, Math.max(now + MIN_GAP_MS, asked))];
+
+          if (!up || (wanted.length === 0 && leads.length === 0)) {
+            expect(at).toBeNull();
+
+            return;
+          }
+
+          expect(at).not.toBeNull();
+          expect(inGap(at ?? Number.NaN)).toBe(true);
+
+          for (const time of [...wanted, ...leads]) expect(at).toBeLessThanOrEqual(time);
+          expect([...wanted, ...leads]).toContain(at);
+        }
+      )
+    );
+  });
+
+  it("reads the look's next row by its time, and decide never posts it", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 4e12 }), fc.string({ maxLength: 20 }), (at, why) => {
+        const by = new Date(at).toISOString();
+        const row: LookRow = { ref: "next", action: "next", needed: "look again", current: "", by, message: why };
+        const booked = askedNext([row]);
+
+        expect(booked?.at).toBe(at);
+        expect(booked?.why).toBe(why.trim() || "look again");
+        expect(askedNext([{ ...row, by: "not a time" }])).toBeNull();
+        expect(askedNext([{ ...row, action: "skip" }])).toBeNull();
+      })
+    );
   });
 });

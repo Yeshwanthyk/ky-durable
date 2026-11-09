@@ -159,6 +159,11 @@ export class Automations {
     return this.#void(Automator.use((automator) => automator.eventLookAt(at)));
   }
 
+  /** Books the look ky asked for itself, replacing the last; null cancels it. */
+  nextLookAt(at: number | null): Promise<void> {
+    return this.#void(Automator.use((automator) => automator.nextLookAt(at)));
+  }
+
   dreamAt(at: number): Promise<void> {
     return this.#void(Automator.use((automator) => automator.dreamAt(at)));
   }

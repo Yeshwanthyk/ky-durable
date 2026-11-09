@@ -5,7 +5,7 @@ const LookRow = Schema.Struct({
   ref: Schema.String,
   needed: Schema.String,
   current: Schema.String,
-  action: Schema.Literals(["tell", "prepare", "skip", "start"]),
+  action: Schema.Literals(["tell", "prepare", "skip", "start", "next"]),
   by: Schema.optionalKey(Schema.String),
   message: Schema.optionalKey(Schema.String),
   gate: Schema.optionalKey(Schema.String),
@@ -60,7 +60,9 @@ function due(row: LookRow, { now, next }: LookContext): boolean {
 
 /** A tell or prepare row with a message, on a known ref the user still wants and was not told about lately. */
 function postable(row: LookRow, context: LookContext): boolean {
-  if (row.action === "skip" || row.action === "start" || (row.message ?? "").trim() === "") return false;
+  if (row.action !== "tell" && row.action !== "prepare") return false;
+
+  if ((row.message ?? "").trim() === "") return false;
   const said = context.said.get(row.ref);
 
   return context.known.has(row.ref) && !unwanted(row, context) && (said === undefined || sayAgain(said, context.now));
@@ -110,4 +112,15 @@ export function lookRows(answer: string): LookRow[] {
   const rows = start < 0 || end < start ? [] : Option.getOrElse(decodeRows(answer.slice(start, end + 1)), () => []);
 
   return rows.flatMap((row) => Option.toArray(decodeLookRow(row)));
+}
+
+/** When the look asked to look again, and why: its first next row with a time; null when it asked for none. */
+export function askedNext(rows: readonly LookRow[]): { readonly at: number; readonly why: string } | null {
+  for (const row of rows) {
+    const at = row.action === "next" ? Date.parse(row.by ?? "") : Number.NaN;
+
+    if (!Number.isNaN(at)) return { at, why: (row.message ?? "").trim() || row.needed };
+  }
+
+  return null;
 }

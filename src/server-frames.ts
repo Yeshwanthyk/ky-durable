@@ -170,7 +170,8 @@ const Desk = Type.Unsafe<DeskView>(
     starts: Type.Array(
       Type.Object({ id: Text, ref: Text, session: Text, title: Text, at: Type.Number(), verdict: Type.Union([Type.Literal("kept"), Type.Literal("discarded"), Type.Null()]) })
     ),
-    extra: Type.Object({ used: Type.Number(), most: Type.Number() })
+    extra: Type.Object({ used: Type.Number(), most: Type.Number() }),
+    next: Type.Union([Type.Object({ at: Type.Number(), why: Text }), Type.Null()])
   })
 );
 

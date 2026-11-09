@@ -15,10 +15,10 @@ import { type History, wroteSince } from "../history/wiring";
 import { type ReviewHost, type Reviews, runInFeed } from "../skills/contract";
 import { anticipationLine, type Anticipations } from "./anticipations";
 import { type Anticipation, localCron, localNow } from "./contract";
-import { decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS, starts, UNWANTED_MS } from "./decide";
+import { askedNext, decide, type LookRow, lookRows, newWatches, SAID_QUIET_MS, starts, UNWANTED_MS } from "./decide";
 import type { LookEvent, LookEvents } from "./events";
 import { mapLine, type WorkMap } from "./map";
-import { fingerprint, heartbeats, shouldAsk, STARTS_A_DAY, type Trigger, triggerOf } from "./pace";
+import { awake, budgetOf, DUE_LEAD_MS, fingerprint, heartbeats, NEXT_TIME, nextAt, REACTIONS_MS, shouldAsk, STARTS_A_DAY, type Trigger, triggerOf } from "./pace";
 import { MEMORIES_DISAGREE } from "./dreaming";
 import type { Proactivity } from "./proactivity";
 import type { Surfaced } from "./surfaced";
@@ -51,6 +51,7 @@ Answer with only a JSON array, one row for each needed thing you weighed:
 - prepare: something the user will need ready before by: message holds it drafted in full.
 - start: work ky should begin now, in a chat of its own the user can read and keep or discard, because a next step is clear, needs no decision of the user's, and would take them a while (a draft, research, a comparison). prompt is the task as the user would give it, in full; message tells the user what ky started and why. Rare: only when STARTS LEFT TODAY below is above 0, and never anything that sends, buys, books, deletes or speaks for the user.
 - skip: nothing worth saying now; no message.
+- next, at most one row, ref "next": when ky should look again on its own because something will have moved by then (a reply expected, a meeting ending, a price to recheck), by: that time, message: why, in a few words. Leave it out when the look times will do; ky books one anyway before anything on the map or an anticipation falls due.
 - message: the whole message as ky would say it in the chat: natural and short, no preamble, no ref or #id.
 - changed, only on a row whose ref has a 👎 under How your recent posts landed: what is new since that post. Without it, ky does not post on that ref.
 - gate and prompt, only on the row of an open watch anticipation not watched already, and only when it must be checked more often than the looks (a PR's CI, a delivery, a reply to a mail, a price): ky then checks it every 15 minutes until the anticipation closes. gate is a read-only Executor program body, as executor_execute takes, that returns the state watched (the CI's status, the tracking line), or null when there is none yet; a check runs only when that differs from the last. prompt is what a run, knowing only it and what the gate returned, tells the user. No gate, no watch.
@@ -104,6 +105,7 @@ class Looking extends Context.Service<
     readonly booked: (zone: string | null, now: number | undefined) => Effect.Effect<Booked>;
     readonly run: (time: string) => Effect.Effect<void>;
     readonly retire: Effect.Effect<void>;
+    readonly budget: (now: number) => Effect.Effect<number>;
   }
 >()("ky/dreaming/Looks") {
   static readonly layer = (parts: LookParts, entries: SqlStorage) =>
@@ -145,7 +147,7 @@ class Looking extends Context.Service<
 
           const digest = yield* Effect.sync(() =>
             [
-              `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time} look; the next is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
+              `Now: ${new Date(now).toISOString()}, ${clock(localNow(zone, now).minutes)} in the user's time zone (${zone ?? "unknown, so UTC"}). This is the ${time === NEXT_TIME ? `look you booked (${events.next()?.why ?? "no reason kept"})` : `${time} look`}; the next look time is ${next === undefined ? "not booked" : `${next.tomorrow ? "tomorrow" : "today"} at ${clock(next.at)}`}.`,
               ...section(
                 "Open anticipations, oldest first:",
                 anticipations.open().map((row) => anticipationLine(row, now))
@@ -308,15 +310,55 @@ class Looking extends Context.Service<
             })
           );
 
+        // The day's budget of extra looks: the pace's, moved by how the user took what ky said and started.
+        const budget = (now: number) => {
+          const since = now - REACTIONS_MS;
+          const judged = events.starts(since).map((start) => start.verdict);
+
+          return budgetOf(proactivity.pace(), {
+            liked: verdicts.since(since, "useful", 100).length + judged.filter((verdict) => verdict === "kept").length,
+            disliked: verdicts.since(since, "not-useful", 100).length + judged.filter((verdict) => verdict === "discarded").length
+          });
+        };
+
+        // What falls due: each open anticipation's window and each map item's by date.
+        const duesAhead = () => [
+          ...anticipations.open().flatMap((row) => (row.window_from === null ? [] : [{ at: row.window_from, what: row.text }])),
+          ...map.open().flatMap((item) => (Number.isNaN(Date.parse(item.by)) ? [] : [{ at: Date.parse(item.by), what: item.title }]))
+        ];
+
+        // Whether ky may look at `moment` on its own: inside the waking window, and not at the quiet pace.
+        const awakeAt = (moment: number) => proactivity.pace() !== "quiet" && awake(proactivity.looks(), localNow(parts.zone(), moment).minutes);
+
+        // After every look, ky books its next one: what the answer asked for, or before the next thing due. A look that
+        // did not ask keeps the booking it had, unless that one already passed.
+        type Asked = { readonly at: number; readonly why: string } | null;
+
+        // A booking still ahead, and still awake, stands until a look asks for another.
+        const standing = (now: number, asked: Asked) => {
+          const kept = events.next();
+
+          return asked === null && kept !== null && kept.at > now && awakeAt(kept.at);
+        };
+
+        const bookNext = Effect.fn("Looks.bookNext")(function* (now: number, asked: Asked) {
+          if (standing(now, asked)) return;
+          const dues = duesAhead();
+          const at = nextAt({ now, asked: asked === null ? null : asked.at, dues: dues.map((due) => due.at), awake: awakeAt });
+
+          yield* Effect.sync(() => events.book(at === null ? null : { at, why: reasonFor(at, dues, asked) }));
+          yield* Effect.promise(() => automations.nextLookAt(at));
+        });
+
         const look = Effect.fn("Looks.look")(function* (time: string, trigger: Trigger) {
           const now = yield* Clock.currentTimeMillis;
           const local = localNow(parts.zone(), now);
           const pace = proactivity.pace();
           const read = yield* reads(now);
 
-          const asks = shouldAsk({ trigger, pace, changed: read !== events.last(), waiting: events.waiting().length, extraToday: events.extraToday(now) });
+          const asks = shouldAsk({ trigger, changed: read !== events.last(), waiting: events.waiting().length, extraToday: events.extraToday(now), most: budget(now) });
 
-          if (!asks) return;
+          if (!asks) return yield* bookNext(now, null);
           const next = nextLook(proactivity.looks().map(minutesOf), local.minutes);
 
           const open = new Set(anticipations.open().map((row) => `anticipation:${row.id}`));
@@ -335,6 +377,7 @@ class Looking extends Context.Service<
           // A heartbeat or an event look posts under its own minute, so it never shares an id with the look at a time.
           yield* post(`look:${local.date}:${trigger === "look" ? time : clock(local.minutes)}`, rows, open, next === undefined ? null : now + next.ahead * 60_000, startsLeft);
           yield* watch(rows);
+          yield* bookNext(now, askedNext(rows));
         });
 
         return Looking.of({
@@ -360,6 +403,7 @@ class Looking extends Context.Service<
               Effect.ensuring(Ref.set(looking, false))
             );
           }),
+          budget: (now) => Effect.sync(() => budget(now)),
           retire
         });
       })
@@ -380,6 +424,11 @@ export class Looks {
 
   run(time: string): Promise<void> {
     return this.#edge.runPromise(Looking.use((looks) => looks.run(time)));
+  }
+
+  /** The day's budget of extra looks: the pace's, moved by the user's reactions in the last week. */
+  budget(now: number): number {
+    return this.#edge.run(Looking.use((looks) => looks.budget(now)));
   }
 
   retire(): Promise<void> {
@@ -414,4 +463,13 @@ const landed = (judged: readonly Judged[]) => (judged.length === 0 ? [] : sectio
 
 function section(heading: string, lines: readonly string[]): string[] {
   return ["", heading, ...(lines.length === 0 ? ["(none)"] : lines)];
+}
+
+/** Why ky booked a look at `at`: the due date whose lead lands on it, else what the look asked. */
+function reasonFor(at: number, dues: readonly { readonly at: number; readonly what: string }[], asked: { readonly why: string } | null): string {
+  const due = dues.find((row) => row.at - DUE_LEAD_MS === at);
+
+  if (due !== undefined) return `Before ${due.what} falls due`;
+
+  return asked === null ? "" : asked.why;
 }

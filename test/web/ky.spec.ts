@@ -1543,6 +1543,48 @@ test("shows what the user is working toward on Activity's Desk, with its next st
   if (SHOTS) await desk.screenshot({ path: `${SHOTS}/desk.png` });
 });
 
+test("shows on Activity's Desk the look ky booked itself, and why", async ({ page }) => {
+  // The booking must land inside the waking window; past 23:30 it falls outside the widest one.
+  test.skip(new Date().getHours() === 23 && new Date().getMinutes() >= 30, "too close to midnight for a booking to stay awake");
+  await open(page);
+  await settings(page, "Proactivity");
+  const looks = panel(page).locator("#settings-proactivity");
+
+  const setTimes = async (remove: readonly string[], add: readonly string[]) => {
+    for (const time of remove) await looks.getByRole("button", { name: `Remove ${time}` }).click();
+
+    for (const time of add) {
+      await looks.getByRole("button", { name: "Add a time" }).click();
+      await looks.getByLabel("Look time").fill(time);
+      await looks.getByRole("button", { name: "Add", exact: true }).click();
+    }
+  };
+
+  // A waking window around the whole day, so an hour from now is inside it.
+  await setTimes(["08:00", "18:00"], ["00:00", "23:59"]);
+  await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["00:00", "13:00", "23:59"]);
+  const why = `The bank said they'd reply ${crypto.randomUUID().slice(0, 4)}`;
+  const row = { ref: "next", needed: "the bank's answer", current: "asked them", action: "next", by: new Date(Date.now() + 30 * 60_000).toISOString(), message: why };
+  await send(page, `look> ${JSON.stringify(row)}`);
+  await expect(chat(page).getByText(/^echo: look> /).last()).toBeVisible();
+  await expect(chat(page).getByText("Working")).toHaveCount(0);
+  expect((await page.request.post("/test/look?time=13:00")).status()).toBe(204);
+
+  // The Desk reads when the page connects.
+  await page.reload();
+  await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
+  await panel(page).getByRole("tab", { name: "Activity" }).click();
+  const desk = panel(page).getByRole("region", { name: "Desk" });
+  await expect(desk.getByLabel("Next look")).toContainText(why);
+
+  if (SHOTS) await desk.screenshot({ path: `${SHOTS}/desk-next.png` });
+
+  // Back to the defaults for the tests after.
+  await settings(page, "Proactivity");
+  await setTimes(["00:00", "23:59"], ["08:00", "18:00"]);
+  await expect(looks.getByText(/^\d\d:\d\d$/)).toHaveText(["08:00", "13:00", "18:00"]);
+});
+
 test("switches to a tapped notification's chat without reloading the page", async ({ page }) => {
   await open(page);
   await page.getByRole("navigation", { name: "Chats" }).getByRole("button", { name: "New side chat" }).click();

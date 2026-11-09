@@ -1,5 +1,5 @@
 import { defineDoc, type ConversationId, ROOT_CONVERSATION_ID, type Tx } from "@earendil-works/pi-durable";
-import { EVENT_TIME } from "../dreaming/contract";
+import { EVENT_TIME, NEXT_TIME } from "../dreaming/contract";
 import { ROOT_SESSION } from "agents/harness/pi";
 import type { Schedule, Scheduler } from "agents/schedules";
 import * as Clock from "effect/Clock";
@@ -597,6 +597,13 @@ const make = Effect.gen(function* () {
 
   const decodeLook = Schema.decodeUnknownOption(LookFire);
 
+  // The looks booked once (not on a cron) to fire with `time`.
+  const oneShotLooks = (time: string) =>
+    Effect.map(
+      scheduled((scheduler) => scheduler.list()),
+      (all) => all.filter((each) => each.callback === "look" && each.type !== "cron" && Option.getOrUndefined(decodeLook(each.payload))?.time === time)
+    );
+
   const bookLooks = (zone: string | null) =>
     Effect.gen(function* () {
       const wanted = host.looks.booked(zone);
@@ -1159,9 +1166,17 @@ const make = Effect.gen(function* () {
     // One event look at a time: events that arrive while one is booked share it.
     eventLookAt: (at: number) =>
       Effect.gen(function* () {
-        const booked = (yield* scheduled((scheduler) => scheduler.list())).some((each) => each.callback === "look" && each.type !== "cron");
+        const booked = (yield* oneShotLooks(EVENT_TIME)).length > 0;
 
         if (!booked) yield* scheduled((scheduler) => scheduler.set(new Date(at), "look", { time: EVENT_TIME }));
+      }),
+
+    // The one look ky booked for itself: a new booking replaces it, null cancels it.
+    nextLookAt: (at: number | null) =>
+      Effect.gen(function* () {
+        for (const old of yield* oneShotLooks(NEXT_TIME)) yield* cancel(old.id);
+
+        if (at !== null) yield* scheduled((scheduler) => scheduler.set(new Date(at), "look", { time: NEXT_TIME }));
       }),
 
     bookAt: (callback: "machines" | "peers" | "sites", at: number) => Effect.asVoid(scheduled((scheduler) => scheduler.set(new Date(at), callback))),

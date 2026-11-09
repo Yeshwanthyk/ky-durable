@@ -181,6 +181,41 @@ describe("a look", () => {
     page.close();
   });
 
+  it("books its own next look for when it asks, one at a time, within the day's budget, and none when quiet", async () => {
+    const name = crypto.randomUUID();
+    const page = await browser(name);
+    const asked = () => inside(name, (instance) => instance.feed.list().filter((task) => task.worker === "looks").length);
+    const nextBooked = async () => (await booked(name)).filter((line) => line.startsWith(JSON.stringify({ time: "next" })));
+    // A zone where it is about noon now, so an hour from now is inside the waking window whatever the clock says.
+    const hoursAhead = 12 - new Date().getUTCHours();
+    await inside(name, (instance) => instance.automations.setZone(hoursAhead === 0 ? "Etc/GMT" : `Etc/GMT${hoursAhead > 0 ? "-" : "+"}${Math.abs(hoursAhead)}`));
+    expect(await page.send({ type: "set-looks", looks: ["06:00", "20:00"] })).toMatchObject({ type: "result" });
+    const by = new Date(Date.now() + 60 * 60_000).toISOString();
+    await page.say(look({ ref: "next", needed: "the bank's answer", current: "asked them", action: "next", by, message: "The bank said they'd reply within the hour." }));
+    await page.until(() => !page.view().running);
+    const before = kySaid(page).length;
+
+    await inside(name, (instance) => instance.looks.run("06:00"));
+    expect(await asked()).toBe(1);
+    expect(await inside(name, (instance) => instance.lookEvents.next())).toEqual({ at: Date.parse(by), why: "The bank said they'd reply within the hour." });
+    expect(await nextBooked()).toHaveLength(1);
+    // Nothing the look said is posted for the booking itself.
+    expect(kySaid(page)).toHaveLength(before);
+
+    // The booked look asks while budget is left, and booking again replaces, never adds.
+    await inside(name, (instance) => instance.looks.run("next"));
+    expect(await asked()).toBe(2);
+    expect(await nextBooked()).toHaveLength(1);
+
+    // Quiet keeps to the look times: the booked look asks nothing and books nothing more.
+    expect(await page.send({ type: "set-pace", pace: "quiet" })).toMatchObject({ type: "result" });
+    await inside(name, (instance) => instance.looks.run("next"));
+    expect(await asked()).toBe(2);
+    expect(await nextBooked()).toHaveLength(0);
+    expect(await inside(name, (instance) => instance.lookEvents.next())).toBeNull();
+    page.close();
+  });
+
   it("takes none while Proactivity is off", async () => {
     const name = crypto.randomUUID();
     const page = await browser(name);
