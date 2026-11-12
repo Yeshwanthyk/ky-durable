@@ -104,6 +104,19 @@ function cutBody(length: number): Response {
  * what its runner says (`ky runner cloud`'s states), and its disk, as text. A test may cut off its
  * uploads, crash it, and watch what each destroy throws away.
  */
+/**
+ * What a container start was handed. The Worker names each setting under its new name and its old
+ * one (PR5b drops the old), so an old cloud image runs too, but the machine token, a secret, under
+ * its old name only (src/machines/wire-names.ts).
+ */
+function startEnv(env: Record<string, string> = {}) {
+  for (const name of ["URL", "MACHINE"]) {
+    if (env[`SELF_HOSTED_AGENT_${name}`] !== env[`KY_${name}`]) throw new Error(`the container was started with SELF_HOSTED_AGENT_${name} and KY_${name} apart`);
+  }
+
+  return { ...env };
+}
+
 export class FakeBox implements CloudBox {
   up = false;
   state: "waiting" | "running" | "stopped" = "waiting";
@@ -130,6 +143,8 @@ export class FakeBox implements CloudBox {
   uploads: boolean[] = [];
   /** The machine token each start was handed, in order. */
   tokens: string[] = [];
+  /** The env each start was handed, in order. */
+  envs: Record<string, string>[] = [];
   /** The machine token the running container was started with: its runner dials ky with it. */
   token: string | undefined;
   /** The requests the relay (`POST /chatgpt`) passed on, by their bodies. */
@@ -149,7 +164,10 @@ export class FakeBox implements CloudBox {
 
   async start(env?: Record<string, string>): Promise<void> {
     this.starts++;
-    this.tokens.push(env?.KY_RUNNER_TOKEN ?? "");
+    const given = startEnv(env);
+
+    this.envs.push(given);
+    this.tokens.push(given.KY_RUNNER_TOKEN ?? "");
     this.startedAt.push(this.clock());
     await this.onStart?.();
 

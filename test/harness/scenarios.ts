@@ -604,7 +604,8 @@ export const SCENARIOS: Scenario[] = [
       check(context.main.heard(`task ${task}`), "the report names the task");
       // claude gets ky's address and its task's own token, never the machine token or the user's.
       const ky = mac.claude().find((event) => event.event === "start" && event.task === task)?.ky;
-      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `claude's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
+      // Each under its old name and its new one (PR5b drops the old), but the token, a secret, under its old one only until then.
+      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL,SELF_HOSTED_AGENT_TASK,SELF_HOSTED_AGENT_URL", `claude's variables are TASK and URL as KY_ and SELF_HOSTED_AGENT_, TASK_TOKEN as KY_ only, got ${ky}`);
     }
   },
   {
@@ -886,7 +887,8 @@ export const SCENARIOS: Scenario[] = [
       check(file?.caption === "a fake screenshot", "the task lists the screenshot");
       // codex gets ky's address and its task's own token, never the machine token or the user's.
       const ky = shots.codex().find((event) => event.event === "start" && event.task === task)?.ky;
-      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL", `codex's KY_ variables are KY_TASK, KY_TASK_TOKEN and KY_URL, got ${ky}`);
+      // Each under its old name and its new one (PR5b drops the old), but the token, a secret, under its old one only until then.
+      check(ky === "KY_TASK,KY_TASK_TOKEN,KY_URL,SELF_HOSTED_AGENT_TASK,SELF_HOSTED_AGENT_URL", `codex's variables are TASK and URL as KY_ and SELF_HOSTED_AGENT_, TASK_TOKEN as KY_ only, got ${ky}`);
     }
   },
   {

@@ -1,6 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { vi } from "vitest";
-import type { MachineFacts } from "../../../src/machines/contract";
+import { HEADERS, type MachineFacts } from "../../../src/machines/contract";
 import { Sandboxes } from "../../../src/runners/wiring";
 import type { Clock, Json } from "../kit";
 
@@ -130,7 +130,10 @@ export class World {
 
   readonly agent = {
     fetch: async (request: Request) => {
-      const seen = { url: request.url, pairing: request.headers.get("X-Ky-Pairing"), authorization: request.headers.get("Authorization"), upgrade: request.headers.get("Upgrade") };
+      // The Worker names the pairing under the new name and the old (PR5b drops "X-Ky-Pairing"): one value only when both agree.
+      const [named, old] = [request.headers.get(HEADERS.pairing), request.headers.get("X-Ky-Pairing")];
+      const pairing = named === old ? named : `apart: ${named} and ${old}`;
+      const seen = { url: request.url, pairing, authorization: request.headers.get("Authorization"), upgrade: request.headers.get("Upgrade") };
       this.effects.push({ socket: seen });
 
       return Response.json(seen);

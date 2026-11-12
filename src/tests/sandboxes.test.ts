@@ -303,6 +303,28 @@ describe("a sandbox's container", () => {
     ).toEqual({ none: null, forward: true });
   });
 
+  // The deploy ships a new Worker with the last released image, whose runner (main's cli/runner/cloud.ts and tasks.ts before
+  // PR5) deletes KY_RUNNER_TOKEN alone from its env and gives each task the rest, less every KY_ name.
+  it("starts its container with nothing secret that an older image's runner would hand its tasks", async () => {
+    const sandbox = await created({ name: unique("old-image") });
+    await onBox(sandbox.id, (instance) => instance.primed(sandbox.id, "https://ky.test"));
+    await task(sandbox.name);
+    await until(async () => (await onBox(sandbox.id, (_instance, box) => box.envs.length)) > 0, "the container started");
+    const [given] = await onBox(sandbox.id, (_instance, box) => box.envs);
+    const token = given?.KY_RUNNER_TOKEN;
+
+    expect(token).toMatch(/.{16,}/u);
+    const { KY_RUNNER_TOKEN: _deleted, ...left } = given!;
+    const taskSees = Object.fromEntries(Object.entries(left).filter(([name]) => !name.startsWith("KY_")));
+
+    expect(Object.values(taskSees)).not.toContain(token);
+    // What it does see: where ky is and the sandbox's name, which aren't secret.
+    expect(Object.keys(taskSees).sort()).toEqual(["SELF_HOSTED_AGENT_MACHINE", "SELF_HOSTED_AGENT_URL"]);
+
+    await call(`/api/sandboxes/${sandbox.id}`, { method: "DELETE" });
+    await call(`/api/sandboxes/kept/${sandbox.id}`, { method: "DELETE" });
+  });
+
   it("saves a running sandbox's disk to its own key as it is deleted, and a sandbox started from that disk gets it back", async () => {
     const sandbox = await created({ name: unique("web") });
 

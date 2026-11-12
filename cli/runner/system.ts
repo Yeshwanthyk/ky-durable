@@ -9,6 +9,7 @@ import { realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import { hasChrome, listening } from "./facts.ts";
+import { fromEnv } from "../../src/machines/contract.ts";
 
 /** What a program printed and how it exited; `code` is 127 when it isn't there. */
 export type Ran = { code: number; stdout: string; stderr: string };
@@ -115,7 +116,7 @@ export function system(): System {
     user: userInfo().username,
     uid: process.getuid?.() ?? 0,
     config: process.env.XDG_CONFIG_HOME || path.join(home, ".config"),
-    state: process.env.KY_STATE_DIR ?? path.join(home, ".ky"),
+    state: fromEnv(process.env, "STATE_DIR") ?? path.join(home, ".ky"),
     label: process.platform === "darwin" ? "dev.ky.runner" : "ky-runner",
     launchAgents: path.join(home, "Library", "LaunchAgents"),
     systemdUnits: path.join(process.env.XDG_CONFIG_HOME || path.join(home, ".config"), "systemd", "user"),

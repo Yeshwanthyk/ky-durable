@@ -134,6 +134,14 @@ describe("ky backup", () => {
     expect(statSync(out).mode & 0o777).toBe(0o600);
   });
 
+  it("takes SELF_HOSTED_AGENT_URL for the ky, over KY_URL", async () => {
+    const out = path.join(await mkdtemp(path.join(tmpdir(), "ky-backup-")), "mine.tar.gz");
+    const env = { SELF_HOSTED_AGENT_URL: `${url}/chat`, KY_URL: "https://elsewhere.invalid" };
+
+    expect(await ky(["backup", "--out", out], { ...context(), env })).toBe(0);
+    expect(system.ran).toContain(`cloudflared access token -app=${url}`);
+  });
+
   it("finds the ky at the address its last deploy saved, with no Cloudflare login", async () => {
     const overlay = path.join(system.home, ".config", "ky", "wrangler.local.jsonc");
     await writeOverlay(overlay, { account_id: "acc", name: "ky" });

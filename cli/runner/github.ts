@@ -17,6 +17,7 @@
 import { spawnSync } from "node:child_process";
 import Type from "typebox";
 import { decodeOr, parseOr } from "../../src/core/decode.ts";
+import { fromEnv } from "../../src/machines/contract.ts";
 
 /** The tools' names, as src/github-tools.ts serves them. */
 type GithubTool = "pr-create" | "pr-merge" | "pr-view" | "parent" | "runs" | "run" | "rollback";
@@ -134,7 +135,7 @@ export async function github(
   const [tool = "", repo, ...rest] = args;
 
   if (!repo) return usage();
-  const call = tools(env.KY_GITHUB_API ?? GITHUB_API);
+  const call = tools(fromEnv(env, "GITHUB_API") ?? GITHUB_API);
   const show = (body: Answer) => print(JSON.stringify(body, null, 2));
 
   if (tool === "watch") return watch(call, repo, count(rest[0]), show, sleep);

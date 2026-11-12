@@ -85,7 +85,7 @@ ky restore <file> [--url <ky>] [--force]
 no secret: API keys, subscription sign-ins, GitHub, Executor and machine pairings are listed as left out. Back up
 while ky is idle. `ky restore` puts a backup into a fresh ky (a new deploy: `ky init --name <other>`) and lists what
 to add again; it refuses a ky that already has chats or memory unless `--force`, which replaces them: use it only
-when the user asked for it. Both reach `--url`, else KY_URL, else the deploy `ky init` set up here.
+when the user asked for it. Both reach `--url`, else SELF_HOSTED_AGENT_URL or KY_URL, else the deploy `ky init` set up here.
 
 ## Remove it
 

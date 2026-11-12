@@ -12,8 +12,8 @@
  *                   the runner, which stops, and its answer breaks off after the headers; while
  *                   saves fail (`failSaves`), a save is a 500 that never reaches the runner
  *
- * What it changes from the env it is given: KY_URL is the harness's proxy, so a scenario can break
- * the runner's network; KY_GITHUB_PROXY is the stack's github.internal route, which the real
+ * What it changes from the env it is given: the URL is the harness's proxy, so a scenario can break
+ * the runner's network; GITHUB_PROXY is the stack's github.internal route, which the real
  * container reaches through `interceptOutboundHttp`; and the fake agent CLIs are the ones run.
  */
 import { type ChildProcess, spawn } from "node:child_process";
@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { portOf } from "./port.ts";
+import { toEnv } from "../../src/machines/contract.ts";
 
 /** Marks the fake's answer for a start it refused: Cloudflare's `fetch` throws its error then. */
 const REFUSED_HEADER = "x-fake-refused";
@@ -136,10 +137,8 @@ export async function serveContainer(options: HostOptions): Promise<ContainerHos
         HOME: home,
         ...env,
         ...options.env,
-        KY_URL: options.kyUrl,
-        KY_GITHUB_PROXY: options.github,
-        KY_CLOUD_PORT: String(port),
-        KY_RUNNER_PORTS: ""
+        // Under both names, as the Worker gives them: the runner reads the new one first.
+        ...toEnv({ URL: options.kyUrl, GITHUB_PROXY: options.github, CLOUD_PORT: String(port), RUNNER_PORTS: "" })
       },
       stdio: ["ignore", "pipe", "pipe"]
     });

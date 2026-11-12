@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { DIFF_TYPE, MAX_DIFF_BYTES } from "../../src/files/contract.ts";
 import { captureDiff, type Git } from "./diff.ts";
+import { fromEnv, toHeaders } from "../../src/machines/contract.ts";
 
 const git: Git = (args) => {
   const run = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -22,11 +23,11 @@ type Task = { url: string; token: string; task: string };
 
 /** The task this runs in, from the environment the runner gives it. */
 function taskOf(env: NodeJS.ProcessEnv): Task {
-  const { KY_URL, KY_TASK_TOKEN, KY_TASK } = env;
+  const [url, token, task] = [fromEnv(env, "URL"), fromEnv(env, "TASK_TOKEN"), fromEnv(env, "TASK")];
 
-  if (!KY_URL || !KY_TASK_TOKEN || !KY_TASK) throw new Error("run this inside a ky task");
+  if (!url || !token || !task) throw new Error("run this inside a ky task");
 
-  return { url: KY_URL.replace(/\/$/, ""), token: KY_TASK_TOKEN, task: KY_TASK };
+  return { url: url.replace(/\/$/, ""), token, task };
 }
 
 /** Put a file on the task: `name` and `caption` as the user sees them. */
@@ -36,8 +37,7 @@ async function upload(task: Task, body: Uint8Array<ArrayBuffer>, type: string, n
     headers: {
       "Content-Type": type,
       Authorization: `Bearer ${task.token}`,
-      "X-Ky-Name": encodeURIComponent(name),
-      ...(caption && { "X-Ky-Caption": encodeURIComponent(caption) })
+      ...toHeaders({ name: encodeURIComponent(name), ...(caption && { caption: encodeURIComponent(caption) }) })
     },
     body
   });
