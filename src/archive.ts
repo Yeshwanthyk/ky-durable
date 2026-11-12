@@ -62,8 +62,16 @@ const SummarySchema = Type.Object({
 
 export type Summary = Static<typeof SummarySchema>;
 
-/** Schema versions of the libraries whose tables are copied whole; a restore needs the same. */
-const SchemasSchema = Type.Object({ pi: Type.Union([Type.Number(), Type.Null()]), workspace: Type.Union([Type.Number(), Type.Null()]) });
+/**
+ * Schema versions of the libraries whose tables are copied whole, which a restore needs the same of, and
+ * the level ky's own data is at (src/core/migrate.ts), which a restore needs at most: none in an archive
+ * from before migrations, whose data is at level 0.
+ */
+const SchemasSchema = Type.Object({
+  pi: Type.Union([Type.Number(), Type.Null()]),
+  workspace: Type.Union([Type.Number(), Type.Null()]),
+  data: Type.Optional(Type.Number())
+});
 
 export type Schemas = Static<typeof SchemasSchema>;
 
