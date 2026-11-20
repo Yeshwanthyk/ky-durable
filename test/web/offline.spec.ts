@@ -118,7 +118,7 @@ test("caches the whole build on install, the parts the page never loaded too", a
   expect(await cacheNames(page)).toEqual([`ky-${build.version}`]);
   expect((await cached(page, `ky-${build.version}`)).sort()).toEqual(["/", ...build.files].sort());
 
-  // The lazily loaded parts (src/ui/Changes.tsx, Diagram.tsx and Markdown.tsx's import()s): cached, never loaded.
+  // The lazily loaded parts (src/ui/Changes.tsx and Markdown.tsx's import()s): cached, never loaded.
   for (const lazy of [/\/ChangesBody-/, /\/mermaid-/, /\/python-/]) {
     expect(build.files.some((file) => lazy.test(file))).toBe(true);
     expect(loaded.some((url) => lazy.test(url))).toBe(false);
@@ -219,7 +219,7 @@ test("opens every surface offline, the lazily loaded ones too, without a chunk e
     await expect(cold.getByRole("button", { name: /a\.ts/ }).first()).toBeVisible();
     await alive();
 
-    // A code fence written offline loads Shiki and its grammar now, from the cache.
+    // A code fence written offline loads the highlighter now, from the cache.
     await send(cold, `\`\`\`python\nprint("offline ${id}")\n\`\`\``);
     await expect(cold.getByText(`offline ${id}`).last()).toBeVisible();
     await alive();

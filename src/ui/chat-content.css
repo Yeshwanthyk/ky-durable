@@ -472,15 +472,24 @@
 }
 
 /* Tables: one quiet frame instead of a card inside a card. */
-.markdown [data-streamdown="table-wrapper"] {
-  padding: 0;
-  border: 0;
-  background: none;
+.markdown table {
+  display: block;
+  max-width: 100%;
+  width: max-content;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.markdown [data-streamdown="table-wrapper"] > div {
-  border-radius: 12px;
-  border-color: var(--line);
+.markdown :is(th, td) + :is(th, td) {
+  border-left: 1px solid var(--line);
+}
+
+.markdown tr:not(:last-child) > :is(th, td),
+.markdown thead tr > th {
+  border-bottom: 1px solid var(--line);
 }
 
 .markdown :is(th, td) {
@@ -491,6 +500,7 @@
 }
 
 .markdown th {
+  text-align: left;
   font-weight: 600;
   color: var(--muted);
   background: var(--sidebar);
@@ -537,7 +547,7 @@
   --pele-series-8: #4a4740;
 }
 
-.diagram[data-drawn] {
+.diagram {
   display: flex;
   justify-content: center;
   padding: 20px 16px;

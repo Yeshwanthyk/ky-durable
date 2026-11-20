@@ -1,11 +1,6 @@
 @import "tailwindcss";
-/* Tailwind ignores node_modules by default, so source Streamdown for class extraction. */
-@source "../node_modules/streamdown/dist/*.js";
-@source "../node_modules/@streamdown/code/dist/*.js";
-/* `dark:` follows ky's own appearance setting, not the system's, so code colours match the page. */
-@custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
 
-/* Tailwind and Streamdown size in rem, so the root follows Settings → Text size too. */
+/* Tailwind sizes in rem, so the root follows Settings → Text size too. */
 html {
   font-size: calc(100% * var(--text-scale, 1));
 }
@@ -26,34 +21,21 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
-/* Streamdown's shadcn-style tokens, on scotty's palette so code, tables and quotes match the rest.
-   In @theme so Tailwind generates the utilities Streamdown uses (border-border, bg-sidebar…);
-   left out, those borders fell back to the text colour. */
-@theme inline {
-  --color-primary: var(--accent);
-  --color-primary-foreground: var(--bg);
-  --color-foreground: var(--ink);
-  --color-background: var(--surface);
-  --color-sidebar: var(--sidebar);
-  --color-muted: var(--sunken);
-  --color-muted-foreground: var(--muted);
-  --color-border: var(--line-strong);
-}
-.sd-theme {
+/* Markdown drawn by Words (src/ui/Markdown.tsx). Words marks each element with `data-markdown`; ky draws them. */
+.markdown {
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.sd-theme .rounded-xl:has(pre) {
-  border: none;
-  border-radius: 0;
-  padding: 0;
+.markdown [data-markdown="code-block"] {
   margin: 0.5rem 0;
-  background: none;
 }
-.sd-theme .rounded-xl:has(pre) > :not(:has(pre)):not(pre) {
-  display: none !important;
+/* The language label and buttons: ky shows the code alone. */
+.markdown [data-markdown="code-header"] {
+  display: none;
 }
-.sd-theme pre {
+.markdown [data-markdown="code-block"] pre {
+  display: flex;
+  gap: 0.875rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -61,32 +43,52 @@ body {
   box-shadow: inset 0 0 0 1px var(--line);
   border-radius: 12px;
   padding: 0.75rem 0.875rem;
+  margin: 0;
+  /* Light and dark token colours both ride in `light-dark()`; this picks ky's mode, not the system's. */
+  color-scheme: light;
+}
+:where([data-mode="dark"]) .markdown [data-markdown="code-block"] pre {
+  color-scheme: dark;
+}
+.markdown [data-markdown="code-block"] pre code {
+  flex: 1;
+  min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: break-word;
-  border: none;
-  margin: 0;
 }
-/* The pre is the block's one frame; Streamdown's body around it would draw a second. */
-.sd-theme [data-streamdown="code-block-body"] {
-  border: 0;
-  border-radius: 12px;
-  padding: 0;
-  background: none;
+.markdown [data-markdown="code-lines"] {
+  display: block;
 }
-.sd-theme pre code {
-  all: unset;
-  font: inherit;
-  /* `all: unset` also wipes Streamdown's line-number counter — restore it,
-     otherwise every line renders as "1" */
-  counter-reset: line;
+.markdown [data-markdown="line-numbers"] {
+  flex: none;
+  white-space: pre;
+  text-align: right;
+  color: var(--quiet);
+  user-select: none;
 }
 /* A one-line snippet needs no line number. */
-.sd-theme pre code > :only-child::before {
+.markdown pre[data-one-line] [data-markdown="line-numbers"] {
   display: none;
 }
-/* A quote reads as an aside: a thin rule and muted text, upright. */
-/* A ```mermaid fence drawn by pele (src/ui/Diagram.tsx), on scotty's palette, so a theme switch recolours it
+.markdown :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--sunken);
+}
+.markdown a {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.markdown img {
+  max-width: 100%;
+  height: auto;
+}
+/* A ```mermaid fence drawn by pele (src/ui/diagram.ts), on scotty's palette, so a theme switch recolours it
    without drawing it again. Charts keep pele's eight series colours. */
 .pele {
   --pele-bg: transparent;
@@ -104,16 +106,4 @@ body {
   margin: 0.5rem 0;
   max-width: 100%;
   overflow-x: auto;
-}
-.pele.diagram:not([data-drawn]) {
-  height: 0;
-  margin: 0;
-  overflow: hidden;
-}
-
-.sd-theme [data-streamdown="blockquote"] {
-  border-left-width: 2px;
-  border-color: var(--line-hover);
-  padding-left: 14px;
-  font-style: normal;
 }

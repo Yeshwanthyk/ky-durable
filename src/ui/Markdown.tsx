@@ -1,93 +1,102 @@
-import type { CodeHighlighterPlugin, PluginConfig } from "streamdown";
-import { Streamdown } from "streamdown";
-import { useEffect, useState } from "react";
-import { Diagram } from "./Diagram";
+import { createMermaidPlugin } from "@pierre/words/mermaid";
+import { type Components, Markdown as Words, type PluginConfig } from "@pierre/words/react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { diagrams } from "./diagram";
 
-type Highlighted = NonNullable<ReturnType<CodeHighlighterPlugin["highlight"]>>;
-
-/** Uncoloured, one token per line: the same markup shiki's tokens render into, so colour arriving later moves nothing. */
-const plain = (code: string): Highlighted => ({ tokens: code.split("\n").map((content) => [{ content }]) });
+// Words (diffs.com/words) parses Markdown in WebAssembly and patches only the blocks a stream changed.
 
 /**
- * Shiki re-tokenises the whole block on every call, and @streamdown/code caches each partial block
- * forever. So an open fence renders plain, and only finished blocks reach shiki.
+ * One plugins object for the whole app, replaced when the highlighter or a diagram type finishes loading,
+ * so every Markdown renders again with it. Words reuses a closed block's output while its plugins stay the same.
  */
-function finishedOnly(shiki: CodeHighlighterPlugin): CodeHighlighterPlugin {
-  return {
-    ...shiki,
-    highlight(options, done) {
-      if (options.isIncomplete) return plain(options.code);
+let plugins: PluginConfig = {};
 
-      // A cache miss answers later through `done`; plain text holds the place with the right lines.
-      return shiki.highlight(options, done) ?? plain(options.code);
-    },
-  };
+const listeners = new Set<() => void>();
+
+function publish(next: PluginConfig) {
+  plugins = next;
+
+  for (const listener of listeners) listener();
 }
 
-/** A ```mermaid fence is drawn as a diagram (src/ui/Diagram.tsx), not highlighted. */
-const DIAGRAMS: PluginConfig = { renderers: [{ language: "mermaid", component: Diagram }] };
+function subscribe(listener: () => void) {
+  listeners.add(listener);
 
-/** Shiki and its grammars are most of the bundle, so they load with the first code fence. */
-let plugins: PluginConfig | undefined;
+  return () => listeners.delete(listener);
+}
 
-let loading: Promise<PluginConfig> | undefined;
+/**
+ * A ```mermaid fence is drawn by pele (src/ui/diagram.ts); an open fence grows with each complete line.
+ * Words compares plugins by their parts, so a diagram type that finished loading hands it a new wrapper,
+ * and the fences it showed as code draw.
+ */
+const mermaid = createMermaidPlugin(diagrams(() => publish({ ...plugins, mermaid: { render: (options) => mermaid.render(options) } })));
 
-// One object for the whole app: Streamdown's memo compares `plugins` by identity.
+plugins = { mermaid };
+
+/** The highlighter and its grammars are most of the bundle, so they load with the first code fence. */
+let loading: Promise<void> | undefined;
+
 // A load that failed (offline before the service worker cached it) is forgotten, so the next fence tries again.
-function loadHighlighter(): Promise<PluginConfig> {
-  if (loading) return loading;
-  const load = import("@streamdown/code").then(({ code }) => (plugins = { ...DIAGRAMS, code: finishedOnly(code) }));
-  loading = load;
-  load.catch(() => (loading = undefined));
-
-  return load;
+function loadHighlighter() {
+  loading ??= Promise.all([
+    import("@pierre/words/highlights"),
+    import("@pierre/highlights/themes/github-light"),
+    import("@pierre/highlights/themes/github-dark")
+  ]).then(
+    ([{ createHighlightsPlugin }, light, dark]) =>
+      // Both themes in each token through `light-dark()`, so a theme switch recolours code without highlighting it again.
+      publish({ ...plugins, code: createHighlightsPlugin({ themes: { light: light.default, dark: dark.default }, defaultColor: "light-dark()" }) }),
+    () => {
+      loading = undefined;
+    }
+  );
 }
 
-const FENCE = /^\s*(```|~~~)/m;
+const FENCE_LINE = /^[ \t]{0,3}(`{3,}|~{3,})\s*(\S*)/;
 
-function useHighlighter(source: string) {
-  const wanted = FENCE.test(source);
-  const [loaded, setLoaded] = useState(plugins);
-
-  useEffect(() => {
-    // Until it loads, fences show as plain code.
-    if (wanted && !loaded) loadHighlighter().then(setLoaded, () => {});
-  }, [wanted, loaded]);
-
-  // Diagrams draw before shiki arrives: they don't need it.
-  return wanted ? (loaded ?? DIAGRAMS) : undefined;
-}
-
-// The fence rule Streamdown itself uses to call a block incomplete.
-const FENCE_LINE = /^[ \t]{0,3}(`{3,}|~{3,})/;
-
-function endsInOpenFence(source: string) {
+/** Whether the source opens a fence that highlights: a ```mermaid fence draws instead, so it needs no highlighter. */
+function highlights(source: string) {
   let open: string | undefined;
 
   for (const line of source.split("\n")) {
-    const fence = FENCE_LINE.exec(line)?.[1];
+    const [, fence, language] = FENCE_LINE.exec(line) ?? [];
 
     if (!fence) continue;
 
-    if (!open) open = fence;
-    else if (fence[0] === open[0] && fence.length >= open.length) open = undefined;
+    if (!open) {
+      if (language !== "mermaid") return true;
+      open = fence;
+    } else if (fence[0] === open[0] && fence.length >= open.length && !language) open = undefined;
   }
 
-  return open !== undefined;
+  return false;
 }
 
-/** How long a source must sit still before an unclosed fence counts as finished, e.g. a stopped run. */
+function usePlugins(source: string) {
+  const wanted = highlights(source);
+  const current = useSyncExternalStore(subscribe, () => plugins);
+
+  useEffect(() => {
+    // Until it loads, fences show as plain code.
+    if (wanted && !current.code) loadHighlighter();
+  }, [wanted, current]);
+
+  return current;
+}
+
+/** How long a source must sit still before it counts as finished, e.g. a stopped run. */
 const SETTLE_MS = 2000;
 
 /**
- * True while the source is growing inside an unclosed fence. Streamdown only marks a fence
- * incomplete when told it is animating, and Markdown's callers don't say whether they stream.
+ * True while the source is still growing. Markdown's callers don't say whether they stream, so a source that
+ * changed in the last two seconds counts as streaming: Words then closes its unfinished emphasis, code and links.
  */
-function useOpenFence(source: string) {
+function useGrowing(source: string) {
   const [previous, setPrevious] = useState(source);
   const [growing, setGrowing] = useState(false);
 
-  // Set during render, so the very render that grows the fence already counts as streaming.
+  // Set during render, so the very render that grows the source already counts as streaming.
   if (source !== previous) {
     setPrevious(source);
     setGrowing(true);
@@ -101,17 +110,23 @@ function useOpenFence(source: string) {
     return () => clearTimeout(settle);
   }, [growing, source]);
 
-  return growing && FENCE.test(source) && endsInOpenFence(source);
+  return growing;
 }
 
-// Scotty renders markdown with its own marked renderer; ky already ships Streamdown.
+const COMPONENTS: Components = {
+  // A link opens beside the chat, so following one never navigates the installed app away from it.
+  a: (html) => html.replace("<a ", '<a target="_blank" rel="noopener noreferrer" '),
+  // A one-line snippet needs no line number: mark it so CSS can hide the gutter.
+  pre: (html) => (/data-markdown="line-numbers"[^>]*><span data-markdown="code-lines">\d+<\/span>/.test(html) ? html.replace("<pre", "<pre data-one-line") : html)
+};
+
 export function Markdown({ source }: { source: string }) {
-  const highlighter = useHighlighter(source);
-  const streaming = useOpenFence(source);
+  const current = usePlugins(source);
+  const growing = useGrowing(source);
 
   return (
-    <Streamdown className="markdown sd-theme" plugins={highlighter} isAnimating={streaming} controls={false}>
+    <Words className="markdown" plugins={current} components={COMPONENTS} isAnimating={growing} controls={false}>
       {source}
-    </Streamdown>
+    </Words>
   );
 }
