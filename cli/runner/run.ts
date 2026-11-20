@@ -17,10 +17,12 @@
  * never gets the machine token.
  */
 import { spawnSync } from "node:child_process";
+import { lookup } from "node:dns/promises";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import Type, { type Static } from "typebox";
+import { Value } from "typebox/value";
 import { OUTDATED, REPLACED, REVOKED, RUNNER_PATH, type Agent, type MachineFacts } from "../../src/machines/contract.ts";
 import { ASK, FACTS_EVERY_MS, lastKnown, scanRepos } from "./facts.ts";
 import { HandledSeqs } from "./handled.ts";
@@ -83,6 +85,32 @@ const SHUTDOWN_MS = 6_000;
 
 /** How a lost socket is logged: the reason tells a malformed report (1008) apart from a flaky network. */
 const disconnected = (code: number | undefined, reason: string) => `disconnected (${code ?? "error"}${reason ? `: ${reason}` : ""})`;
+
+/**
+ * The longest wait between reconnects. Once the network is back, the runner is offline for at most
+ * this long more: a computer just woken whose DNS takes a minute to return would otherwise wait out
+ * a wait that doubled while it failed. A try is one request, so trying this often costs little.
+ */
+const RETRY_AT_MOST_MS = 15_000;
+
+/** A system error's code, as Node and Bun errors carry it (ENOTFOUND, ECONNREFUSED). */
+const Coded = Type.Object({ code: Type.String() });
+
+/** Why a request to `host` met no answer: its name didn't resolve, else the request's own error. */
+async function unreachable(host: string, error: Error["cause"]): Promise<string> {
+  try {
+    await lookup(host);
+  } catch (failed) {
+    return `${host} didn't resolve (${Value.Check(Coded, failed) ? failed.code : String(failed)})`;
+  }
+
+  // Node puts the socket's error under `cause` (ECONNREFUSED); Bun names it on the error itself.
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const code = Value.Check(Coded, cause) ? cause.code : undefined;
+
+  return code && !message.includes(code) ? `${message} (${code})` : message;
+}
 
 /** Runs the runner until ky turns it away, or a signal ends it. */
 export async function runRunner({ settings, token, state, version, ky, service, kind = "computer", stop, probe = PROBE_MS }: RunOptions): Promise<void> {
@@ -161,17 +189,18 @@ export async function runRunner({ settings, token, state, version, ky, service, 
   const later = `trying again in ${probe >= 60_000 ? `${Math.round(probe / 60_000)} min` : `${probe / 1000}s`}`;
 
   /**
-   * Whether ky turns this runner's token away. A WebSocket says nothing about a refused upgrade,
-   * so a failed connect asks once over plain HTTP, where the route answers 401 for a bad token
-   * before 426 for no upgrade.
+   * What a failed connect met. A WebSocket says nothing about why it failed, so the runner asks
+   * once over plain HTTP: the route answers 401 for a bad token before 426 for no upgrade. When
+   * nothing answers, the reason is ky's name not resolving (a computer just woken, its DNS not yet
+   * back) or the request's own error, so the log tells the network apart from ky.
    */
-  const refused = async (): Promise<boolean> => {
+  const reach = async (): Promise<{ refused: true } | { refused: false; why: string }> => {
     try {
       const response = await fetch(`${url}${RUNNER_PATH}${machine}`, { headers: { Authorization: `Bearer ${token}` } });
 
-      return response.status === 401;
-    } catch {
-      return false;
+      return response.status === 401 ? { refused: true } : { refused: false, why: `ky answered ${response.status}` };
+    } catch (error) {
+      return { refused: false, why: await unreachable(new URL(url).hostname, error) };
     }
   };
 
@@ -180,12 +209,12 @@ export async function runRunner({ settings, token, state, version, ky, service, 
    * upgrade on this machine can end either, so the runner waits and tries again rather than exit:
    * a runner ahead of ky, or behind it, is not one to stop for good.
    */
-  const turnedAway = async (code: number | undefined): Promise<{ state: "outdated" | "refused"; why: string } | undefined> => {
+  const turnedAway = (code: number | undefined, reached: Awaited<ReturnType<typeof reach>> | undefined): { state: "outdated" | "refused"; why: string } | undefined => {
     // Its goodbye, logged as it came, said which protocol ky speaks.
     if (code === OUTDATED) return { state: "outdated", why: "this ky speaks another runner protocol than ky's Worker. Get the newer ky, then run ky upgrade, or deploy ky" };
 
-    // A failed connect (no code) asks whether ky refused the token; a 4401 close is REVOKED, which is fatal.
-    if (code === undefined && (await refused())) return { state: "refused", why: `ky refused ${machine}'s token. Pair again if it was removed: in ky, Settings, Machines, Add a machine` };
+    // A failed connect (no code) asked whether ky refused the token; a 4401 close is REVOKED, which is fatal.
+    if (reached?.refused) return { state: "refused", why: `ky refused ${machine}'s token. Pair again if it was removed: in ky, Settings, Machines, Add a machine` };
 
     return undefined;
   };
@@ -233,7 +262,8 @@ export async function runRunner({ settings, token, state, version, ky, service, 
         process.exit(service ? 0 : 1);
       }
 
-      const away = await turnedAway(code);
+      const reached = code === undefined ? await reach() : undefined;
+      const away = turnedAway(code, reached);
 
       if (away) {
         log(`${away.why}; ${later}`);
@@ -243,10 +273,12 @@ export async function runRunner({ settings, token, state, version, ky, service, 
         return;
       }
 
-      log(`${disconnected(code, reason)}, retrying in ${backoff / 1000}s`);
-      say("offline", disconnected(code, reason));
+      const why = reached?.refused === false ? reached.why : reason;
+
+      log(`${disconnected(code, why)}, retrying in ${backoff / 1000}s`);
+      say("offline", disconnected(code, why));
       setTimeout(connect, backoff);
-      backoff = Math.min(backoff * 2, 60_000);
+      backoff = Math.min(backoff * 2, RETRY_AT_MOST_MS);
     };
 
     ws.addEventListener("close", (event) => void lost(event.code, event.reason));

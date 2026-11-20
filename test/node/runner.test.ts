@@ -11,6 +11,7 @@ import { ky } from "../../cli/ky.ts";
 import { restartRunner } from "../../cli/runner/commands.ts";
 import { github } from "../../cli/runner/github.ts";
 import { HandledSeqs } from "../../cli/runner/handled.ts";
+import { runRunner } from "../../cli/runner/run.ts";
 import { FIRST_OUTPUT_WITHIN_MS, type Launch, Runner, type ProcessEvents } from "../../cli/runner/runner.ts";
 import { plist, unit } from "../../cli/runner/service.ts";
 import { readSettings, type Settings, withEnv } from "../../cli/runner/settings.ts";
@@ -860,4 +861,60 @@ describe("a started agent that writes nothing", () => {
     expect(results()).toMatchObject([{ task: "m-1", turn: 1, ok: false, text: "Interrupted: the container was stopped." }]);
     await done();
   });
+});
+
+describe("a runner that can't reach ky", () => {
+  /** runRunner against `url` until a log line matches `line`, then stopped. */
+  async function logsUntil(url: string, line: RegExp): Promise<string> {
+    const state = await mkdtemp(path.join(tmpdir(), "ky-reach-test-"));
+    const lines: string[] = [];
+    const stop = new AbortController();
+
+    vi.stubEnv("KY_CLAUDE", path.join(REPO, "test/fakes/claude.ts"));
+    vi.stubEnv("KY_CODEX", path.join(state, "no-codex"));
+    vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => void lines.push(parts.join(" ")));
+
+    const settings: Settings = {
+      url,
+      name: "mac",
+      token: { file: path.join(state, "runner-token") },
+      workdir: state,
+      repos: [],
+      permissionMode: "default",
+      chrome: false,
+      agents: { claude: false, codex: false },
+      ports: []
+    };
+
+    const running = runRunner({ settings, token: TOKEN, state, version: "test", ky: ["ky"], service: false, stop: stop.signal });
+
+    try {
+      await vi.waitFor(() => expect(lines.join("\n")).toMatch(line), { timeout: 8_000, interval: 50 });
+    } finally {
+      stop.abort();
+      await running;
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      await rm(state, { recursive: true, force: true });
+    }
+
+    return lines.join("\n");
+  }
+
+  it("logs that ky's name didn't resolve, when DNS fails, not a bare error", async () => {
+    // .invalid never resolves (RFC 2606), as a name doesn't on a Mac just woken whose DNS isn't back.
+    await logsUntil("http://ky-test.invalid", /disconnected \(error: ky-test\.invalid didn't resolve \(ENOTFOUND\)\), retrying in 1s/);
+  }, 15_000);
+
+  it("logs the connect's own error when the name resolves but nothing answers", async () => {
+    const port = await new Promise<number>((resolve) => {
+      const probe = createServer().listen(0, "127.0.0.1", () => {
+        // SAFETY: a server listening on a TCP port has an AddressInfo address.
+        const { port: free } = probe.address() as AddressInfo;
+        probe.close(() => resolve(free));
+      });
+    });
+
+    await logsUntil(`http://127.0.0.1:${port}`, /disconnected \(error: .*ECONNREFUSED.*\), retrying in 1s/);
+  }, 15_000);
 });
