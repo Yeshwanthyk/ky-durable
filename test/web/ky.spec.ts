@@ -3042,7 +3042,7 @@ function requested(page: Page, pattern: RegExp): string[] {
 }
 
 test("highlights a code block, loading the highlighter only with the first fence", async ({ page }) => {
-  const highlighter = requested(page, /streamdown_code|@streamdown\/code|shiki/);
+  const highlighter = requested(page, /pierre_words_highlights|pierre_highlights|@pierre\/highlights/);
   await open(page);
   const id = crypto.randomUUID().slice(0, 8);
   await send(page, `plain words ${id}`);
@@ -3054,14 +3054,14 @@ test("highlights a code block, loading the highlighter only with the first fence
   const token = page.getByText(`highlighted${id}`).last();
   await expect(token).toBeVisible();
   await expect.poll(() => highlighter.length).toBeGreaterThan(0);
-  // Shiki colors each token inline; plain text has no color of its own.
+  // Highlights colors each token inline; plain text has no color of its own.
   await expect
     .poll(() => token.evaluate((element) => element.closest("pre")?.querySelector("span[style*='color']") !== null))
     .toBe(true);
 });
 
 test("totals a machine task's changes before loading the diff viewer, and loads it on open", async ({ page }) => {
-  const viewer = requested(page, /pierre/);
+  const viewer = requested(page, /pierre_diffs|@pierre\/diffs/);
   await open(page);
   await send(page, "machine@webmac [diff] change the code");
   const changes = page.getByRole("button", { name: /^Changes/ }).first();

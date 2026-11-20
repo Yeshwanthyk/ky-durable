@@ -1,7 +1,7 @@
 /**
  * The long answers perf/build.ts has the fake model give (`reply: …` makes it answer with exactly that), and the
  * one chat.bench.ts streams: markdown as a model writes it, a heading, prose, a list, a table and a code fence,
- * so a chat renders every kind of block Streamdown and Shiki draw.
+ * so a chat renders every kind of block Words draws.
  */
 export function answer(turn: number): string {
   return [
