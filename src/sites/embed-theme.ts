@@ -7,7 +7,7 @@ export const PALETTE: Record<Mode, Record<string, string>> = {
     sunken: "#f7f7f7",
     ink: "#141414",
     muted: "#666666",
-    quiet: "#8a8a8a",
+    quiet: "#6f6f6f",
     line: "rgb(0 0 0 / 0.075)",
     "line-strong": "rgb(0 0 0 / 0.12)",
     working: "#2f8fdc",
