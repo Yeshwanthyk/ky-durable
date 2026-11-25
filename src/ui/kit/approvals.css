@@ -1,0 +1,114 @@
+/* A decision ky waits on (Approvals.tsx): an amber shell around a white card, what ky wants in one line, its
+   summary, and Approve, Decline and Later. Tokens come from chat-kit/chat.css. */
+
+.decision-card {
+  --decision-pad: 6px;
+
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-2xl, 20px);
+  padding: var(--decision-pad);
+  background: color-mix(in srgb, var(--warning, #b07a12) 12%, var(--surface, #fff));
+  animation: decision-enter var(--enter, 200ms) var(--ease-enter, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.decision-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px 10px;
+  font-size: var(--fs-14, 14px);
+}
+
+.decision-title {
+  font-weight: var(--fw-semibold, 600);
+}
+
+.decision-subject {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--quiet, #6f6f6f);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decision-position {
+  margin-left: auto;
+  color: var(--warning-ink, #8a5d08);
+  font-size: var(--fs-13, 13px);
+  white-space: nowrap;
+}
+
+/* Inner radius is the shell's less its padding. */
+.decision-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: calc(var(--radius-2xl, 20px) - var(--decision-pad));
+  padding: 16px;
+  background: var(--surface, #fff);
+}
+
+.decision-summary,
+.decision-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.decision-summary {
+  font-size: var(--fs-15, 15px);
+}
+
+.decision-note {
+  color: var(--quiet, #6f6f6f);
+  font-size: var(--fs-13, 13px);
+}
+
+.decision-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Later sits alone on the left; Decline and Approve on the right. */
+.decision-actions > .decision-decline {
+  margin-left: auto;
+}
+
+/* A key press answers at once: no press scale. */
+.decision-actions > .kit-button:focus-visible:active {
+  transform: none;
+}
+
+.decision-more {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 0;
+  color: var(--quiet, #6f6f6f);
+  font-size: var(--fs-13, 13px);
+}
+
+.decision-more > .kit-button {
+  color: var(--ink, #141414);
+}
+
+@keyframes decision-enter {
+  from {
+    opacity: 0;
+    transform: scale(var(--press, 0.97));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .decision-card {
+    animation-name: decision-fade;
+  }
+
+  @keyframes decision-fade {
+    from {
+      opacity: 0;
+    }
+  }
+}

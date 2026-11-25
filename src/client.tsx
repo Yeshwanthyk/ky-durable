@@ -61,6 +61,7 @@ import "./ui/chat-content.css";
 import "./ui/shell.css";
 import "./ui/phone.css";
 import "./ui/kit/kit.css";
+import "./ui/kit/approvals.css";
 
 /** ky's own blob, ink on light and cream on dark; subagents get one from their name. */
 const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "squircle-creme" };
@@ -447,8 +448,8 @@ function Stage(parts: Parts) {
   const deciding = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
 
   const approvals = useMemo(
-    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting: deciding }),
-    [ky.approvals, ky.approvalActions, deciding]
+    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting: deciding, onOpenDesk: () => panel.openTab("activity") }),
+    [ky.approvals, ky.approvalActions, deciding, panel]
   );
 
   return (
