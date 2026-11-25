@@ -60,6 +60,7 @@ import "./chat-kit/chat.css";
 import "./ui/chat-content.css";
 import "./ui/shell.css";
 import "./ui/phone.css";
+import "./ui/kit/kit.css";
 
 /** ky's own blob, ink on light and cream on dark; subagents get one from their name. */
 const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "squircle-creme" };
