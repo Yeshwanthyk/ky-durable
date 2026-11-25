@@ -9,6 +9,25 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: 20px;
+  --radius-pill: 999px;
+
+  /* Type: six sizes and three weights. Sizes follow Settings → Text size. */
+  --fs-12: calc(12px * var(--text-scale));
+  --fs-13: calc(13px * var(--text-scale));
+  --fs-14: calc(14px * var(--text-scale));
+  --fs-15: calc(15px * var(--text-scale));
+  --fs-20: calc(20px * var(--text-scale));
+  --fs-28: calc(28px * var(--text-scale));
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* Control heights; 44 is the touch target. */
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 36px;
+  --control-touch: 44px;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
@@ -22,6 +41,9 @@
   --standard: 180ms;
   --enter: 200ms;
   --exit: 140ms;
+  /* One press for everything; a full-width row gives a little less. */
+  --press: 0.97;
+  --press-row: 0.985;
 
   --sidebar-width: 264px;
   --thread-width: 44rem;
@@ -35,7 +57,7 @@
   --selected: rgb(0 0 0 / 0.07);
   --ink: #141414;
   --muted: #666666;
-  --quiet: #8a8a8a;
+  --quiet: #6f6f6f;
   --line: rgb(0 0 0 / 0.075);
   --line-strong: rgb(0 0 0 / 0.12);
   --line-hover: rgb(0 0 0 / 0.18);
@@ -44,6 +66,10 @@
   --danger: #cf3b2e;
   --success: #2f9b62;
   --warning: #b07a12;
+  /* Status as text: the hues above stay bright for dots and glyphs; words take these, 4.5:1 on white. */
+  --working-ink: #1f6fb4;
+  --success-ink: #1f7a4a;
+  --warning-ink: #8a5d08;
   --chart-1: #2f8fdc;
   --chart-2: #c98a14;
   --chart-3: #2f9b62;
@@ -78,6 +104,12 @@
   --danger: #f07266;
   --success: #62c58e;
   --warning: #e0b057;
+  /* Dark hues already read at 6.6:1 or better as text. */
+  --working-ink: var(--working);
+  --success-ink: var(--success);
+  --warning-ink: var(--warning);
+  --timeline-running-dark: #ff9f0a;
+  --timeline-failed-dark: #ff453a;
   --chart-1: #6cb6f0;
   --chart-2: #e0b057;
   --chart-3: #62c58e;
@@ -168,19 +200,31 @@
 }
 
 .pressable:active:not(:disabled) {
-  transform: scale(var(--press-scale, 0.96));
+  transform: scale(var(--press-scale, 0.97));
 }
 
 /* Does not inherit, so a small button inside a row keeps the full press. */
 @property --press-scale {
   syntax: "<number>";
   inherits: false;
-  initial-value: 0.96;
+  initial-value: 0.97;
 }
 
 /* A full-width row shrinking 4% looks squashed; it gives a little instead. Set --press-scale to tune one. */
 .pressable-row {
-  --press-scale: 0.985;
+  --press-scale: var(--press-row);
+}
+
+/* Reduced motion: a press doesn't move; its fill and color still answer. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --press: 1;
+    --press-row: 1;
+  }
+
+  .pressable:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 /* ---------- Touch: taps and long presses ---------- */
@@ -740,7 +784,7 @@ kbd {
   height: 20px;
   padding: 0 7px;
   border-radius: 999px;
-  color: var(--warning);
+  color: var(--warning-ink);
   background: color-mix(in srgb, var(--warning) 10%, transparent);
   font-weight: 500;
 }

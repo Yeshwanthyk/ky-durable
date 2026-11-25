@@ -15,7 +15,7 @@
   font-size: calc(12px * var(--text-scale));
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .earlier:hover {
     color: var(--muted);
   }
@@ -638,7 +638,7 @@
 }
 
 .attachment-open:active {
-  transform: scale(0.96);
+  transform: scale(var(--press));
 }
 
 .user-images .attachment-open {
@@ -797,7 +797,7 @@
 
 .lightbox-close:active,
 .lightbox-step:active {
-  transform: scale(0.96);
+  transform: scale(var(--press));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -865,7 +865,7 @@
 }
 
 .change-counts .added {
-  color: var(--success);
+  color: var(--success-ink);
 }
 
 .change-counts .removed {
@@ -1612,11 +1612,11 @@
 }
 
 .ui-status[data-tone="success"] {
-  color: var(--success);
+  color: var(--success-ink);
 }
 
 .ui-status[data-tone="warning"] {
-  color: var(--warning);
+  color: var(--warning-ink);
 }
 
 .ui-status[data-tone="error"] {
@@ -2232,11 +2232,13 @@
 .composer-clip-progress {
   position: absolute;
   left: 0;
+  right: 0;
   bottom: 0;
   height: 3px;
   border-radius: 0 0 0 var(--radius-md);
   background: var(--ink);
-  transition: width 120ms linear;
+  transform-origin: left;
+  transition: transform var(--fast) var(--ease-out);
 }
 
 .composer-clip[data-uploading="true"] > :not(.composer-clip-progress, .composer-image-remove) {
@@ -2613,7 +2615,7 @@
 }
 
 .artifact {
-  --press-scale: 0.99;
+  --press-scale: var(--press-row);
   display: flex;
   align-items: center;
   gap: 16px;

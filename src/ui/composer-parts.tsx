@@ -77,7 +77,7 @@ function ClipChip({ clip, onRemove }: { clip: PendingClip; onRemove: () => void 
     <li className="composer-clip" data-kind={clip.kind} data-uploading={uploading || undefined} title={waiting ? "Offline · uploads when ky reconnects" : undefined}>
       <ClipPreview clip={clip} />
       <ClipLabel clip={clip} waiting={waiting} />
-      {uploading ? <span className="composer-clip-progress" style={{ width: `${clip.progress * 100}%` }} role="progressbar" aria-label={`Uploading ${clip.name}`} aria-valuenow={Math.round(clip.progress * 100)} /> : null}
+      {uploading ? <span className="composer-clip-progress" style={{ transform: `scaleX(${clip.progress})` }} role="progressbar" aria-label={`Uploading ${clip.name}`} aria-valuenow={Math.round(clip.progress * 100)} /> : null}
       <button type="button" className="composer-image-remove" aria-label={`Remove ${clip.name}`} onClick={onRemove}>
         <Icon name="x" size={10} />
       </button>
