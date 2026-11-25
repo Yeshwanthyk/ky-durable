@@ -1,0 +1,171 @@
+/* The Desk page (src/ui/desk/DeskPage.tsx): ky's greeting, the deck of approvals from every chat, Last night and
+   the Desk's work, in one column. Tokens come from chat-kit/chat.css. */
+
+.desk-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.desk-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 16px 64px;
+}
+
+.desk-column {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.desk-greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.desk-greeting h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-28);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.desk-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.desk-section-head h2 {
+  margin: 0;
+  font-size: var(--fs-15);
+  font-weight: var(--fw-semibold);
+}
+
+.desk-keys {
+  margin: 0;
+  color: var(--quiet);
+  font-size: var(--fs-13);
+}
+
+.desk-keys kbd {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--fs-12);
+}
+
+/* Keys are for a keyboard; a touch screen has none to show. */
+@media (hover: none) {
+  .desk-keys {
+    display: none;
+  }
+}
+
+/* The top card, the leaving one over it, and the rest as edges peeking out below. */
+.desk-deck {
+  position: relative;
+  display: grid;
+}
+
+.desk-deck > * {
+  grid-area: 1 / 1;
+}
+
+.desk-deck > .decision-card {
+  position: relative;
+  z-index: 1;
+}
+
+.desk-deck[data-instant="true"] .decision-card {
+  animation: none;
+}
+
+.desk-edge {
+  align-self: end;
+  height: 12px;
+  margin: 0 12px -8px;
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  background: color-mix(in srgb, var(--warning) 18%, var(--surface));
+  visibility: hidden;
+}
+
+.desk-edge + .desk-edge {
+  margin: 0 24px -16px;
+  background: color-mix(in srgb, var(--warning) 24%, var(--surface));
+}
+
+.desk-deck[data-behind="1"] > .desk-edge:first-of-type,
+.desk-deck[data-behind="2"] > .desk-edge {
+  visibility: visible;
+}
+
+.desk-deck[data-behind="1"] {
+  margin-bottom: 8px;
+}
+
+.desk-deck[data-behind="2"] {
+  margin-bottom: 16px;
+}
+
+/* A tapped card leaves over the next as that one arrives. */
+.desk-ghost {
+  z-index: 2;
+  align-self: start;
+  pointer-events: none;
+  animation: desk-leave var(--exit) var(--ease-enter) forwards;
+}
+
+.desk-ghost .decision-card {
+  animation: none;
+}
+
+@keyframes desk-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+}
+
+/* The sidebar's Desk row and its count of what waits. */
+.desk-entry {
+  gap: 8px;
+}
+
+.desk-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning-ink);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  line-height: 20px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-ghost {
+    animation-name: desk-fade;
+  }
+
+  @keyframes desk-fade {
+    to {
+      opacity: 0;
+    }
+  }
+}
