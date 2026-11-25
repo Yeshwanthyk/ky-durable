@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { DreamLedgerRow } from "../protocol";
 import { Icon, type IconName } from "../chat-kit/Icon";
+import { Button } from "./kit/Button";
+import { WorkRow } from "./kit/WorkRow";
 import { day } from "./time";
 
 type LedgerActions = {
@@ -121,47 +123,59 @@ export function LastNight({ now }: { now: number }) {
           </button>
         </li>
         {open
-          ? rows.map((row) => (
-              <LedgerChange key={row.id} row={row} busy={busy === row.id} refusal={refusals[row.id]} onUndo={() => undo(row.id)} />
-            ))
+          ? rows.map((row) => {
+              const { title, icon, sub } = describe(row);
+
+              return <UndoRow key={row.id} icon={icon} title={title} sub={sub} undone={row.undone_at !== null} busy={busy === row.id} refusal={refusals[row.id]} onUndo={() => undo(row.id)} />;
+            })
           : null}
       </ul>
     </section>
   );
 }
 
-// One change: what it did, why, why an undo was refused, and Undo, or Undone once it is.
-function LedgerChange({ row, busy, refusal, onUndo }: { row: DreamLedgerRow; busy: boolean; refusal: string | undefined; onUndo: () => void }) {
-  const { title, icon, sub } = describe(row);
-  const undone = row.undone_at !== null;
-
+/** One thing ky did overnight, in a work row: what and why, why an undo was refused, and Undo, or Undone once it is. */
+export function UndoRow({
+  icon,
+  title,
+  sub,
+  undone,
+  busy,
+  refusal,
+  onUndo
+}: {
+  icon: IconName;
+  title: string;
+  sub: string | null;
+  undone: boolean;
+  busy: boolean;
+  refusal?: string;
+  onUndo: () => void;
+}) {
   return (
-    <li className="feed-item ledger-change" aria-label={title} data-undone={undone || undefined}>
-      <span className="feed-button">
-        <span className="feed-glyph">
-          <Icon name={icon} size={16} />
-        </span>
-        <span className="feed-text">
-          <span className="feed-title">{title}</span>
-          {sub === null ? null : <span className="ledger-reason">{sub}</span>}
-          {refusal === undefined ? null : (
-            <span className="ledger-refusal" role="status">
-              {refusal}
-            </span>
-          )}
-        </span>
-        <UndoControl title={title} undone={undone} busy={busy} onUndo={onUndo} />
-      </span>
-    </li>
-  );
-}
-
-function UndoControl({ title, undone, busy, onUndo }: { title: string; undone: boolean; busy: boolean; onUndo: () => void }) {
-  if (undone) return <span className="ledger-undone">Undone</span>;
-
-  return (
-    <button type="button" className="automation-text pressable" aria-label={`Undo: ${title}`} disabled={busy} onClick={onUndo}>
-      Undo
-    </button>
+    <WorkRow
+      icon={<Icon name={icon} size={16} />}
+      label={title}
+      title={title}
+      settled={undone}
+      meta={
+        refusal === undefined ? (
+          (sub ?? undefined)
+        ) : (
+          <span className="ledger-refusal" role="status">
+            {refusal}
+          </span>
+        )
+      }
+      trailing={
+        undone ? (
+          "Undone"
+        ) : (
+          <Button size={28} aria-label={`Undo: ${title}`} disabled={busy} onClick={onUndo}>
+            Undo
+          </Button>
+        )
+      }
+    />
   );
 }
