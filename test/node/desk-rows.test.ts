@@ -65,7 +65,10 @@ describe("an undo row", () => {
     expect(html).not.toContain("Undo:");
   });
 
-  it("shows why an undo was refused", () => {
-    expect(draw(UndoRow, { ...change, undone: false, refusal: "The skill changed since" })).toContain('role="status">The skill changed since');
+  it("shows why an undo was refused under why the change was made, keeping both", () => {
+    const html = draw(UndoRow, { ...change, undone: false, refusal: "The skill changed since" });
+
+    expect(html).toContain('<span class="ledger-reason-line">You said no red-eyes</span>');
+    expect(html).toContain('role="status">The skill changed since');
   });
 });

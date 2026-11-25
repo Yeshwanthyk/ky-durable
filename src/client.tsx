@@ -16,8 +16,7 @@ import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./chat-kit/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
-import { ApprovalsContext, decisionsWaiting, useSnoozed } from "./ui/Approvals";
-import { deckOf } from "./ui/desk/Deck";
+import { ApprovalsContext, decisionsWaiting, useNeedingYou } from "./ui/Approvals";
 import { DeskPage } from "./ui/desk/DeskPage";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
@@ -737,8 +736,8 @@ function App() {
     route.showDesk();
   });
 
-  const put = useSnoozed();
-  const deskWaiting = useMemo(() => deckOf(ky.approvals, put).length, [ky.approvals, put]);
+  const offline = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
+  const deskWaiting = useNeedingYou(ky.approvals, offline).length;
 
   const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage, onDeskPage };
 

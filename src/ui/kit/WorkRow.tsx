@@ -93,7 +93,7 @@ export function WorkRow(props: RowProps) {
           {trail}
         </div>
       ) : (
-        <button type="button" className="kit-work-row kit-work-opener" aria-expanded={open} onClick={toggle}>
+        <button type="button" className="kit-work-row kit-work-opener" aria-expanded={open} data-instant={instant || undefined} onClick={toggle}>
           {lead}
           {text}
           {trail}

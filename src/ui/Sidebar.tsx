@@ -188,7 +188,7 @@ function ArchivedChats({ chats, row }: { chats: readonly ChatRow[]; row: (chat: 
 // The Desk, above the main chat, with how many approvals wait on the user across every chat.
 function DeskEntry({ current, waiting, onOpen }: { current: boolean; waiting: number; onOpen: () => void }) {
   return (
-    <ul className="chat-list">
+    <ul className="chat-list chat-list-pinned">
       <li>
         <button type="button" className="chat-item desk-entry pressable pressable-row" aria-current={page(current)} onClick={onOpen}>
           <Icon name="layers" size={15} />
@@ -209,7 +209,7 @@ function MainChat({ current, unread, updatedAt, now, onOpen }: { current: boolea
   const news = useNews(unread, updatedAt > 0);
 
   return (
-    <ul className="chat-list">
+    <ul className="chat-list chat-list-pinned">
       <li>
         <button
           type="button"

@@ -55,6 +55,15 @@ describe("a decision card", () => {
   });
 });
 
+describe("a decision card with a tap on its way", () => {
+  it("takes no second tap: Later, Decline and Approve are all off until it lands or is refused", () => {
+    const html = draw(DecisionCard, { approval: ask("a", "main"), onDecide: () => {}, onLater: () => {}, pending: true });
+
+    expect(html.match(/disabled=""/g)).toHaveLength(3);
+    expect(html).toContain("Only your tap approves it");
+  });
+});
+
 describe("approvals in a chat", () => {
   const waiting = [ask("a", "main"), ask("b", "car"), ask("c", "car"), ask("d", "lisbon", { lapsedAt: 2 })];
 

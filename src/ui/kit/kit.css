@@ -104,21 +104,38 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger, #cf3b2e) 30%, transparent);
 }
 
-.kit-hold-fill {
+/* The red grows from the left by scaleX alone; its white label is a sibling over it, revealed by a window that
+   slides in from the left while the label slides the other way, so the label holds still and is never squeezed. */
+.kit-hold-fill,
+.kit-hold-window,
+.kit-hold-label {
   position: absolute;
   inset: 0;
+  transition: transform var(--enter, 200ms) var(--ease-enter, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.kit-hold-fill {
+  background: var(--danger, #cf3b2e);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.kit-hold-window {
+  overflow: hidden;
+  transform: translateX(-100%);
+}
+
+.kit-hold-label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--danger, #cf3b2e);
   color: var(--bg, #fff);
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path var(--enter, 200ms) var(--ease-enter, cubic-bezier(0.23, 1, 0.32, 1));
+  transform: translateX(100%);
 }
 
-.kit-hold[data-held] .kit-hold-fill {
-  clip-path: inset(0);
-  transition: clip-path var(--kit-hold) linear;
+.kit-hold[data-held] :is(.kit-hold-fill, .kit-hold-window, .kit-hold-label) {
+  transform: none;
+  transition: transform var(--kit-hold) linear;
 }
 
 .kit-glyph {

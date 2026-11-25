@@ -38,6 +38,11 @@
   line-height: 1.2;
 }
 
+/* It takes the focus so keys answer the deck, but it is no control: no ring. */
+.desk-greeting h1:focus {
+  outline: none;
+}
+
 .desk-section-head {
   display: flex;
   align-items: baseline;

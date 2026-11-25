@@ -83,6 +83,30 @@
   cursor: pointer;
 }
 
+/* Last night's changes (LastNight.tsx) wrap to two lines: what ky did, then why, and why an undo was refused. */
+.last-night :is(.kit-work-title, .kit-work-meta) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* With a refused undo, the why keeps its two lines and the refusal gets a line of its own under it. */
+.last-night .kit-work-meta:has(> .ledger-refusal) {
+  display: flex;
+  flex-direction: column;
+}
+
+.last-night .ledger-reason-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 .kit-work[data-settled] .kit-work-title {
   color: var(--quiet, #6f6f6f);
   text-decoration: line-through;
@@ -109,6 +133,11 @@
 .kit-work-chevron {
   color: var(--quiet, #6f6f6f);
   transition: transform var(--standard, 180ms) var(--ease-in-out, cubic-bezier(0.77, 0, 0.175, 1));
+}
+
+/* Opened from the keyboard, the chevron turns at once, as the detail appears at once. */
+.kit-work-opener[data-instant] .kit-work-chevron {
+  transition: none;
 }
 
 .kit-work-opener[aria-expanded="true"] .kit-work-chevron {
@@ -153,6 +182,15 @@
 @media (prefers-reduced-motion: reduce) {
   .kit-work-detail {
     animation-name: kit-work-fade;
+  }
+
+  .kit-work-opener,
+  .kit-work-chevron {
+    transition: none;
+  }
+
+  .kit-work-opener:active {
+    transform: none;
   }
 
   .feed-glyph .kit-glyph[data-status="working"] .kit-glyph-line {

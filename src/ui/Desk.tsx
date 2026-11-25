@@ -45,13 +45,13 @@ export function Desk({ now, onOpen }: { now: number; onOpen: (session: string) =
   };
 
   return (
-    <section className="feed-group desk" aria-label="Desk">
+    <section className="feed-group desk" aria-label="Keeping track">
       <h3 className="feed-head">
-        Desk
+        Keeping track
+        {/* The tally sits apart at the row's end, so it takes no separator. */}
         {view.extra.most > 0 ? (
           <span className="ledger-tally">
-            {" "}
-            · {view.extra.used}/{view.extra.most} extra looks today
+            {view.extra.used}/{view.extra.most} extra looks today
           </span>
         ) : null}
       </h3>

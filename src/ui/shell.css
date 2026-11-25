@@ -86,6 +86,12 @@
   overflow-y: auto;
 }
 
+/* The Desk and the main chat stay whole at the top; only the side chats below shrink and scroll. */
+.chat-list-pinned {
+  flex: none;
+  overflow: visible;
+}
+
 .chat-item {
   width: 100%;
   min-height: 36px;
@@ -5307,13 +5313,6 @@ article.skills-reader > * {
   line-height: 1.4;
   color: var(--danger);
   text-wrap: pretty;
-}
-
-.ledger-undone {
-  flex: none;
-  padding: 0 10px;
-  font-size: calc(12.5px * var(--text-scale));
-  color: var(--quiet);
 }
 
 @media (hover: hover) and (pointer: fine) {

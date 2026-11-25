@@ -162,9 +162,12 @@ export function UndoRow({
         refusal === undefined ? (
           (sub ?? undefined)
         ) : (
-          <span className="ledger-refusal" role="status">
-            {refusal}
-          </span>
+          <>
+            {sub === null ? null : <span className="ledger-reason-line">{sub}</span>}
+            <span className="ledger-refusal" role="status">
+              {refusal}
+            </span>
+          </>
         )
       }
       trailing={

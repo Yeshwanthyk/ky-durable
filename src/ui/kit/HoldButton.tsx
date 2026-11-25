@@ -61,8 +61,9 @@ export function HoldButton({ children, onConfirm, label, size = 32, disabled }: 
       }}
     >
       {children}
-      <span className="kit-hold-fill" aria-hidden="true">
-        {children}
+      <span className="kit-hold-fill" aria-hidden="true" />
+      <span className="kit-hold-window" aria-hidden="true">
+        <span className="kit-hold-label">{children}</span>
       </span>
     </button>
   );

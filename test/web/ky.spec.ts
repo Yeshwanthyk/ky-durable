@@ -1534,7 +1534,7 @@ test("shows what the user is working toward on Activity's Desk, with its next st
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
   await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const desk = panel(page).getByRole("region", { name: "Desk" });
+  const desk = panel(page).getByRole("region", { name: "Keeping track" });
   const item = desk.getByRole("listitem", { name: title });
   await expect(item).toBeVisible();
   await expect(item.getByText("Next: Draft the announcement")).toBeVisible();
@@ -1574,7 +1574,7 @@ test("shows on Activity's Desk the look ky booked itself, and why", async ({ pag
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
   await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const desk = panel(page).getByRole("region", { name: "Desk" });
+  const desk = panel(page).getByRole("region", { name: "Keeping track" });
   await expect(desk.getByLabel("Next look")).toContainText(why);
 
   if (SHOTS) await desk.screenshot({ path: `${SHOTS}/desk-next.png` });
@@ -2198,7 +2198,7 @@ test("the Desk answers every chat's approvals one card at a time, Y, N and L by 
   await connectExecutor(page);
   const nav = page.getByRole("navigation", { name: "Chats" });
   const entry = nav.getByRole("button", { name: /^Desk/ });
-  const desk = page.getByRole("region", { name: "Desk" }).first();
+  const desk = page.getByRole("region", { name: "Desk", exact: true });
   const top = desk.getByRole("heading", { level: 1 });
 
   // Clear what earlier tests left waiting, so the counts below are this test's own.

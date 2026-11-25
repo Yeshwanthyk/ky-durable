@@ -1,12 +1,12 @@
-import { useContext, useMemo, useState } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { Icon } from "../../chat-kit/Icon";
 import type { BlobVariantId } from "../blob-catalog";
-import { ApprovalsContext, useSnoozed } from "../Approvals";
+import { ApprovalsContext, useNeedingYou } from "../Approvals";
 import { BotAvatar } from "../BotAvatar";
 import { Desk } from "../Desk";
 import { LastNight } from "../LastNight";
 import { NAME } from "../open-chat";
-import { Deck, deckOf } from "./Deck";
+import { Deck } from "./Deck";
 
 const WORDS = ["One thing needs", "Two things need", "Three things need", "Four things need", "Five things need", "Six things need", "Seven things need", "Eight things need", "Nine things need"];
 
@@ -16,14 +16,12 @@ export const needsYou = (count: number) => (count === 0 ? "Nothing needs you" : 
 // What needs the user across every chat, then what ky did last night and what it is keeping track of. ky's bloub
 // greets with how many things wait; with none, it says so and the rest of the page stays.
 export function DeskPage({ now, variantId, onOpen, onChats }: { now: number; variantId: BlobVariantId; onOpen: (session: string) => void; onChats: () => void }) {
-  const { approvals } = useContext(ApprovalsContext);
-  const put = useSnoozed();
-  // Approvals answered here, gone from the deck before the server's next list says so; a refusal puts one back.
-  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
-  const deck = useMemo(() => deckOf(approvals, put).filter((approval) => !answered.has(approval.id)), [approvals, put, answered]);
+  const { approvals, waiting } = useContext(ApprovalsContext);
+  const deck = useNeedingYou(approvals, waiting);
+  const heading = useRef<HTMLHeadingElement>(null);
 
-  const onAnswered = (approval: string, gone: boolean) =>
-    setAnswered((current) => (gone ? new Set([...current, approval]) : new Set([...current].filter((each) => each !== approval))));
+  // Opening the page puts the keyboard on it, so Y, N and L answer from the first key.
+  useEffect(() => heading.current?.focus({ preventScroll: true }), []);
 
   return (
     <section className="stage artifacts desk-page" aria-label="Desk">
@@ -36,9 +34,12 @@ export function DeskPage({ now, variantId, onOpen, onChats }: { now: number; var
         <div className="desk-column">
           <header className="desk-greeting" data-clear={deck.length === 0}>
             <BotAvatar owner="ky" name={NAME} variantId={variantId} size={deck.length === 0 ? 56 : 36} />
-            <h1>{needsYou(deck.length)}</h1>
+            <h1 ref={heading} tabIndex={-1} aria-live="polite">
+              {needsYou(deck.length)}
+            </h1>
           </header>
-          {deck.length > 0 ? <Deck deck={deck} onAnswered={onAnswered} /> : null}
+          {/* Mounted while empty, so the last card can finish leaving; it draws nothing once it has. */}
+          <Deck deck={deck} heading={heading} />
           <LastNight now={now} />
           <Desk now={now} onOpen={onOpen} />
         </div>

@@ -29,7 +29,9 @@ describe("hold to delete", () => {
 
     expect(html).toContain('class="kit-button kit-hold"');
     expect(html).not.toContain("data-held");
-    expect(html).toContain('Hold to delete<span class="kit-hold-fill" aria-hidden="true">Hold to delete</span>');
+    expect(html).toContain(
+      'Hold to delete<span class="kit-hold-fill" aria-hidden="true"></span><span class="kit-hold-window" aria-hidden="true"><span class="kit-hold-label">Hold to delete</span></span>'
+    );
   });
 });
 

@@ -52,9 +52,49 @@ export function useSnoozed(): ReadonlySet<string> {
   return useSyncExternalStore(onSnooze, () => snoozed, () => snoozed);
 }
 
+// The approvals answered on the Desk, gone from what waits before the server's next list says so; a refusal puts one
+// back. In this tab only, shared by the Desk's deck and the sidebar's count.
+let answered: ReadonlySet<string> = new Set();
+
+const answeredListeners = new Set<() => void>();
+
+/** Marks an approval answered on the page (`gone`), or puts it back when its answer was refused. */
+export function markAnswered(approval: string, gone: boolean): void {
+  answered = gone ? new Set([...answered, approval]) : new Set([...answered].filter((each) => each !== approval));
+
+  for (const listener of answeredListeners) listener();
+}
+
+function onAnswered(listener: () => void): () => void {
+  answeredListeners.add(listener);
+
+  return () => answeredListeners.delete(listener);
+}
+
+/** The approvals answered on the page whose answer the server's list doesn't show yet. */
+export function useAnswered(): ReadonlySet<string> {
+  return useSyncExternalStore(onAnswered, () => answered, () => answered);
+}
+
 /** The approvals still waiting on the user's tap, in the order they came: not expired, not put off. */
 export const stillWaiting = (approvals: readonly ApprovalView[], put: ReadonlySet<string>) =>
   approvals.filter((approval) => approval.lapsedAt === undefined && !put.has(approval.id));
+
+/**
+ * What needs the user, as every count of it says: the chat's "x of y" and "more in other chats", the Desk's deck and
+ * greeting, and the sidebar's badge. Not one expired or put off, not one tapped offline or just answered on the page,
+ * and not a hand-off of ky's browser, which takes the user to the live page from its own chat.
+ */
+export const needingYou = (approvals: readonly ApprovalView[], put: ReadonlySet<string>, waiting: ReadonlyMap<string, ApprovalAction>, done: ReadonlySet<string>) =>
+  stillWaiting(approvals, put).filter((approval) => approval.kind !== "browser-handoff" && !waiting.has(approval.id) && !done.has(approval.id));
+
+/** {@link needingYou} for these approvals, with what this tab put off and answered. */
+export function useNeedingYou(approvals: readonly ApprovalView[], waiting: ReadonlyMap<string, ApprovalAction>): readonly ApprovalView[] {
+  const put = useSnoozed();
+  const done = useAnswered();
+
+  return useMemo(() => needingYou(approvals, put, waiting, done), [approvals, put, waiting, done]);
+}
 
 /** The approval taps among the changes made offline, by approval. */
 export function decisionsWaiting(acts: readonly StoredAct[]): ReadonlyMap<string, ApprovalAction> {
@@ -117,16 +157,20 @@ export function DecisionCard({
   onDecide,
   onLater,
   position,
-  waiting
+  waiting,
+  pending = false
 }: {
   approval: ApprovalView;
   onDecide: (action: "accept" | "decline") => void;
   onLater?: () => void;
   position?: Position;
   waiting?: ApprovalAction;
+  /** A tap on its way: the buttons take no other until it lands or is refused. */
+  pending?: boolean;
 }) {
   const title = APPROVAL_KINDS[approval.kind].title;
   const done = waiting !== undefined;
+  const off = done || pending;
 
   return (
     <section className="decision-card" aria-label={title}>
@@ -141,14 +185,14 @@ export function DecisionCard({
         <p className="decision-note">{done ? WAITING_NOTE[waiting] : "Only your tap approves it: ky can't, and nobody else can."}</p>
         <div className="decision-actions">
           {onLater && !done ? (
-            <Button variant="quiet" onClick={onLater}>
+            <Button variant="quiet" disabled={pending} onClick={onLater}>
               Later
             </Button>
           ) : null}
-          <Button variant="quiet" className="decision-decline" disabled={done} onClick={() => onDecide("decline")}>
+          <Button variant="quiet" className="decision-decline" disabled={off} onClick={() => onDecide("decline")}>
             Decline
           </Button>
-          <Button variant="primary" disabled={done} onClick={() => onDecide("accept")}>
+          <Button variant="primary" disabled={off} onClick={() => onDecide("accept")}>
             Approve
           </Button>
         </div>
@@ -159,9 +203,9 @@ export function DecisionCard({
 
 /** The approvals waiting in chat `chat`, after its thread, and how many more wait in other chats. */
 export function ApprovalCards({ chat }: { chat: string }) {
-  const { approvals, onOpenDesk } = useContext(ApprovalsContext);
+  const { approvals, onOpenDesk, waiting } = useContext(ApprovalsContext);
   const put = useSnoozed();
-  const all = stillWaiting(approvals, put);
+  const all = useNeedingYou(approvals, waiting);
   const here = approvals.filter((approval) => approval.chat === chat && !put.has(approval.id));
   const elsewhere = all.filter((approval) => approval.chat !== chat).length;
 
@@ -194,6 +238,8 @@ function ApprovalCard({ approval, position }: { approval: ApprovalView; position
   const { onDecide, waiting } = useContext(ApprovalsContext);
   const [refused, setRefused] = useState<string>();
   const [live, setLive] = useState(false);
+  // A tap on its way: a second one, from a double tap, does nothing.
+  const [pending, setPending] = useState(false);
   const decided = waiting.get(approval.id);
   const asking = approval.lapsedAt === undefined && approval.kind !== "browser-handoff";
   const ui = useMemo(() => (decided === undefined ? cardOf(approval) : { ...cardOf(approval), note: WAITING_NOTE[decided] }), [approval, decided]);
@@ -204,16 +250,22 @@ function ApprovalCard({ approval, position }: { approval: ApprovalView; position
   const decide = (reply: string) => {
     if (reply === TAKE_OVER) setLive(true);
 
-    if (reply === "accept" || reply === "decline") {
+    if ((reply === "accept" || reply === "decline") && !pending) {
       setLive(false);
-      void onDecide(approval.id, reply).then(setRefused);
+      setPending(true);
+      setRefused(undefined);
+      void onDecide(approval.id, reply).then((reason) => {
+        setRefused(reason);
+
+        if (reason !== undefined) setPending(false);
+      });
     }
   };
 
   return (
     <div className="approval" data-approval={approval.id}>
       {asking ? (
-        <DecisionCard approval={approval} onDecide={decide} onLater={() => snooze(approval.id)} position={position} waiting={decided} />
+        <DecisionCard approval={approval} onDecide={decide} onLater={() => snooze(approval.id)} position={position} waiting={decided} pending={pending} />
       ) : (
         <ReplyContext.Provider value={decide}>
           <BlockCard call={`approval:${approval.id}`} ui={ui} answer={answer} open />
