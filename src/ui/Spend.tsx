@@ -16,7 +16,14 @@ export const SpendContext = createContext<SpendActions>({
   onCap: () => Promise.reject(new Error("Not connected.")),
 });
 
-const dollars = (amount: number) => `$${amount.toFixed(amount > 0 && amount < 1 ? 4 : 2)}`;
+/** Money as people say it: cents under a dollar ("2¢", "<1¢" for a sliver), dollars and cents from one ("$1.24"). */
+export function money(usd: number): string {
+  if (usd >= 1) return `$${usd.toFixed(2)}`;
+
+  const cents = Math.round(usd * 100);
+
+  return cents === 0 && usd > 0 ? "<1¢" : `${cents}¢`;
+}
 
 const tokens = (totals: SpendTotals) => (totals.calls === 1 ? "1 call" : `${totals.calls.toLocaleString()} calls`);
 
@@ -52,7 +59,7 @@ function useSpend() {
 export function SpendValue() {
   const { view } = useSpend();
 
-  return view === null ? null : <RowValue>{dollars(view.today.costUsd)}</RowValue>;
+  return view === null ? null : <RowValue>{money(view.today.costUsd)}</RowValue>;
 }
 
 function Cap({ view, onSet }: { readonly view: SpendView; readonly onSet: (usd: number | null) => void }) {
@@ -106,14 +113,14 @@ export function Spend() {
               <span className="row-label">Today</span>
               <span className="row-sub">{tokens(view.today)}</span>
             </span>
-            <RowValue tone={view.capped ? "paused" : undefined}>{dollars(view.today.costUsd)}</RowValue>
+            <RowValue tone={view.capped ? "paused" : undefined}>{money(view.today.costUsd)}</RowValue>
           </li>
           <li className="row">
             <span className="row-text">
               <span className="row-label">This month</span>
               <span className="row-sub">{tokens(view.month)}</span>
             </span>
-            <RowValue>{dollars(view.month.costUsd)}</RowValue>
+            <RowValue>{money(view.month.costUsd)}</RowValue>
           </li>
         </ul>
       </section>
@@ -131,7 +138,7 @@ export function Spend() {
                     {tokens(line)}
                   </span>
                 </span>
-                <RowValue>{dollars(line.costUsd)}</RowValue>
+                <RowValue>{money(line.costUsd)}</RowValue>
               </li>
             ))}
           </ul>
