@@ -22,11 +22,11 @@ const ignored = (event: KeyboardEvent) =>
   (event.target instanceof HTMLElement &&
     (event.target.isContentEditable || event.target.closest("input, textarea, select, dialog, [role=dialog], [role=alertdialog]") !== null));
 
-/** Whether the keyboard is on the Desk page `page`: nothing focused, or something on the page itself. */
+/** Whether the keyboard is on the Desk page `page`: nothing focused, the sidebar's Desk row that opened it, or something on the page itself. */
 function onPage(page: Element | null | undefined): boolean {
   const active = document.activeElement;
 
-  if (active === null || active === document.body) return true;
+  if (active === null || active === document.body || active.closest(".desk-entry") !== null) return true;
 
   return page?.contains(active) === true && active.closest("dialog, [role=dialog], [role=alertdialog]") === null;
 }
