@@ -101,11 +101,31 @@ async function release(page: Page): Promise<void> {
   expect(response.status()).toBe(204);
 }
 
-/** Bring the stack's Mac (its fake VibeProxy) online ("1"), take it away ("0"), or let it leave unnoticed ("leaves"). */
-async function mac(page: Page, up: "1" | "0" | "leaves"): Promise<void> {
+/** Let one of the stack's fake providers answer, or refuse every request (src/tests/stack.ts). */
+async function provider(page: Page, id: "workers-ai" | "opencode-go" | "anthropic", up: boolean): Promise<void> {
   await signIn(page);
-  const response = await page.request.post(`/test/mac?up=${up}`);
+  const response = await page.request.post(`/test/provider?id=${id}&up=${up ? "1" : "0"}`);
   expect(response.status()).toBe(204);
+}
+
+/** Add the fake Anthropic key in Settings › Providers, as the user does. */
+async function addAnthropicKey(page: Page): Promise<void> {
+  await settings(page, "Providers");
+  const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
+  await providers.getByRole("combobox", { name: "Vendor" }).selectOption({ label: "Anthropic" });
+  await providers.getByRole("textbox", { name: "API key", exact: true }).fill(ANTHROPIC_KEY);
+  await providers.getByRole("button", { name: "Test and save" }).click();
+  await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toContainText(/\d+ models/);
+  await settings(page);
+}
+
+/** Remove the Anthropic key, so the other tests run on Workers AI alone. */
+async function removeAnthropicKey(page: Page): Promise<void> {
+  await settings(page, "Providers");
+  const providers = panel(page).locator(".group").filter({ hasText: "Providers" });
+  await providers.getByRole("button", { name: "Remove the Anthropic key" }).click();
+  await expect(providers.getByRole("listitem").filter({ hasText: "Anthropic" })).toHaveCount(0);
+  await settings(page);
 }
 
 /** Pick a purpose's model in Settings, by the purpose's label and the model's radio. */
@@ -1118,7 +1138,7 @@ test("marks a side chat that ky answered while the user was in another chat, unt
   await expect(divider).toBeHidden();
 });
 
-test("picks a purpose's model in settings and keeps it after a reload, with VibeProxy off", async ({ page }) => {
+test("picks a purpose's model in settings and keeps it after a reload", async ({ page }) => {
   await open(page);
   await settings(page, "Models");
   // The row names the model only; its provider is on the purpose's own page.
@@ -1128,8 +1148,6 @@ test("picks a purpose's model in settings and keeps it after a reload, with Vibe
   await panel(page).getByRole("radiogroup", { name: "Background model" }).getByRole("radio", { name: /^GPT OSS 120B/ }).click();
   await settings(page, "Models");
   await expect(panel(page).getByRole("button", { name: /^Background/ })).toContainText("GPT OSS 120B");
-  await settings(page, "Providers");
-  await expect(panel(page).getByRole("listitem").filter({ hasText: "VibeProxy" })).toContainText("Off");
 
   await page.reload();
   await settings(page, "Models");
@@ -1142,9 +1160,9 @@ test("picks a purpose's model in settings and keeps it after a reload, with Vibe
   await expect(panel(page).getByRole("button", { name: /^Background/ })).not.toContainText("GPT OSS 120B");
 });
 
-test("lists VibeProxy's featured Claude models, and the rest of the catalog behind Show all", async ({ page }) => {
-  await mac(page, "1");
+test("lists Anthropic's featured Claude models, and the rest of the catalog behind Show all", async ({ page }) => {
   await open(page);
+  await addAnthropicKey(page);
   await settings(page, "Models", "Main agent");
   const models = panel(page).getByRole("radiogroup", { name: "Main agent model" });
   await expect(models.getByRole("radio", { name: /^Claude Opus 5\.5/ })).toBeVisible();
@@ -1163,7 +1181,7 @@ test("lists VibeProxy's featured Claude models, and the rest of the catalog behi
   // Put it back for the other tests.
   await settings(page);
   await pick(page, "Main agent", /^Glm 5.3 Flash/);
-  await mac(page, "0");
+  await removeAnthropicKey(page);
 });
 
 test("sets ky's repo for self-edits in Settings and keeps it after a reload", async ({ page }) => {
@@ -1351,7 +1369,6 @@ test("opens Settings' pages from its first page and comes back with the button o
   await settings(page);
   const status = panel(page).getByRole("list", { name: "Status" });
   await expect(status.getByRole("button", { name: /^Main agent/ })).toContainText("Glm 5.3 Flash");
-  await expect(status.getByRole("button", { name: /^VibeProxy/ })).toBeVisible();
 
   await status.getByRole("button", { name: /^Main agent/ }).click();
   await expect(panel(page).getByRole("heading", { name: "Main agent" })).toBeFocused();
@@ -3060,17 +3077,19 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
 
   const cantRead = "GPT OSS 120B can't read images. Pick a model that can in Models, or send text only.";
 
-  await mac(page, "1");
   await open(page);
+  await addAnthropicKey(page);
   await pick(page, "Main agent", /Opus/);
   await pick(page, "Fallback", /^GPT OSS 120B/);
 
-  // The Mac goes away unnoticed: the page still shows Claude, so only the server, which asks the Mac, can refuse.
-  await mac(page, "leaves");
+  // Anthropic fails a call and its breaker opens: the page still shows Claude, so only the server, which knows, can refuse.
+  await provider(page, "anthropic", false);
+  await send(page, "asked while Anthropic is down");
+  await expect(chat(page).getByText("echo: asked while Anthropic is down")).toBeVisible();
   await attach();
   await send(page, "what is in this picture");
   await expect(page.getByRole("alert")).toHaveText(cantRead);
-  const [refused] = connections[0]!.submits;
+  const refused = connections[0]!.submits.at(-1);
   expect(connections[0]!.errors).toEqual([refused]);
 
   // A dropped socket does not send the refused message again.
@@ -3086,9 +3105,11 @@ test("refuses an image the stand-in model can't read, never resends it, and warn
   await expect(page.getByRole("alert")).toHaveText(cantRead);
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 
-  // Put the purposes back for the other tests.
+  // Put the purposes and Anthropic back for the other tests.
   await pick(page, "Main agent", /^Glm 5.3 Flash/);
   await pick(page, "Fallback", /^Glm 5.3 Flash/);
+  await provider(page, "anthropic", true);
+  await removeAnthropicKey(page);
 });
 
 /** Every URL the page asks for that matches, so a test can see when a lazy chunk loads. */

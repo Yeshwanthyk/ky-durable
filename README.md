@@ -67,7 +67,7 @@ ky runner add https://ky.<you>.workers.dev <code>
 ```
 
 It finds the computer's `claude` and `codex` logins, Chrome, the folders holding git repos, and local model
-servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each. It keeps the machine's token in
+servers (Ollama on 11434), and asks before sharing each. It keeps the machine's token in
 `~/.config/ky/runner-token` (0600), runs as a launchd agent or a `systemd --user` unit, and waits until
 ky shows the machine online. `ky runner status`, `logs` and `rm` look after it; `ky upgrade` restarts it.
 
@@ -96,10 +96,6 @@ deploy and roll it back.
 aren't signed in themselves and for the cloud machine: paste the token `claude setup-token` prints for Claude, and
 sign in with a device code for ChatGPT. The Claude token only ever reaches the real `claude` CLI; ky never calls
 Anthropic with it.
-
-**VibeProxy.** Claude in ky's own chat comes only from VibeProxy on
-a computer of yours: run it on port 8317, and share that port when `ky runner add` asks. It shows in Settings as
-"Claude via VibeProxy on <machine>" while that computer is online.
 
 **Executor.** Connect Executor in Settings › Tools › Executor with its URL (`https://mcp.executor.sh/mcp`)
 and a personal access token from executor.sh › Account settings › Tokens, and ky gets your connected apps as
@@ -164,9 +160,8 @@ cp .dev.vars.example .dev.vars   # gitignored; set KY_DEV=1, KY_DEV_EMAIL and AC
 pnpm start   # vite dev with the Worker and DO, signed in as KY_DEV_EMAIL
 ```
 
-`BROWSER` and `AI` (and `VIBEPROXY`, with the overlay) are remote bindings, so `pnpm start` needs
-`wrangler login`. Without `wrangler.local.jsonc`, VibeProxy and Executor show as "Not set up". Without
-VibeProxy or a key added in Settings, ky runs on Workers AI.
+`BROWSER` and `AI` are remote bindings, so `pnpm start` needs `wrangler login`. Without a key added in
+Settings or a ChatGPT sign-in, ky runs on Workers AI.
 
 | Script | Runs |
 | --- | --- |
@@ -175,7 +170,7 @@ VibeProxy or a key added in Settings, ky runs on Workers AI.
 | `pnpm run deploy` | `vite build && wrangler deploy` |
 | `pnpm typecheck` | `tsc --noEmit`, then `tsconfig.node.json` (the runner and the test harnesses) |
 | `pnpm test` | worker e2e: vitest in the Workers pool on the real `PiAgent`, fakes only at the edge (`src/tests/`) |
-| `pnpm stack` | the local stack: the app with fake Executor, VibeProxy and models (`test/stack/`) |
+| `pnpm stack` | the local stack: the app with fake Executor and models (`test/stack/`) |
 | `pnpm harness` | CLI scenarios against the local stack with the real runner and fake `claude` and `codex` (`test/harness/`) |
 | `pnpm test:node` | vitest in Node on the build's config, such as the owner overlay merge (`test/node/`) |
 | `pnpm test:web` | Playwright over the local stack (`test/web/`) |

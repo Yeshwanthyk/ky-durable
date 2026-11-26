@@ -20,14 +20,14 @@
         },
         {
           "purpose": "fallback",
-          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"max\"}"
+          "value": "{\"provider\":\"anthropic\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"max\"}"
         }
       ],
       "reads": [
         {
           "connected": [
             "workers-ai",
-            "vibeproxy"
+            "anthropic"
           ],
           "purposes": {
             "main": {
@@ -46,7 +46,7 @@
               "thinkingLevel": "off"
             },
             "fallback": {
-              "provider": "vibeproxy",
+              "provider": "anthropic",
               "modelId": "claude-opus-5-5",
               "thinkingLevel": "max"
             }
@@ -109,7 +109,7 @@
         {
           "connected": [
             "workers-ai",
-            "vibeproxy"
+            "anthropic"
           ],
           "purposes": {
             "main": null,
@@ -156,21 +156,21 @@
         },
         {
           "purpose": "fallback",
-          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-haiku-5-5\",\"thinkingLevel\":\"minimal\"}"
+          "value": "{\"provider\":\"anthropic\",\"modelId\":\"claude-haiku-5-5\",\"thinkingLevel\":\"minimal\"}"
         }
       ],
       "reads": [
         {
           "connected": [
             "workers-ai",
-            "vibeproxy"
+            "anthropic"
           ],
           "purposes": {
             "main": null,
             "worker": null,
             "background": null,
             "fallback": {
-              "provider": "vibeproxy",
+              "provider": "anthropic",
               "modelId": "claude-haiku-5-5",
               "thinkingLevel": "minimal"
             }
@@ -202,7 +202,7 @@
       "rows": [
         {
           "purpose": "main",
-          "value": "{\"provider\":\"vibeproxy\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"off\"}"
+          "value": "{\"provider\":\"anthropic\",\"modelId\":\"claude-opus-5-5\",\"thinkingLevel\":\"off\"}"
         },
         {
           "purpose": "worker",
@@ -213,11 +213,11 @@
         {
           "connected": [
             "workers-ai",
-            "vibeproxy"
+            "anthropic"
           ],
           "purposes": {
             "main": {
-              "provider": "vibeproxy",
+              "provider": "anthropic",
               "modelId": "claude-opus-5-5",
               "thinkingLevel": "off"
             },

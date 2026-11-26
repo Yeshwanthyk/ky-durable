@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  // Generic: what any deploy needs. The owner's vars and bindings (VibeProxy's tunnel, Executor) go in
+  // Generic: what any deploy needs. The owner's vars and bindings (mail, Executor) go in
   // wrangler.local.jsonc, which vite.config.ts merges in when present; see wrangler.local.example.jsonc.
   "name": "ky",
   "main": "src/server.ts",

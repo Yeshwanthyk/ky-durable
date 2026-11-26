@@ -1,24 +1,16 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import fc from "fast-check";
 import { DatabaseSync } from "node:sqlite";
-import type { MachineInfo } from "../../../src/protocol";
 import type { ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, ProviderKey } from "../../../src/providers/contract";
 import { Models, pollDevice, refreshLogin, startDevice } from "../../../src/providers/wiring";
 import type { ModelChoice, Purpose } from "../../../src/settings/contract";
 import { type AiCall, chatCompletions, fakeAI, type Reply } from "../../fakes/ai";
 import { vendors } from "../../fakes/vendors";
-import { fakeVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../fakes/vibeproxy";
 import { clockAt } from "../access/clock";
 import type { Clock, Json } from "../kit";
 import { storageOf } from "../skills/storage";
 
-type Machines = ConstructorParameters<typeof Models>[3];
-
-type Pipe = ConstructorParameters<typeof Models>[4];
-
 export const START = 1_700_000_000_000;
-
-export const PROBE_TTL_MS = 10_000;
 
 export const COOLDOWN_MS = 60_000;
 
@@ -26,7 +18,6 @@ export const OPENCODE_KEY = "opencode-test-key";
 
 const MODELS = {
   "workers-ai": ["workers-ai/@cf/zai-org/glm-5.3-flash", "workers-ai/@cf/moonshotai/kimi-k2.6", "workers-ai/@cf/openai/gpt-oss-120b"],
-  vibeproxy: ["claude-opus-5-5", "claude-haiku-5-5"],
   anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5", "claude-opus-4-5"],
   openai: ["gpt-6.1-sol", "gpt-6-luna"],
   "opencode-go": ["deepseek-v4.1-flash", "glm-5.3"],
@@ -60,13 +51,11 @@ type Steps = { readonly [K in Action["kind"]]: (action: ActionOf<K>) => Promise<
 
 export type Action =
   | { readonly kind: "removeKey"; readonly id: string }
-  | { readonly kind: "machine"; readonly name: string; readonly online: boolean; readonly shares: boolean }
   | { readonly kind: "refresh" }
-  | { readonly kind: "probe" }
   | { readonly kind: "resolve"; readonly purpose: Purpose; readonly images: boolean }
   | { readonly kind: "ask"; readonly purpose: Purpose; readonly text: string; readonly maxTokens: number }
   | { readonly kind: "complete"; readonly purpose: Purpose }
-  | { readonly kind: "reboot"; readonly tunnel: boolean }
+  | { readonly kind: "reboot" }
   | { readonly kind: "enable"; readonly id: string; readonly enabled: 0 | 1 }
   | { readonly kind: "device"; readonly answer: DeviceAnswer }
   | { readonly kind: "poll"; readonly answer: PollAnswer }
@@ -154,31 +143,6 @@ function refreshAnswer(answer: RefreshAnswer): Response {
   }
 }
 
-type MachineState = { online: boolean; shares: boolean };
-
-function machineInfo(name: string, state: MachineState): MachineInfo {
-  return {
-    name,
-    online: state.online,
-    seenAt: 0,
-    reason: null,
-    active: 0,
-    state: "on",
-    note: "",
-    facts: {
-      os: "darwin",
-      chrome: false,
-      repos: [],
-      agents: { claude: { installed: false, signedIn: false }, codex: { installed: false, signedIn: false } },
-      ports: state.shares ? [VIBEPROXY_TEST_PORT] : [],
-      kind: "computer"
-    },
-    login: "own",
-    cloud: null,
-    sandbox: null
-  };
-}
-
 const shownModel = (model: { provider: string; id: string; name: string; input: readonly string[]; contextWindow: number }): Json => ({
   provider: model.provider,
   id: model.id,
@@ -214,10 +178,7 @@ export class World {
   readonly vaultLog: Json[] = [];
   readonly calls: AiCall[] = [];
   readonly openai: Json[] = [];
-  readonly machines = new Map<string, MachineState>();
   readonly down = new Set<string>();
-  vibeUp = true;
-  tunnel = false;
   /** The ChatGPT sign-in's access token in the Vault; null while signed out. Parity's actions never sign in. */
   chatgpt: string | null = null;
   reply: Reply = REPLIES.hi;
@@ -234,17 +195,9 @@ export class World {
     const script = () => this.reply;
     const refusing = (id: string) => async () => (this.down.has(id) ? 503 : undefined);
 
-    const vibe = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (!this.vibeUp) throw new Error("connect ECONNREFUSED 127.0.0.1:8317");
-
-      return fakeVibeProxy(new Request(input, init));
-    };
-
     const boundary: ModelsBoundary = {
       ai: fakeAI(chatCompletions(script, this.calls, refusing("workers-ai"))),
-      fetch: vendors(script, this.calls, chatCompletions(script, this.calls, refusing("opencode-go"))),
-      vibeProxy: { port: VIBEPROXY_TEST_PORT, key: VIBEPROXY_KEY, tunnel: this.tunnel ? { binding: { fetch: vibe }, origin: "https://vibeproxy.test:8443" } : undefined },
-      probeTtlMs: PROBE_TTL_MS
+      fetch: vendors(script, this.calls, chatCompletions(script, this.calls, refusing("opencode-go")))
     };
 
     const vault: KeyVault = {
@@ -260,20 +213,7 @@ export class World {
       }
     };
 
-    const machines: Machines = {
-      machines: () => [...this.machines].map(([name, state]) => machineInfo(name, state)),
-      online: (name) => this.machines.get(name)?.online === true
-    };
-
-    const pipe: Pipe = {
-      fetcher: (machine) => async (input, init) => {
-        if (!this.machines.get(machine)?.online) throw new Error(`${machine} is offline.`);
-
-        return vibe(input, init);
-      }
-    };
-
-    const models = new Models(storageOf(this.db), boundary, vault, machines, pipe, clockAt(() => this.clock.now()));
+    const models = new Models(storageOf(this.db), boundary, vault, clockAt(() => this.clock.now()));
 
     models.onChange(() => this.changes++);
 
@@ -300,18 +240,8 @@ export class World {
 
       return {};
     },
-    machine: async ({ name, online, shares }) => {
-      this.machines.set(name, { online, shares });
-
-      return null;
-    },
     refresh: async () => {
       await this.models.refresh();
-
-      return null;
-    },
-    probe: async () => {
-      await this.models.probe();
 
       return null;
     },
@@ -326,8 +256,7 @@ export class World {
       return shownAnswer(await this.models.ask(purpose, "Be brief.", messages, { timeoutMs: 20_000, maxTokens }));
     },
     complete: async ({ purpose }) => this.models.complete(purpose, "Name this chat.", "hello"),
-    reboot: async ({ tunnel }) => {
-      this.tunnel = tunnel;
+    reboot: async () => {
       this.models = this.boot();
 
       return null;

@@ -9,8 +9,6 @@ const Choice = Schema.Struct({ provider: Schema.String, modelId: Schema.String, 
 
 const Case = Schema.Struct({
   name: Schema.String,
-  tunnel: Schema.Boolean,
-  machines: Schema.Record(Schema.String, Schema.Struct({ online: Schema.Boolean, shares: Schema.Boolean })),
   tables: Schema.Struct({ ky_providers: Schema.Array(Schema.Record(Schema.String, Cell)), ky_purposes: Schema.Array(Schema.Record(Schema.String, Cell)) }),
   vault: Schema.Record(Schema.String, Schema.Struct({ apiKey: Schema.String })),
   reads: Schema.Struct({
@@ -23,6 +21,9 @@ const Case = Schema.Struct({
 const atB = Schema.decodeUnknownSync(Schema.Struct({ commit: Schema.Literal("b658a6e"), cases: Schema.Array(Case) }))(
   JSON.parse(readFileSync(new URL("at-b.json", import.meta.url), "utf8"))
 );
+
+/** Providers ky dropped after B: a row saved for one stays in the table and is no longer listed. */
+const REMOVED = new Set(["vibeproxy"]);
 
 function saved(recorded: (typeof atB.cases)[number]): World {
   const world = new World({ now: () => START });
@@ -37,10 +38,7 @@ function saved(recorded: (typeof atB.cases)[number]): World {
     }
   }
 
-  for (const [name, state] of Object.entries(recorded.machines)) world.machines.set(name, { ...state });
-
   for (const [id, key] of Object.entries(recorded.vault)) world.keys.set(id, key);
-  world.tunnel = recorded.tunnel;
   world.models = world.boot();
 
   return world;
@@ -55,7 +53,7 @@ describe("providers saved at B", () => {
       providers: models.catalog().map(({ id, kind, name }) => ({ id, kind, name })),
       purposes: Object.fromEntries((["main", "worker", "background", "fallback"] as const).map((purpose) => [purpose, models.resolve(purpose).choice])),
       worker: models.worker(null)
-    }).toEqual(recorded.reads);
+    }).toEqual({ ...recorded.reads, providers: recorded.reads.providers.filter(({ id }) => !REMOVED.has(id)) });
     expect(world.tables()).toEqual({ ...recorded.tables, ky_purposes: [...recorded.tables.ky_purposes].sort((a, b) => String(a.purpose).localeCompare(String(b.purpose))) });
   });
 

@@ -14,8 +14,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import type { MachineHub } from "../machines/contract";
-import type { RunnerPipe } from "../machines/wiring";
 import { type ModelChoice, type ModelOption, nearestLevel, type ProviderInfo, type Purpose, type SettingsView } from "../settings/contract";
 import { Settings } from "../settings/wiring";
 import { apiKey, apiKeyRecord, type Vendor, VENDORS } from "./sources/api-keys";
@@ -67,8 +65,6 @@ export class Host extends Context.Service<
     readonly storage: DurableObjectStorage;
     readonly boundary: ModelsBoundary;
     readonly vault: KeyVault;
-    readonly machines: Pick<MachineHub, "machines" | "online">;
-    readonly pipe: Pick<RunnerPipe, "fetcher">;
   }
 >()("ky/providers/Host") {}
 
@@ -132,7 +128,7 @@ function failed(model: Model<Api>, errorMessage: string, timestamp: number): Ass
 }
 
 const make = Effect.gen(function* () {
-  const { storage, boundary, vault, machines, pipe } = yield* Host;
+  const { storage, boundary, vault } = yield* Host;
   const records = yield* Records;
   const clock = yield* Clock.Clock;
   const now: Now = () => clock.currentTimeMillisUnsafe();
@@ -171,16 +167,15 @@ const make = Effect.gen(function* () {
     return model;
   };
 
-  const healthy = async (endpoint: Endpoint) => (await (endpoint.reachable?.() ?? true)) && endpoint.breaker.closed();
+  const healthy = (endpoint: Endpoint) => endpoint.breaker.closed();
 
-  const sources: ReadonlyMap<ProviderKind, LiveSource> = new Map(SOURCES.map((source) => [source.kind, source.start({ boundary, vault, machines, pipe, now, changed })]));
+  const sources: ReadonlyMap<ProviderKind, LiveSource> = new Map(SOURCES.map((source) => [source.kind, source.start({ boundary, vault, now, changed })]));
 
   const live = (record: ProviderRecord): Endpoint | undefined => sources.get(record.kind)?.build(record);
 
-  const standIn = async (model: Model<Api>, options?: CallOptions): Promise<{ model: Model<Api>; options: CallOptions } | undefined> => {
+  const standIn = (model: Model<Api>, options?: CallOptions): { model: Model<Api>; options: CallOptions } | undefined => {
     const others = endpoints.filter((endpoint) => endpoint.provider.id !== model.provider);
-    const health = await Promise.all(others.map(healthy));
-    const up = others.filter((_endpoint, index) => health[index]);
+    const up = others.filter(healthy);
     const stored = settings.get("fallback");
     const fallback = stored && up.some((endpoint) => endpoint.provider.id === stored.provider) ? stored : best(up);
     const choice = options?.[BACKGROUND] ? cheapest(up) : fallback;
@@ -202,7 +197,7 @@ const make = Effect.gen(function* () {
 
       void (async () => {
         try {
-          const stood = options?.[STAND_IN] || (await healthy(endpoint)) ? undefined : await standIn(model, options);
+          const stood = options?.[STAND_IN] || healthy(endpoint) ? undefined : standIn(model, options);
 
           if (stood) console.warn(`${endpoint.name} is down; this call runs on ${stood.model.name}.`);
 
@@ -369,8 +364,6 @@ const make = Effect.gen(function* () {
       return failure === undefined ? info : { ...info, failure };
     });
 
-  const probe = Effect.promise(() => Promise.all(endpoints.flatMap((endpoint) => endpoint.reachable?.() ?? [])));
-
   const testCall = (vendor: Vendor, key: string) =>
     Effect.gen(function* () {
       const candidate = apiKey(vendor, boundary.fetch, async () => ({ apiKey: key }), now);
@@ -428,7 +421,6 @@ const make = Effect.gen(function* () {
     valid,
     catalog,
     resolve,
-    probe,
     ask,
     onChange: (listener: () => void) => {
       listeners.add(listener);
@@ -501,7 +493,6 @@ const make = Effect.gen(function* () {
       yield* load;
 
       if (endpoints.some((endpoint) => !before.includes(endpoint))) changed();
-      yield* probe;
     }),
     worker: (own?: ModelChoice | null) =>
       Effect.suspend(() => {
@@ -513,7 +504,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const own = (yield* resolve(purpose, { images: true })).model;
         const endpoint = yield* Effect.sync(() => endpointFor(own.provider));
-        const model = (yield* Effect.promise(() => healthy(endpoint))) ? own : ((yield* Effect.promise(() => standIn(own)))?.model ?? own);
+        const model = healthy(endpoint) ? own : (standIn(own)?.model ?? own);
 
         return model.input.includes("image") ? null : `${model.name} can't read images. Pick a model that can in Models, or send text only.`;
       }),

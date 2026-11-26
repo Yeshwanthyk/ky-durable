@@ -20,11 +20,8 @@
  *   hello       the session socket says hello with ky's tools
  *   cloud       a cloud model answers: the background model (Workers AI, on
  *               every deploy) titles a new side chat from its first message
- *   vibeproxy   VibeProxy is connected: a computer that shares it is online,
- *               or the tunnel answers
  *
- * `vibeproxy` fails, correctly, while that computer is away. What a read cannot
- * prove (Browser Rendering, the real Executor, a real `claude` run, a real
+ * What a read cannot prove (Browser Rendering, the real Executor, a real `claude` run, a real
  * main-agent turn) is in FEATURES.md as live-only, with how to try it by hand.
  */
 import { decodeNewChat } from "../src/tests/frames.ts";
@@ -112,22 +109,12 @@ async function unrenamed(first: string): Promise<string | undefined> {
 }
 
 await check("cloud", async () => {
-  const cloud = providers.filter((provider) => provider.id !== "vibeproxy");
+  if (providers.length === 0) return "no cloud provider in settings";
 
-  if (cloud.length === 0) return "no cloud provider in settings";
-
-  if (!cloud.some((provider) => provider.connected)) return `not connected: needs ${cloud[0]!.needs ?? "a key"}`;
+  if (!providers.some((provider) => provider.connected)) return `not connected: needs ${providers[0]!.needs ?? "a key"}`;
 
   // Short enough that the list shows it whole until it is renamed.
   return unrenamed("plan a long weekend in lisbon with two kids in may");
-});
-
-await check("vibeproxy", async () => {
-  const provider = providers.find((each) => each.id === "vibeproxy");
-
-  if (!provider) return "no vibeproxy provider in settings";
-
-  return provider.connected ? undefined : `not connected: needs ${provider.needs ?? "VibeProxy"}`;
 });
 
 client.close();

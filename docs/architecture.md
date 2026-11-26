@@ -17,7 +17,7 @@ CloudMachine container: ky runner cloud ────────┘        ├�
                                                          ├─ EMAIL    Email Service: ky's own address (send; Email Routing → email handler)
                                                          ├─ Executor MCP (HTTPS)
                                                          ├─ API-key vendors (HTTPS)
-                                                         └─ VibeProxy on a computer, over its runner socket (or a VPC tunnel)
+                                                         └─ ChatGPT subscription (HTTPS, Codex backend)
 ```
 
 | Piece | What it does | Where |
@@ -33,15 +33,15 @@ CloudMachine container: ky runner cloud ────────┘        ├�
 | Executor | The user's connected apps over MCP (`executor_skills`, `executor_execute`, `executor_resume`). | `src/executor.ts`; its URL and token are added in Settings › Tools › Executor and kept in the Vault |
 | Workers AI | Models every deploy has, with no key: GLM 5.3 Flash, Kimi K2.6 and GPT OSS 120B, through AI Gateway's default gateway. The background model, and main's when nothing better is connected. | `src/providers/sources/workers-ai.ts`, binding `AI` |
 | API-key vendors | Anthropic, OpenAI and OpenCode Go, each paid with a key the user adds in Settings. A test call must take the key before it is saved in the Vault, and every request reads it from there. Their models outrank Workers AI's. | `src/providers/sources/api-keys.ts`, `src/vault.ts` |
-| VibeProxy on a computer | Claude in ky's chat: VibeProxy on port 8317 of a paired computer that shares it, reached over that computer's runner socket; or, from a checkout, the `VIBEPROXY` Workers VPC service over a cloudflared tunnel. Probed on demand with a 30 s cache; when down, its calls run on a stand-in on another provider. | `src/providers/sources/vibeproxy.ts`, `src/pipe.ts` |
+| ChatGPT subscription | ChatGPT's models in ky's chat, on the sign-in the Vault keeps for Codex tasks, sent to ChatGPT's Codex backend over SSE. | `src/providers/sources/chatgpt.ts`, `src/vault.ts` |
 | `ky runner run` on each machine | Dials out to the DO and runs each machine task as a Claude Code (`claude -p`) or Codex (`codex exec`) session. Nothing listens on a port. | `cli/runner/` |
 | Cloud machine | A container on the user's account (Workers Paid) running `ky runner cloud`, so tasks run with every computer off; git and `ky github` reach GitHub through the Worker's `github.internal`, which holds the token. | `src/cloud.ts`, `src/github.ts`, `src/github-tools.ts`, `cli/runner/cloud.ts`, `cli/runner/github.ts`, `container/Dockerfile` |
 
-**Model sources.** Workers AI, the API-key vendors, VibeProxy and the ChatGPT subscription are each one `Source` in `src/providers/sources/`,
+**Model sources.** Workers AI, the API-key vendors and the ChatGPT subscription are each one `Source` in `src/providers/sources/`,
 listed in `src/providers/sources.ts`. A source says which records it keeps (`place`), builds an endpoint for each
 (`build`), where it sorts (`priority`) and what Settings lists as not set up (`missing`); `src/providers/models.ts`
 merges them and never names one. Adding a way in is a file there and a line in the list;
-`test/invariants/sources.test.ts` checks every source on the list, and that no other file knows VibeProxy's id or port.
+`test/invariants/sources.test.ts` checks every source on the list.
 The ChatGPT source (`sources/chatgpt.ts`) sends ky's chat to ChatGPT's Codex backend over SSE with the sign-in the
 Vault keeps for Codex tasks; it asks `Vault.chatgptToken()` per request, so only the Vault refreshes the token. Its
 optional `check()` runs before a refresh places records, and `src/sockets.ts` refreshes models when a subscription changes.
@@ -228,10 +228,8 @@ This is how the owner deploys from a checkout; everyone else uses `ky init` (the
 
 `wrangler.jsonc` is generic: `FILES` (R2 `ky-files`), `BROWSER`, `LOADER`, `AI` and the `PiAgent` object.
 What is yours goes in `wrangler.local.jsonc` (gitignored), which `vite.config.ts` merges over it for
-`pnpm start` and `pnpm run deploy`: `VIBEPROXY_ORIGIN` (VibeProxy's address on your
-computer, `http://127.0.0.1:8317`) and the `VIBEPROXY` VPC service of your tunnel. Copy
-`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. VibeProxy shows as "Not set up" in Settings until its config and secret are
-there, and ky runs without it. Executor is connected in Settings › Tools › Executor, with its URL and a token.
+`pnpm start` and `pnpm run deploy`: ky's mail address and its `EMAIL` binding, and a custom domain. Copy
+`wrangler.local.example.jsonc` to start. Secrets are listed in `.dev.vars.example`; none is required. Executor is connected in Settings › Tools › Executor, with its URL and a token.
 
 For self-edits, set ky's repo (`owner/name`) in Settings › Self-edits, from the address ky answers on:
 setting it also saves that page's origin as ky's address, shown under it. Until then the system prompt
@@ -245,22 +243,18 @@ Without both, it deploys nothing.
 pnpm install
 cp wrangler.local.example.jsonc wrangler.local.jsonc   # then fill in what you use
 npx wrangler r2 bucket create ky-files
-npx wrangler secret put VIBEPROXY_KEY     # VibeProxy's x-api-key on the Mac
 pnpm run deploy                           # vite build && wrangler deploy
 ```
 
-For Claude, run VibeProxy on the Mac at `VIBEPROXY_ORIGIN` and a cloudflared tunnel to it with no public
-hostname, then point the `VIBEPROXY` VPC service at that tunnel. Without it ky runs on a vendor whose API key
-you added in Settings, else on Workers AI.
+ky runs on a vendor whose API key you added in Settings, or on ChatGPT once you sign in, else on Workers AI.
 Open pages reload by themselves after a deploy (`CF_VERSION_METADATA`), unless you have a draft.
 
 **Models.** Settings picks a model for each of four purposes (`src/settings.ts`): main; worker (subagents,
 specialists, automations); background (titles, memory summaries); dreams, looks, episodes, skill reviews, mail and peer answers run on main; and fallback. Each
 provider is a row in `ky_providers`, made live by its module in `src/providers/`. `src/models.ts` owns the
 one pi registry, the catalog, the defaults and `resolve(purpose, need)`, the only way a model is picked.
-Each call checks its provider as it starts (VibeProxy's probe, and a breaker that opens on 401/402/429/5xx);
-a call whose provider is down runs on another provider that is healthy then. Claude can be picked only
-while VibeProxy answers.
+Each call checks its provider's breaker as it starts (it opens on 401/402/429/5xx);
+a call whose provider is down runs on another provider that is healthy then.
 The system prompt is `src/prompt.ts`.
 
 **Deploy order when the runner protocol changes.** Deploy the worker first, then update and restart the
@@ -281,7 +275,7 @@ ky runner add https://ky.<account>.workers.dev <code>
 ```
 
 It finds the machine's `claude` and `codex` logins, Chrome, the folders holding git repositories, and local
-model servers (VibeProxy on 8317, Ollama on 11434), and asks before sharing each (`--yes` shares what it found,
+model servers (Ollama on 11434), and asks before sharing each (`--yes` shares what it found,
 but never Chrome). It keeps the machine token in `~/.config/ky/runner-token` (0600), writes the rest to
 `~/.config/ky/runner.json`, installs a launchd agent (`dev.ky.runner`) or a `systemd --user` unit (`ky-runner`, with linger), and waits until ky shows
 the machine online. `--no-service` skips the service; run `ky runner run` yourself. A runner paired before

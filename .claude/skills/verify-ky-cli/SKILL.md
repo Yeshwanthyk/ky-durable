@@ -13,7 +13,6 @@ Everything here runs on this Mac against the local stack. It never touches the d
 2. Start the stack in the background with `pnpm stack`.
    - This is the real Worker and PiAgent (`src/tests/stack.ts`). The outside boundary is faked:
      - the faux model
-     - a fake VibeProxy (the Mac starts away)
      - a fake Executor
      - a fake browser
    - The port is `KY_STACK_PORT` (default 8790) and the token is `ky-stack-token`.

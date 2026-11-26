@@ -10,19 +10,15 @@ import { BARE, GLM, GPT_OSS, KIMI, OPENCODE_KEY } from "./stack";
 
 /**
  * Which model each purpose runs on, on ky's real composition: Workers AI
- * behind the fake AI binding on every object, Claude through the fake
- * VibeProxy on the Mac where the overlay is, and the api-key vendors behind
+ * behind the fake AI binding on every object, and the api-key vendors behind
  * the fake fetch once a key is added. Each test gets a fresh object.
  */
 
 const WORKERS_AI_URL = "https://workers-binding.ai/ai-gateway/gateways/default/compat/chat/completions";
 
-const CLAUDE = 'Title: "Claude claude-opus-5-5 (thinking adaptive)"';
-
-/** A fresh object: a deploy with no overlay, or with the overlay and the Mac online or away, or with OpenCode Go's key added. */
-async function fresh(deploy: "bare" | "mac-up" | "mac-away" | "keyed"): Promise<string> {
+/** A fresh object: a deploy with no key, or with OpenCode Go's key added. */
+async function fresh(deploy: "bare" | "keyed"): Promise<string> {
   const name = `${deploy === "bare" ? BARE : ""}${crypto.randomUUID()}`;
-  await agent(name).mac(deploy === "mac-up");
 
   if (deploy === "keyed") {
     expect(await addKey(name, "opencode-go", OPENCODE_KEY)).toEqual({});
@@ -86,30 +82,6 @@ describe("which model each purpose uses", () => {
     expect(catalog).toEqual([{ id: "workers-ai", connected: true, models: [GLM, KIMI, GPT_OSS] }]);
   });
 
-  it("puts the main agent and the worker on Claude while the Mac is online, with Workers AI as the fallback", async () => {
-    const name = await fresh("mac-up");
-
-    expect(await resolve(name, "main")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
-    expect(await resolve(name, "worker")).toEqual({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
-    expect(await resolve(name, "background")).toMatchObject({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
-    expect(await resolve(name, "fallback")).toEqual({ provider: "workers-ai", modelId: GLM, thinkingLevel: "off" });
-  });
-
-  it("puts the main agent on Workers AI while the Mac is away, and shows Claude as not connected", async () => {
-    const name = await fresh("mac-away");
-
-    expect(await resolve(name, "main")).toMatchObject({ provider: "workers-ai", modelId: GLM });
-
-    const connected = await inside(name, (instance) =>
-      instance.models.catalog().map(({ id, connected }) => ({ id, connected }))
-    );
-
-    expect(connected).toEqual([
-      { id: "vibeproxy", connected: false },
-      { id: "workers-ai", connected: true }
-    ]);
-  });
-
   it("puts the main agent on OpenCode Go once its key is added, with Workers AI as the fallback", async () => {
     const name = await fresh("keyed");
 
@@ -124,7 +96,7 @@ describe("which model each purpose uses", () => {
     const disabled = (name: string) =>
       inside(name, (instance, state) => {
         state.storage.sql.exec("UPDATE ky_providers SET enabled = 0 WHERE id = 'workers-ai'");
-        const models = new Models(state.storage, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
+        const models = new Models(state.storage, instance.boundary, env.Vault.getByName("owner"));
         const { purposes } = models.view();
 
         try {
@@ -142,27 +114,27 @@ describe("which model each purpose uses", () => {
     expect(await disabled(bare)).toEqual({ background: "No model provider is enabled.", purposes: {} });
   });
 
-  it("refreshes a recorded provider's port from the environment on boot, keeping the user's switch", async () => {
-    const name = await fresh("mac-up");
+  it("puts a recorded provider back as its source places it on boot, keeping the user's switch", async () => {
+    const name = await fresh("bare");
 
     const reboot = () =>
       inside(name, (instance, state) => {
-        state.storage.sql.exec("UPDATE ky_providers SET port = 1, enabled = 0 WHERE id = 'vibeproxy'");
-        new Models(state.storage, instance.boundary, env.Vault.getByName("owner"), instance.machines, instance.pipe);
+        state.storage.sql.exec("UPDATE ky_providers SET vendor = 'moved', enabled = 0 WHERE id = 'workers-ai'");
+        new Models(state.storage, instance.boundary, env.Vault.getByName("owner"));
 
         return state.storage.sql
-          .exec<{ port: number; enabled: number }>("SELECT port, enabled FROM ky_providers WHERE id = 'vibeproxy'")
+          .exec<{ vendor: string | null; enabled: number }>("SELECT vendor, enabled FROM ky_providers WHERE id = 'workers-ai'")
           .one();
       });
 
-    const { port, enabled } = await reboot();
+    const { vendor, enabled } = await reboot();
 
-    expect(port).not.toBe(1);
+    expect(vendor).toBeNull();
     expect(enabled).toBe(0);
   });
 
-  it("stores a purpose's choice at a level its model has, and refuses a provider that is not connected", async () => {
-    const name = await fresh("mac-away");
+  it("stores a purpose's choice at a level its model has, and refuses a provider ky doesn't have", async () => {
+    const name = await fresh("bare");
 
     expect(await set(name, "worker", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "xhigh" })).toEqual({
       provider: "workers-ai",
@@ -170,8 +142,8 @@ describe("which model each purpose uses", () => {
       thinkingLevel: "high"
     });
     expect(await resolve(name, "worker")).toMatchObject({ modelId: GPT_OSS });
-    expect(await set(name, "main", { provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" })).toBe(
-      "vibeproxy/claude-opus-5-5 is not available."
+    expect(await set(name, "main", { provider: "opencode-go", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" })).toBe(
+      "opencode-go/deepseek-v4.1-flash is not available."
     );
   });
 });
@@ -200,35 +172,6 @@ describe("a turn", () => {
     const [sent] = await calls(name);
     expect(sent).toMatchObject({ url: "https://opencode.ai/inference/go/v1/chat/completions", model: "deepseek-v4.1-flash" });
     expect(sent!.headers.authorization).toBe(`Bearer ${OPENCODE_KEY}`);
-  });
-
-  it("runs on Claude while the Mac is online", async () => {
-    const name = await fresh("mac-up");
-
-    expect((await prompt(name, "hello")).text).toBe(`${CLAUDE}\nhello`);
-    expect(await calls(name)).toEqual([]);
-  });
-
-  it("runs on the fallback's model when the Mac has just gone away, and on Claude once it is back", async () => {
-    const name = await fresh("mac-up");
-    await agent(name).macLeaves();
-
-    // VIBEPROXY refuses the probe, so the whole turn streams from Workers AI alone.
-    expect((await prompt(name, "hello")).text).toBe("echo: hello");
-    expect((await calls(name)).map(({ model }) => model)).toEqual([GLM]);
-
-    await agent(name).mac(true);
-    expect((await prompt(name, "again")).text).toBe(`${CLAUDE}\nagain`);
-    expect(await calls(name)).toHaveLength(1);
-  });
-
-  it("stands in once a request to the provider fails to send, though its probe still answers", async () => {
-    const name = await fresh("mac-up");
-    await agent(name).tunnelDrops();
-
-    // The tunnel drops Claude's request, which opens VibeProxy's breaker; pi retries, and the retry runs on Workers AI.
-    expect((await prompt(name, "hello")).text).toBe("echo: hello");
-    expect((await calls(name)).map(({ model }) => model)).toEqual([GLM]);
   });
 
   it("runs a stand-in at its own level when the call thinks, and at its lowest when the call doesn't", async () => {
@@ -373,14 +316,14 @@ describe("an API key added in Settings", () => {
   });
 
   it("falls back to the next healthy provider when its key is removed", async () => {
-    const name = await fresh("mac-up");
+    const name = await fresh("keyed");
     expect(await addKey(name, "anthropic", ANTHROPIC_KEY)).toEqual({});
     await set(name, "main", { provider: "anthropic", modelId: "claude-sonnet-5-5", thinkingLevel: "high" });
 
     await inside(name, (instance) => instance.models.removeKey("anthropic"));
 
-    expect(await providers(name)).toEqual(["vibeproxy", "workers-ai"]);
-    expect(await resolve(name, "main")).toMatchObject({ provider: "vibeproxy", modelId: "claude-opus-5-5" });
+    expect(await providers(name)).toEqual(["opencode-go", "workers-ai"]);
+    expect(await resolve(name, "main")).toMatchObject({ provider: "opencode-go", modelId: "deepseek-v4.1-flash" });
     expect(await env.Vault.getByName("owner").auth("anthropic")).toBeNull();
     expect(await inside(name, (instance) => instance.models.removeKey("workers-ai").catch((error: Error) => error.message))).toBe(
       "workers-ai has no API key to remove."
@@ -401,7 +344,7 @@ describe("a ChatGPT sign-in", () => {
     const name = await fresh("bare");
 
     const { choice, answer, sent } = await inside(name, async (instance, state) => {
-      const models = new Models(state.storage, instance.boundary, signedIn, instance.machines, instance.pipe);
+      const models = new Models(state.storage, instance.boundary, signedIn);
 
       await models.refresh();
       instance.boundary.calls.splice(0);
@@ -436,7 +379,7 @@ describe("a ChatGPT sign-in", () => {
 
           return cloud(() => instance.boundary.fetch(input, init));
         }
-      }, signedIn, instance.machines, instance.pipe);
+      }, signedIn);
 
       await models.refresh();
       const answer = await models.complete("main", "Answer briefly.", "hello").catch((error: Error) => `failed: ${error.message}`);
@@ -500,8 +443,8 @@ describe("thinking on Workers AI", () => {
 });
 
 describe("naming chats and tasks on the background purpose", () => {
-  it("asks Workers AI even while the Mac is online, and keeps the bare title", async () => {
-    const name = await fresh("mac-up");
+  it("asks Workers AI even while main runs on another provider, and keeps the bare title", async () => {
+    const name = await fresh("keyed");
 
     expect(await title(name, "Plan a trip to Lisbon")).toBe("Named: Plan a trip to Lisbon");
     expect((await calls(name)).map(({ model, system }) => ({ model, named: system.startsWith("You name things") }))).toEqual([
@@ -510,18 +453,24 @@ describe("naming chats and tasks on the background purpose", () => {
   });
 
   it("stands in for Workers AI on the cheapest healthy provider's light model, never on Claude's main one", async () => {
-    const mac = await fresh("mac-up");
-    const both = await fresh("keyed");
-    await agent(both).mac(true);
+    const claude = await fresh("bare");
+    const both = await fresh("bare");
 
-    for (const name of [mac, both]) {
+    for (const name of [claude, both]) {
+      expect(await addKey(name, "anthropic", ANTHROPIC_KEY)).toEqual({});
+    }
+
+    // Keys rank in the order they were saved, so OpenCode Go, saved last, is the cheapest.
+    expect(await addKey(both, "opencode-go", OPENCODE_KEY)).toEqual({});
+
+    for (const name of [claude, both]) {
       await agent(name).provider("workers-ai", false);
       // The 429 opens Workers AI's breaker; this title is lost, and the next stands in.
       expect(await title(name, "first")).toBeNull();
     }
 
-    expect(await title(mac, "Plan a trip")).toBe("Claude claude-haiku-5-5 (thinking disabled)");
-    // OpenCode Go is cheaper than the Mac.
+    expect(await title(claude, "Plan a trip")).toBe("Named: Plan a trip");
+    expect((await calls(claude)).at(-1)).toMatchObject({ model: "claude-haiku-4-5" });
     expect(await title(both, "Plan a trip")).toBe("Named: Plan a trip");
     expect((await calls(both)).at(-1)).toMatchObject({ model: "deepseek-v4.1-flash" });
   });
@@ -552,15 +501,17 @@ describe("whether a purpose's model reads images", () => {
     expect(await imageSupport(name, "worker")).toMatch(/^GPT OSS 120B can't read images/);
   });
 
-  it("checks the fallback's model while the purpose's provider is away", async () => {
-    const name = await fresh("mac-up");
+  it("checks the fallback's model while the purpose's provider is down", async () => {
+    const name = await fresh("keyed");
     expect(await set(name, "fallback", { provider: "workers-ai", modelId: GPT_OSS, thinkingLevel: "off" })).toMatchObject({
       modelId: GPT_OSS
     });
-    // Claude reads images.
+    // DeepSeek reads images.
     expect(await imageSupport(name, "main")).toBeNull();
 
-    await agent(name).macLeaves();
+    // OpenCode Go's 402 opens its breaker.
+    await agent(name).provider("opencode-go", false);
+    await prompt(name, "first");
     expect(await imageSupport(name, "main")).toMatch(/^GPT OSS 120B can't read images/);
   });
 });

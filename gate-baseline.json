@@ -672,7 +672,7 @@
     },
     {
       "check": "node",
-      "name": "the owner overlay adds the example overlay's vars and VibeProxy tunnel to wrangler.jsonc and keeps its bindings",
+      "name": "the owner overlay applies the example overlay over wrangler.jsonc and keeps its bindings",
       "outcome": "passed",
       "file": "test/node/overlay.test.ts"
     },
@@ -1938,31 +1938,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's config builds VibeProxy when all its config is set, and seeds a new ky",
-      "outcome": "passed",
-      "file": "src/tests/config.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY, or with it empty",
-      "outcome": "passed",
-      "file": "src/tests/config.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY_ORIGIN, or with it empty",
-      "outcome": "passed",
-      "file": "src/tests/config.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config leaves out VibeProxy's tunnel without VIBEPROXY_KEY, or with it empty",
-      "outcome": "passed",
-      "file": "src/tests/config.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a deploy's config counts VibeProxy as set up without the tunnel while a machine shares it",
+      "name": "a deploy's config seeds a new ky, and lists nothing as not set up",
       "outcome": "passed",
       "file": "src/tests/config.test.ts"
     },
@@ -2382,7 +2358,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "a deploy's own setup shows VibeProxy as not set up on a deploy without it, and runs on Workers AI without Executor until Settings connects it",
+      "name": "a deploy's own setup runs on Workers AI alone, with nothing left to set up, and without Executor until Settings connects it",
       "outcome": "passed",
       "file": "src/tests/features.test.ts"
     },
@@ -3258,18 +3234,6 @@
     },
     {
       "check": "worker-e2e",
-      "name": "which model each purpose uses puts the main agent and the worker on Claude while the Mac is online, with Workers AI as the fallback",
-      "outcome": "passed",
-      "file": "src/tests/models.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "which model each purpose uses puts the main agent on Workers AI while the Mac is away, and shows Claude as not connected",
-      "outcome": "passed",
-      "file": "src/tests/models.test.ts"
-    },
-    {
-      "check": "worker-e2e",
       "name": "which model each purpose uses puts the main agent on OpenCode Go once its key is added, with Workers AI as the fallback",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
@@ -3282,13 +3246,13 @@
     },
     {
       "check": "worker-e2e",
-      "name": "which model each purpose uses refreshes a recorded provider's port from the environment on boot, keeping the user's switch",
+      "name": "which model each purpose uses puts a recorded provider back as its source places it on boot, keeping the user's switch",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
     },
     {
       "check": "worker-e2e",
-      "name": "which model each purpose uses stores a purpose's choice at a level its model has, and refuses a provider that is not connected",
+      "name": "which model each purpose uses stores a purpose's choice at a level its model has, and refuses a provider ky doesn't have",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
     },
@@ -3301,24 +3265,6 @@
     {
       "check": "worker-e2e",
       "name": "a turn runs on OpenCode Go with the key added for it",
-      "outcome": "passed",
-      "file": "src/tests/models.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a turn runs on Claude while the Mac is online",
-      "outcome": "passed",
-      "file": "src/tests/models.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a turn runs on the fallback's model when the Mac has just gone away, and on Claude once it is back",
-      "outcome": "passed",
-      "file": "src/tests/models.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "a turn stands in once a request to the provider fails to send, though its probe still answers",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
     },
@@ -3378,7 +3324,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "naming chats and tasks on the background purpose asks Workers AI even while the Mac is online, and keeps the bare title",
+      "name": "naming chats and tasks on the background purpose asks Workers AI even while main runs on another provider, and keeps the bare title",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
     },
@@ -3408,7 +3354,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "whether a purpose's model reads images checks the fallback's model while the purpose's provider is away",
+      "name": "whether a purpose's model reads images checks the fallback's model while the purpose's provider is down",
       "outcome": "passed",
       "file": "src/tests/models.test.ts"
     },
@@ -3942,13 +3888,7 @@
     },
     {
       "check": "worker-e2e",
-      "name": "the pipe streams a tool-using turn on Claude via VibeProxy on the machine",
-      "outcome": "passed",
-      "file": "src/tests/runner-protocol.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "the pipe fails over to the fallback once the machine goes offline, and back once it returns",
+      "name": "the pipe answers a request with what the machine's local server sent",
       "outcome": "passed",
       "file": "src/tests/runner-protocol.test.ts"
     },
@@ -3979,18 +3919,6 @@
     {
       "check": "worker-e2e",
       "name": "the pipe fails a request that gets no answer in time, and cancels it on the machine",
-      "outcome": "passed",
-      "file": "src/tests/runner-protocol.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "the pipe has VibeProxy on the machine as soon as the object starts again under its runner's socket",
-      "outcome": "passed",
-      "file": "src/tests/runner-protocol.test.ts"
-    },
-    {
-      "check": "worker-e2e",
-      "name": "the pipe prefers the pipe to the overlay's tunnel when a machine shares VibeProxy",
       "outcome": "passed",
       "file": "src/tests/runner-protocol.test.ts"
     },
@@ -5217,16 +5145,6 @@
     },
     {
       "check": "harness",
-      "name": "pipe-turn",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
-      "name": "pipe-offline",
-      "outcome": "PASS"
-    },
-    {
-      "check": "harness",
       "name": "pipe-refused",
       "outcome": "PASS"
     },
@@ -5472,12 +5390,12 @@
     },
     {
       "check": "web",
-      "name": "picks a purpose's model in settings and keeps it after a reload, with VibeProxy off",
+      "name": "picks a purpose's model in settings and keeps it after a reload",
       "outcome": "passed"
     },
     {
       "check": "web",
-      "name": "lists VibeProxy's featured Claude models, and the rest of the catalog behind Show all",
+      "name": "lists Anthropic's featured Claude models, and the rest of the catalog behind Show all",
       "outcome": "passed"
     },
     {

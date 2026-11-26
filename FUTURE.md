@@ -11,12 +11,9 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
 - **S3**: `PiSessionSockets` takes 10 positional dependencies. Give it one small typed object and split its jobs.
 
 ## Small fixes found by the gate
-- **Mac status goes stale.** When VibeProxy goes offline or comes back, open pages aren't told, so the header
-  and Settings stay stale until a reload. Fix: when the cached probe flips, push the new view to UI sockets.
-  The server already refuses what the stand-in model can't do.
 - **The client image check is dead code.** The client branch for a provider that is offline (`src/images.ts`
-  `imageSupport`) almost never runs, because Settings never shows a slot on an offline provider. Either the
-  fix above makes it reachable, or delete it.
+  `imageSupport`) almost never runs, because Settings never shows a slot on an offline provider. Make it
+  reachable or delete it.
 
 ## Runners and nodes
 - **Nodes**: rename "machine" to "node". `hello` already carries the machine's OS, Chrome and repos (`facts`);
@@ -26,8 +23,7 @@ runner and node ideas, see `explainers/ky-architecture/primitives.md`. For the p
 - **Node tools**: a pi tool whose handler runs on a node (example: `apple_reminders` on the Mac). It blocks
   the turn and has a deadline. If the node is offline, it fails at once and doesn't queue. Open choice: when
   the node is offline, block, or report later?
-- **Node models**: a node serves a model over its own VPC tunnel. This uses the `vibeProxy({...})` factory,
-  one per tunnel. Model traffic never goes over the runner socket.
+- **Node models**: a node serves a model over its own VPC tunnel. Each tunnel is one provider. Model traffic never goes over the runner socket.
 - **Split `KY_RUNNER_TOKEN`**: one token per node. This needs a new secret.
 
 ## Automations (in the worker)

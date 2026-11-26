@@ -1,8 +1,8 @@
 {
   // The local stack and the worker e2e tests: ky's real Worker and PiAgent,
   // whose src/tests/stack.ts subclass puts fakes at the outside boundary
-  // (models, VibeProxy, Browser Rendering, Executor). So the remote bindings,
-  // BROWSER and VIBEPROXY, are left out.
+  // (models, Browser Rendering, Executor). So the remote binding, BROWSER,
+  // is left out.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "ky-stack",
   "main": "stack.ts",

@@ -53,24 +53,6 @@ fn main_glance(s: &State) -> Glance {
     Glance { to: Section::Models, detail, label: "Main agent".into(), words, tone: "" }
 }
 
-fn missing(s: &State, id: &str) -> bool {
-    super::list_at(&s.setup, "missing").iter().any(|m| str_at(m, "id") == id)
-}
-
-fn vibe_glance(s: &State) -> Glance {
-    let (words, tone) = if s.settings.providers.is_empty() {
-        ("Loading…", "off")
-    } else {
-        match s.settings.providers.iter().find(|p| p.id == "vibeproxy") {
-            None => ("Not set up", "off"),
-            Some(_) if missing(s, "vibeproxy") => ("Not set up", "off"),
-            Some(p) if p.connected => ("Connected", "online"),
-            Some(_) => ("Not connected", "offline"),
-        }
-    };
-    Glance { to: Section::Providers, detail: None, label: "VibeProxy".into(), words: words.into(), tone }
-}
-
 fn open(to: Section, detail: Option<String>) -> impl Fn(&mut State) + 'static {
     move |s: &mut State| match &detail {
         Some(d) => s.open_detail(to, d),
@@ -81,9 +63,9 @@ fn open(to: Section, detail: Option<String>) -> impl Fn(&mut State) + 'static {
 /// What matters first: a tile for each thing that's fine, side by side, and a row for each thing
 /// that's down, with Fix.
 fn glance(s: &State, p: &Palette) -> El {
-    let lines = [machine_glance(s, time::now_ms()), main_glance(s), vibe_glance(s)];
+    let lines = [machine_glance(s, time::now_ms()), main_glance(s)];
     let mut out = col().key("glance").w_full().gap(10.0);
-    let fine: Vec<&Glance> = lines.iter().filter(|l| l.tone != "offline" && (l.label != "VibeProxy" || l.tone == "online")).collect();
+    let fine: Vec<&Glance> = lines.iter().filter(|l| l.tone != "offline").collect();
     if !fine.is_empty() {
         let mut tiles = row().w_full().radius(14.0).border(1.0, p.line).fill(p.surface).clip_rounded(14.0);
         for (i, l) in fine.iter().enumerate() {
@@ -114,9 +96,7 @@ fn glance(s: &State, p: &Palette) -> El {
         out = out.child(tiles);
     }
     for l in lines.iter().filter(|l| l.tone == "offline") {
-        let (title, sub) = if l.label == "VibeProxy" {
-            ("VibeProxy isn’t connected".to_string(), "Claude models are off until it is")
-        } else if l.detail.is_none() {
+        let (title, sub) = if l.detail.is_none() {
             ("No machine is online".to_string(), "Work waits until one is back")
         } else {
             (format!("{} is offline", l.label), "Work on it waits until it’s back")
@@ -181,7 +161,7 @@ fn none_or(n: usize) -> String {
 pub fn general(s: &State, p: &Palette) -> El {
     let machines = s.machines.as_array().map_or(&[][..], Vec::as_slice);
     let online = machines.iter().filter(|m| m.get("online").and_then(|o| o.as_bool()) == Some(true)).count();
-    let providers = s.settings.providers.iter().filter(|pr| pr.connected && !missing(s, &pr.id)).count();
+    let providers = s.settings.providers.iter().filter(|pr| pr.connected).count();
     let spend = s.views.get("spend").map(|v| super::money(v.get("today").map_or(0.0, |t| super::num_at(t, "costUsd"))));
     let proactive = s.views.get("proactivity").map(|v| if str_at(v, "level") == "on" { "On".to_string() } else { "Off".to_string() });
     let appearance = match s.appearance {

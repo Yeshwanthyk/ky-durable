@@ -549,9 +549,6 @@ describe("settings", () => {
       fallback: { provider: "workers-ai", modelId: KIMI }
     });
 
-    const providers = latest(client, "settings")?.settings.providers ?? [];
-    expect(providers.find((each) => each.id === "vibeproxy")?.connected).toBe(false);
-
     const refused = await command(socket, client, {
       type: "set-model",
       purpose: "main",
@@ -609,7 +606,7 @@ describe("API keys in Settings", () => {
 });
 
 describe("a deploy's own setup", () => {
-  it("shows VibeProxy as not set up on a deploy without it, and runs on Workers AI without Executor until Settings connects it", async () => {
+  it("runs on Workers AI alone, with nothing left to set up, and without Executor until Settings connects it", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
     const { socket, client } = await session(name);
 
@@ -617,13 +614,7 @@ describe("a deploy's own setup", () => {
     expect(latest(client, "setup")?.setup).toEqual({
       repo: null,
       url: null,
-      missing: [
-        {
-          id: "vibeproxy",
-          name: "Claude via VibeProxy",
-          needs: "a paired machine whose runner shares port 8317 (KY_RUNNER_PORTS=8317), or the VIBEPROXY binding, VIBEPROXY_ORIGIN, and the VIBEPROXY_KEY secret"
-        }
-      ]
+      missing: []
     });
 
     const hello = latest(client, "hello");
@@ -637,7 +628,7 @@ describe("a deploy's own setup", () => {
 
   it("falls back to the defaults when a saved model's provider is no longer set up", async () => {
     const name = `${BARE}${crypto.randomUUID()}`;
-    const stale = JSON.stringify({ provider: "vibeproxy", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
+    const stale = JSON.stringify({ provider: "gone", modelId: "claude-opus-5-5", thinkingLevel: "medium" });
 
     await inside(name, (_instance, state) => {
       state.storage.sql.exec("INSERT INTO ky_purposes (purpose, value) VALUES ('main', ?)", stale);

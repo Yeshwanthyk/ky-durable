@@ -15,7 +15,6 @@ import { vendors } from "../../test/fakes/vendors";
 import { fakeOpenAi } from "../../test/fakes/openai";
 import { FakeBrowsers } from "./fake-browser";
 import { FakeExecutor } from "./fake-executor";
-import { fakeVibeProxy, refusingVibeProxy, VIBEPROXY_KEY, VIBEPROXY_TEST_PORT } from "../../test/fakes/vibeproxy";
 import { Vault as ProductionVault, type TokenKind } from "../vault";
 import { type CloudBox, CloudMachine as ProductionCloudMachine } from "../cloud";
 import { saveKey } from "../runners/contract";
@@ -446,22 +445,18 @@ export class Vault extends ProductionVault {
  *   and Anthropic and OpenAI are test/fakes/vendors.ts, answering from the
  *   same script, each taking only its own key; a key is added through
  *   Settings as the user adds one, and kept in the real Vault;
- * - each refuses every request while `provider(id, false)` holds: Workers AI
- *   with 429, as out of its free allocation, and OpenCode Go with 402, as
- *   out of credit;
- * - VibeProxy on the Mac, through the overlay's tunnel, is away (refuses
- *   connections) until `mac(true)`, then test/fakes/vibeproxy.ts answers as
- *   Claude; after `tunnelDrops()` the tunnel refuses each message while the
- *   probe still answers;
- * - a machine whose runner shares VIBEPROXY_TEST_PORT has VibeProxy over the
- *   pipe instead, the test's own fake behind it; `pipe()` sends a request
- *   over it as a provider's would (`overPipe()`);
+ * - each refuses every request while `provider(id, false)` holds (or
+ *   `POST /test/provider?id=…&up=0`): Workers AI with 429, as out of its free
+ *   allocation, OpenCode Go with 402, as out of credit, and Anthropic with 529,
+ *   as overloaded;
+ * - `overPipe()` sends a request to a port a machine's runner shares, over
+ *   the pipe;
  * - Executor is FakeExecutor, a real MCP server reached through `fetch`;
  * - Browser Run is FakeBrowsers (src/tests/fake-browser.ts): Kitesurf and Chromium sessions reading the pages a test sets;
  * - other people's kys are other test agents: `https://<name>.peer.test` is the agent `<name>`'s peer
  *   routes, with a Vault of its own (`peerVaultName`), so two test kys pair as two deploys do;
- * - an object named `bare-…` is a deploy with no overlay: no VibeProxy and no
- *   Executor, so Settings shows them as not set up.
+ * - an object named `bare-…` is a deploy with no overlay: no Executor, so
+ *   Settings shows it as not set up.
  *
  * The fake models answer from the transcript alone, so they give the same
  * answer after an eviction as before it:
@@ -523,32 +518,35 @@ export function wideText(chars: number): string {
 /** A spilled result's path (src/guardrails.ts), where a result names it. */
 export const SPILLED = /\/workspace\/\.tool-results\/\d+\/[\w-]+\.txt/;
 
-/** Whether the fake VibeProxy answers (the Mac is online). */
-const MAC_UP_KEY = "test:mac-up";
-
-/** Whether the tunnel drops each message while VibeProxy's probe still answers. */
-const TUNNEL_DROPS_KEY = "test:tunnel-drops";
-
 /** The status each fake provider refuses every request with while it is down. */
-const REFUSALS = { "workers-ai": 429, "opencode-go": 402 } as const;
+const REFUSALS = { "workers-ai": 429, "opencode-go": 402, anthropic: 529 } as const;
 
 type FakeProvider = keyof typeof REFUSALS;
 
 const downKey = (provider: FakeProvider) => `test:down:${provider}`;
+
+const isFakeProvider = (id: string | null): id is FakeProvider => id !== null && Object.hasOwn(REFUSALS, id);
+
+/** `fetch`, but Anthropic's API answers `status` while `down` names one. */
+function anthropicRefusing(down: () => Promise<number | undefined>, fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return async (input, init) => {
+    const host = new URL(input instanceof Request ? input.url : String(input)).host;
+    const status = host === "api.anthropic.com" ? await down() : undefined;
+
+    return status === undefined ? fetch(input, init) : Response.json({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, { status });
+  };
+}
 
 /** The token the fake Executor wants. */
 export const EXECUTOR_TOKEN = "ky-stack-executor";
 
 export const EXECUTOR_URL = "https://executor.test/mcp";
 
-/** Objects whose name starts with this have no VibeProxy and no Executor, as a deploy without the owner overlay. */
+/** Objects whose name starts with this have no Executor, as a deploy without the owner overlay. */
 export const BARE = "bare-";
 
 /** Objects whose name starts with this are seeded on first start, as a new deploy is; the rest start empty. */
 export const FRESH = "fresh-";
-
-/** Objects whose name holds this reuse a runner-local probe's answer for 30s, as production does; the rest ask afresh each time. */
-export const STEADY = "steady-";
 
 /** A key OpenCode Go's fake takes; it takes any. */
 export const OPENCODE_KEY = "opencode-test-key";
@@ -1039,7 +1037,6 @@ export class PiAgent extends ProductionAgent {
       }
     });
 
-    const bare = this.ctx.id.name?.startsWith(BARE) === true;
     const mailSent: EmailMessageBuilder[] = [];
 
     const mail = {
@@ -1057,26 +1054,7 @@ export class PiAgent extends ProductionAgent {
 
     return {
       ai: fakeAI(chatCompletions(answering, calls, refusing("workers-ai"))),
-      fetch: vendors(answering, calls, chatCompletions(answering, calls, refusing("opencode-go"))),
-      vibeProxy: {
-        port: VIBEPROXY_TEST_PORT,
-        key: VIBEPROXY_KEY,
-        tunnel: bare
-          ? undefined
-          : {
-              binding: {
-                fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-                  const request = new Request(input, init);
-                  const drops = (await storage.get<boolean>(TUNNEL_DROPS_KEY)) === true && new URL(request.url).pathname === "/v1/messages";
-
-                  return (await storage.get<boolean>(MAC_UP_KEY)) === true && !drops ? fakeVibeProxy(request) : refusingVibeProxy();
-                }
-              },
-              origin: "http://127.0.0.1:8317"
-            }
-      },
-      // Test-only: every turn asks VibeProxy afresh, so a test sees the Mac leave at once. Production reuses an answer for 30s.
-      probeTtlMs: this.ctx.id.name?.includes(STEADY) === true ? undefined : 0,
+      fetch: anthropicRefusing(refusing("anthropic"), vendors(answering, calls, chatCompletions(answering, calls, refusing("opencode-go")))),
       browser: { fetch: async () => new Response("no Browser Rendering in the local stack", { status: 503 }) },
       browsers: new FakeBrowsers(),
       executorFetch: executorFake.fetch,
@@ -1110,13 +1088,6 @@ export class PiAgent extends ProductionAgent {
   /** Open every gate started so far; later gates wait for the next release. */
   async release(): Promise<void> {
     await this.ctx.storage.put(RELEASED_KEY, await this.gateRuns());
-  }
-
-  /** Bring the Mac's VibeProxy up or take it away, probe it as PiAgent does on start, and move the chats to the main purpose. */
-  async mac(up: boolean): Promise<void> {
-    await this.ctx.storage.put(MAC_UP_KEY, up);
-    await this.models.probe();
-    await this.applyMain();
   }
 
   /** Let a fake provider answer, or refuse every request from now on. */
@@ -1186,11 +1157,6 @@ export class PiAgent extends ProductionAgent {
     this.skills.reviewAfter = count;
   }
 
-  /** The Mac goes away and nothing has asked it since: the catalog still shows Claude connected. */
-  async macLeaves(): Promise<void> {
-    await this.ctx.storage.put(MAC_UP_KEY, false);
-  }
-
   /**
    * Send `path` to `port` on `machine` over the pipe, as a provider does, and say how it went: its status and
    * body, or why it failed. `abortAfterMs` aborts it that long after its head; `timeoutMs` shortens the pipe's wait.
@@ -1212,11 +1178,6 @@ export class PiAgent extends ProductionAgent {
     } finally {
       this.pipe.timeoutMs = before;
     }
-  }
-
-  /** Drop every message on the tunnel while VibeProxy's probe still answers, as a tunnel that fails mid-call does. */
-  async tunnelDrops(): Promise<void> {
-    await this.ctx.storage.put(TUNNEL_DROPS_KEY, true);
   }
 }
 
@@ -1274,12 +1235,13 @@ const ROUTES = new Map<string, (me: Me, url: URL, env: Env) => Promise<Response>
       return new Response(null, { status: 204 });
     }
   ],
-  // up=1 brings the Mac online; up=0 takes it away; up=leaves takes it away unnoticed until ky next asks.
   [
-    "POST /test/mac",
+    "POST /test/provider",
     async (me, url) => {
-      const up = url.searchParams.get("up");
-      await (up === "leaves" ? me.macLeaves() : me.mac(up === "1"));
+      const id = url.searchParams.get("id");
+
+      if (!isFakeProvider(id)) return new Response(`no fake provider "${id}"`, { status: 400 });
+      await me.provider(id, url.searchParams.get("up") === "1");
 
       return new Response(null, { status: 204 });
     }

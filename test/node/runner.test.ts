@@ -99,7 +99,7 @@ describe("ky runner add", () => {
 
   it("pairs, keeps the token in a 0600 file, writes runner.json, installs the launchd agent and waits for it online", async () => {
     await mkdir(path.join(computer.home, "code", "app", ".git"), { recursive: true });
-    computer.ports.add(8317);
+    computer.ports.add(11_434);
 
     expect(await run(["runner", "add", `${ours.url}/`, "ABCD-1234", "--name", "Studio Mac", "--yes"])).toBe(0);
 
@@ -112,7 +112,7 @@ describe("ky runner add", () => {
           chrome: false,
           repos: [{ name: "app", remote: null }],
           agents: { claude: { installed: true, signedIn: true }, codex: { installed: false, signedIn: false } },
-          ports: [8317],
+          ports: [11_434],
           kind: "computer"
         }
       }
@@ -136,7 +136,7 @@ describe("ky runner add", () => {
       agents: { claude: true, codex: false },
       chrome: false,
       repos: [path.join(computer.home, "code")],
-      ports: [8317]
+      ports: [11_434]
     } satisfies Settings);
 
     const agent = path.join(computer.launchAgents, "test.ky.runner.plist");
@@ -449,7 +449,7 @@ describe("ky runner run's settings", () => {
       permissionMode: "acceptEdits",
       chrome: true,
       agents: { claude: true, codex: false },
-      ports: [8317]
+      ports: [11_434]
     };
 
     expect(withEnv(file, {}, computer)).toEqual(file);
