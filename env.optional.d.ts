@@ -5,11 +5,6 @@
  * they're set; without Access's vars, src/access/ refuses every request.
  */
 interface Env {
-  /** The Workers VPC service to VibeProxy on a computer of the user's. */
-  readonly VIBEPROXY?: Fetcher;
-  /** VibeProxy's listen address on that computer, which the tunnel forwards to. */
-  readonly VIBEPROXY_ORIGIN?: string;
-  readonly VIBEPROXY_KEY?: string;
   /** Cloudflare Access (src/access/): the team's domain, `<team>.cloudflareaccess.com`. `ky deploy` sets all three. */
   readonly ACCESS_TEAM_DOMAIN?: string;
   /** The audience tag of ky's Access app. */

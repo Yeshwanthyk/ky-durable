@@ -43,7 +43,7 @@ import { confine, MachineHub, machineTools, RunnerPipe } from "./machines/wiring
 import { type Desk, localNow } from "./dreaming/contract";
 import { Anticipations, awake, dreamCron, DreamLedger, Dreaming, dreamingTools, EVENT_DELAY_MS, LookEvents, Looks, Memory, Presence, Proactivity, Recall, Soul, Surfaced, Verdicts, WorkMap } from "./dreaming/wiring";
 import { type ModelsBoundary, type Slot, SLOT_PROVIDER, slotModel } from "./providers/contract";
-import { Models, notSetUp as modelsNotSetUp, vibeProxyFrom } from "./providers/wiring";
+import { Models, notSetUp as modelsNotSetUp } from "./providers/wiring";
 import { ASK_TTL_MS, PEER_TOOLS } from "./peers/contract";
 import { deliver, GroupChats, GroupDesk, peerAnswer, PeerAsks, type PeerDesk, peerLimits, peerQuestion, peerRoute, Peers, peerTools, sweepPeers } from "./peers/wiring";
 import { addressOf, type InboundMail, MAIL_BYTES, type MailBoundary, mailLimits } from "./mail/contract";
@@ -132,7 +132,7 @@ export class PiAgent extends DurableObject<Env> {
   );
   /** Requests to ports on the user's machines, over their runners' sockets. */
   readonly pipe = new RunnerPipe((tag) => this.ctx.getWebSockets(tag));
-  readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"), this.machines, this.pipe);
+  readonly models = new Models(this.ctx.storage, this.boundary, this.env.Vault.getByName("owner"));
   /** Other people's kys this one is paired with (src/peers/peers.ts). */
   readonly peers = new Peers(this.ctx.storage.sql);
   /** Which conversations read outside content (src/outside), for what one conversation tells another. */
@@ -951,7 +951,6 @@ export class PiAgent extends DurableObject<Env> {
       ai: env.AI,
       fetch: (input, init) => fetch(input, init),
       mail: email && address ? { address: addressOf(address), send: (message) => email.send(message) } : undefined,
-      vibeProxy: vibeProxyFrom(env),
       chatgptCloud: env.KY_CLOUD ? chatgptFrom(env) : undefined,
       browser: env.BROWSER,
       extensions: [],
@@ -988,9 +987,6 @@ export class PiAgent extends DurableObject<Env> {
     if (this.boundary.seeds) await seed(this.setup, this.skills, this.specialists, this.automations);
     // Summaries a restart or a failed call left unwritten.
     this.ctx.waitUntil(this.memory.compress());
-    // Asked last and not awaited: a runner's answer over the pipe is a socket message, which waits for this start to
-    // end. Awaited here, the probe timed out and its "down" was kept for 30s. A provider that answers moves main to it.
-    this.ctx.waitUntil(this.models.probe());
   }
 
   /** Forget a cloud machine that is no sandbox, as after a restore, and revoke its token. */

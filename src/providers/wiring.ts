@@ -6,8 +6,6 @@ import * as Layer from "effect/Layer";
 import { type Edge, makeEdge, type Refusable, runOrThrow } from "../core/edge";
 import { isRefusal } from "../core/refusal";
 import { Sql } from "../core/sql";
-import type { MachineHub } from "../machines/contract";
-import type { RunnerPipe } from "../machines/wiring";
 import type { ModelChoice, ProviderInfo, Purpose, SettingsView } from "../settings/contract";
 import type { Settings } from "../settings/wiring";
 import * as ChatGpt from "./chatgpt";
@@ -15,8 +13,6 @@ import type { AskLimits, ChatGptLogin, Device, Fetch, KeyVault, ModelsBoundary, 
 import { Host, Providers, type Resolved } from "./models";
 
 export { notSetUp } from "./sources";
-
-export { vibeProxyFrom } from "./sources/vibeproxy";
 
 type Service = Providers["Service"];
 
@@ -65,11 +61,9 @@ export class Models implements Picker {
     storage: DurableObjectStorage,
     boundary: ModelsBoundary,
     vault: KeyVault,
-    machines: Pick<MachineHub, "machines" | "online">,
-    pipe: Pick<RunnerPipe, "fetcher">,
     clock?: Clock.Clock
   ) {
-    const host = Layer.succeed(Host)({ storage, boundary, vault, machines, pipe });
+    const host = Layer.succeed(Host)({ storage, boundary, vault });
     const layer = Providers.layer.pipe(Layer.provide(Layer.mergeAll(host, Sql.layer(storage))));
 
     this.#edge = makeEdge(clock ? layer.pipe(Layer.provide(Layer.succeed(Clock.Clock)(clock))) : layer);
@@ -109,10 +103,6 @@ export class Models implements Picker {
 
   refresh(): Promise<void> {
     return this.#edge.runPromise(this.#providers.refresh);
-  }
-
-  async probe(): Promise<void> {
-    await this.#edge.runPromise(this.#providers.probe);
   }
 
   resolve(purpose: Purpose, need: ModelNeed = {}): Resolved {

@@ -2496,55 +2496,21 @@ function mainGlance(settings: SettingsView | null): GlanceLine {
 
 const modelName = (settings: SettingsView, choice: ModelChoice): string => modelOf(settings, choice).model?.name ?? choice.modelId;
 
-/** What the VibeProxy line can say. */
-type VibeWord = "loading" | "absent" | "online" | "offline";
-
-const VIBE_WORDS = {
-  loading: ["Loading…", "off"],
-  absent: ["Not set up", "off"],
-  online: ["Connected", "online"],
-  offline: ["Not connected", "offline"],
-} as const satisfies Record<VibeWord, readonly [string, MachineStatus["tone"]]>;
-
-/** Whether setup lists a service as missing. */
-const isMissing = (setup: SetupView | null, id: string): boolean => setup?.missing.some((each) => each.id === id) ?? false;
-
-function vibeWord(vibe: ProviderInfo | undefined, missing: boolean): VibeWord {
-  if (vibe === undefined || missing) return "absent";
-
-  return vibe.connected ? "online" : "offline";
-}
-
-/** Whether VibeProxy, on your Mac, is reachable; a deploy without it says so. */
-function vibeGlance(settings: SettingsView | null, setup: SetupView | null): GlanceLine {
-  const word = settings ? vibeWord(settings.providers.find((provider) => provider.id === VIBEPROXY), isMissing(setup, VIBEPROXY)) : "loading";
-  const [text, tone] = VIBE_WORDS[word];
-
-  return { to: { kind: "providers" }, label: "VibeProxy", text, tone };
-}
-
-const VIBEPROXY = "vibeproxy";
-
 /** What a broken line says on its card: what is wrong, and what that stops. */
 type GlanceAlert = { title: string; sub: string };
 
 function alertText(line: GlanceLine): GlanceAlert {
-  if (line.label === "VibeProxy") return { title: "VibeProxy isn’t connected", sub: "Claude models are off until it is" };
-
   if (line.to.kind === "machines") return { title: "No machine is online", sub: "Work waits until one is back" };
 
   return { title: `${line.label} is offline`, sub: "Work on it waits until it’s back" };
 }
 
-/** Whether a line gets a tile: VibeProxy only once it is connected, so one not set up says nothing. */
-const shownHealthy = (line: GlanceLine): boolean => line.label !== "VibeProxy" || line.tone === "online";
-
 // What matters first: a tile for each thing that is fine, side by side in one card, and a row for each thing that is down; each opens its page.
-function Glance({ machines, settings, setup, now }: Pick<SettingsProps, "machines" | "settings" | "setup" | "now">) {
+function Glance({ machines, settings, now }: Pick<SettingsProps, "machines" | "settings" | "now">) {
   const { go } = useContext(SettingsNavContext);
-  const lines = [machineGlance(machines, now), mainGlance(settings), vibeGlance(settings, setup)];
+  const lines = [machineGlance(machines, now), mainGlance(settings)];
   const down = lines.filter((line) => line.tone === "offline");
-  const fine = lines.filter((line) => line.tone !== "offline" && shownHealthy(line));
+  const fine = lines.filter((line) => line.tone !== "offline");
 
   return (
     <ul className="glance" aria-label="Status">
@@ -2594,13 +2560,6 @@ function machinesValue(machines: readonly MachineInfo[]): ReactNode {
   return <RowValue>{machines.length === 0 ? "None" : `${online}/${machines.length}`}</RowValue>;
 }
 
-/** How many providers that are set up are connected; None when none is. */
-function providersValue(settings: SettingsView | null, setup: SetupView | null): ReactNode {
-  const connected = (settings?.providers ?? []).filter((provider) => !isMissing(setup, provider.id) && provider.connected).length;
-
-  return <RowValue>{connected === 0 ? "None" : connected}</RowValue>;
-}
-
 /** How many are connected; None when none is. */
 function connectedValue(connected: number): ReactNode {
   return <RowValue>{connected === 0 ? "None" : connected}</RowValue>;
@@ -2617,7 +2576,7 @@ const GROUPS: ReadonlyArray<readonly GroupRow[]> = [
       to: { kind: "providers" },
       icon: "plug",
       label: "Providers",
-      value: ({ settings, setup }) => providersValue(settings, setup),
+      value: ({ settings }) => connectedValue((settings?.providers ?? []).filter((provider) => provider.connected).length),
     },
     { to: { kind: "tools" }, icon: "terminal", label: "Tools", value: ({ catalog }) => <RowValue>{catalog.length}</RowValue> },
     { to: { kind: "spend" }, icon: "layers", label: "Spend", value: () => <SpendValue /> },
@@ -2663,7 +2622,7 @@ function SettingsHome(props: PageProps) {
 
   return (
     <>
-      <Glance machines={props.machines} settings={props.settings} setup={props.setup} now={props.now} />
+      <Glance machines={props.machines} settings={props.settings} now={props.now} />
       <div className="settings-groups">
         {GROUPS.map((rows) => (
           <ul key={rows.map((row) => row.label).join()} className="card">

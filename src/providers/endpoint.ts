@@ -1,8 +1,6 @@
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import type { Missing as NotSetUp } from "../avatars/contract";
-import type { MachineHub } from "../machines/contract";
-import type { RunnerPipe } from "../machines/wiring";
 import type { Breaker, Now } from "./breaker";
 import type { KeyVault, ModelsBoundary, ProviderKind, ProviderRecord } from "./contract";
 
@@ -18,15 +16,12 @@ export type Endpoint = {
   readonly thinkingLevel: ModelThinkingLevel;
   readonly breaker: Breaker;
   readonly connected: () => boolean;
-  readonly reachable?: () => Promise<boolean>;
 };
 
 /** What a source is handed when ky starts: the boundary, and the parts of ky it may read. */
 export type SourceHost = {
   readonly boundary: ModelsBoundary;
   readonly vault: KeyVault;
-  readonly machines: Pick<MachineHub, "machines" | "online">;
-  readonly pipe: Pick<RunnerPipe, "fetcher">;
   readonly now: Now;
   /** Tell ky an endpoint's state moved, so Settings and the pickers look again. */
   readonly changed: () => void;

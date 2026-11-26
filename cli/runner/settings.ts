@@ -2,8 +2,8 @@
  * ~/.config/ky/runner.json: this computer's runner, as `ky runner add` set it up (a second runner's
  * is ~/.config/ky/<as>/runner.json). Which ky it
  * joins and as what name, where its token is kept, and what it shares: which agents, the user's
- * Chrome, which folders of repositories, and which local ports (a model server such as VibeProxy
- * or Ollama). `ky runner run` reads it; each KY_ variable below overrides its setting, and with no
+ * Chrome, which folders of repositories, and which local ports (a model server such as
+ * Ollama). `ky runner run` reads it; each KY_ variable below overrides its setting, and with no
  * file the variables alone describe the runner, as the harness runs it.
  *
  *   KY_URL               the ky it joins
@@ -13,7 +13,7 @@
  *   KY_PERMISSION_MODE   Claude Code's permission mode (default: bypassPermissions)
  *   KY_CHROME            1: tasks drive the user's Chrome, with its logins (Claude in Chrome)
  *   KY_REPOS             folders, split by ":", whose git repositories ky is told about (default: the workdir)
- *   KY_RUNNER_PORTS      ports, split by ",", that ky may send HTTP requests to, e.g. 8317 for VibeProxy
+ *   KY_RUNNER_PORTS      ports, split by ",", that ky may send HTTP requests to, e.g. 11434 for Ollama
  */
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -46,7 +46,6 @@ export type Settings = Static<typeof SettingsSchema>;
 
 /** The local servers a runner may share, by the port they listen on. */
 export const LOCAL_SERVERS: readonly { port: number; name: string }[] = [
-  { port: 8317, name: "VibeProxy" },
   { port: 11_434, name: "Ollama" }
 ];
 

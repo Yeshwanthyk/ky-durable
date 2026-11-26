@@ -24,7 +24,7 @@ export const CATALOG = new Map<string, ReadonlyMap<string, readonly ModelThinkin
     ])
   ],
   [
-    "vibeproxy",
+    "anthropic",
     new Map([
       ["claude-opus-5-5", ["off", "low", "medium", "high", "xhigh", "max"]],
       ["claude-haiku-5-5", ["off", "minimal"]]
@@ -55,7 +55,7 @@ export function validOf(nearest: Nearest, connected: ReadonlySet<string>) {
   };
 }
 
-const CONNECTIONS: ReadonlyArray<ReadonlySet<string>> = [new Set(["workers-ai", "vibeproxy"]), new Set(["workers-ai"]), new Set()];
+const CONNECTIONS: ReadonlyArray<ReadonlySet<string>> = [new Set(["workers-ai", "anthropic"]), new Set(["workers-ai"]), new Set()];
 
 export function readsOf(get: (connected: ReadonlySet<string>, purpose: PurposeName) => Choice | undefined) {
   return CONNECTIONS.map((connected) => ({

@@ -10,7 +10,7 @@ import { budget, type Json } from "../parity/kit";
 import { CATALOG, levelsOf, ORDER, PURPOSES, type PurposeName, validOf } from "../parity/settings/reads";
 import { storageOf } from "../parity/skills/storage";
 
-const PROVIDERS = ["workers-ai", "vibeproxy", "gone"];
+const PROVIDERS = ["workers-ai", "anthropic", "gone"];
 
 const MODELS = [...[...CATALOG.values()].flatMap((models) => [...models.keys()]), "retired"];
 

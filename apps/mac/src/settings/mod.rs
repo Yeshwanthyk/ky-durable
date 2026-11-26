@@ -23,7 +23,7 @@ use crate::{Section, State};
 pub const PAGES: &[(Section, &str, &str)] = &[
     (Section::General, "General", "ky address account sign out switch status glance"),
     (Section::Models, "Models", "model main worker background fallback thinking"),
-    (Section::Providers, "Providers", "provider api key vibeproxy anthropic openai"),
+    (Section::Providers, "Providers", "provider api key anthropic openai opencode"),
     (Section::Tools, "Tools", "tools catalog"),
     (Section::Executor, "Executor", "executor mcp apps approvals policy allow ask block"),
     (Section::Spend, "Spend", "spend cost money cap budget usd"),

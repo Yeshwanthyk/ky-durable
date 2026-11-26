@@ -3,11 +3,10 @@ import type { AiBinding } from "@earendil-works/pi-ai/api/cloudflare-ai-binding"
 import type { AgentChange } from "@earendil-works/pi-durable";
 import * as Schema from "effect/Schema";
 import type { Refusable } from "../core/edge";
-import type { VibeProxyBoundary } from "./sources/vibeproxy";
 
 export const PROVIDER_TABLES = Object.freeze({ providers: "ky_providers" } as const);
 
-export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "runner-local", "chatgpt"]);
+export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "chatgpt"]);
 
 export type ProviderKind = typeof ProviderKind.Type;
 
@@ -43,13 +42,11 @@ export type KeyVault = {
 export type ModelsBoundary = {
   readonly ai: AiBinding;
   readonly fetch: FetchFunction;
-  readonly vibeProxy: VibeProxyBoundary;
   /**
    * The cloud machine's way to ChatGPT's Codex backend (CloudMachine.chatgpt), on a deploy with one:
    * chatgpt.com turns many requests from a Worker away, and takes the same request from the container.
    */
   readonly chatgptCloud?: FetchFunction;
-  readonly probeTtlMs?: number;
 };
 
 export const CLAUDE_TOKEN_HERE =

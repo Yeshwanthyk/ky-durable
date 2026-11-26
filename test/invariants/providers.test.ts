@@ -14,7 +14,6 @@ import {
   LOGIN,
   OPENCODE_KEY,
   POLL_ANSWERS,
-  PROBE_TTL_MS,
   REFRESH_ANSWERS,
   REPLIES,
   START,
@@ -159,7 +158,7 @@ describe("adding a key", () => {
 describe("removing a key", () => {
   it("removes only an api-key provider's key, refusing any other id by name", () =>
     fc.assert(
-      fc.asyncProperty(fc.constantFrom("workers-ai", "vibeproxy", "anthropic", "nope"), async (id) => {
+      fc.asyncProperty(fc.constantFrom("workers-ai", "anthropic", "nope"), async (id) => {
         const { world } = fresh();
 
         await world.models.addKey("anthropic", ANTHROPIC_KEY);
@@ -183,25 +182,20 @@ describe("choosing a model", () => {
     const { world } = fresh();
 
     await world.apply({ kind: "enable", id: "workers-ai", enabled: 0 });
-    await world.apply({ kind: "reboot", tunnel: false });
+    await world.apply({ kind: "reboot" });
 
     expect(await world.apply({ kind: "resolve", purpose: "main", images: false })).toEqual({ threw: words.noProvider });
     expect(await ask(world)).toEqual({ threw: words.noProvider });
   });
 
-  it("lists providers by kind, a machine's first, then keys in the order they were saved, then Workers AI", () =>
+  it("lists keys in the order they were saved, then Workers AI", () =>
     fc.assert(
-      fc.asyncProperty(fc.shuffledSubarray([...VENDORS], { minLength: 1 }), fc.boolean(), async (vendors, vibe) => {
+      fc.asyncProperty(fc.shuffledSubarray([...VENDORS], { minLength: 1 }), async (vendors) => {
         const { world } = fresh();
-
-        if (vibe) {
-          await world.apply({ kind: "machine", name: "mac", online: true, shares: true });
-          await world.models.refresh();
-        }
 
         for (const vendor of vendors) await world.models.addKey(vendor, VENDOR_KEYS[vendor]);
 
-        expect(providerIds(world)).toEqual([...(vibe ? ["vibeproxy"] : []), ...vendors, "workers-ai"]);
+        expect(providerIds(world)).toEqual([...vendors, "workers-ai"]);
       }),
       runs()
     ));
@@ -212,8 +206,6 @@ describe("choosing a model", () => {
         const { world } = fresh();
 
         for (const vendor of VENDORS) await world.models.addKey(vendor, VENDOR_KEYS[vendor]);
-        await world.apply({ kind: "machine", name: "mac", online: true, shares: true });
-        await world.models.refresh();
         world.models.settings.set("main", choice);
 
         const { model } = world.models.resolve("main");
@@ -261,28 +253,6 @@ describe("time, read from the clock", () => {
       runs()
     ));
 
-  it("trusts a VibeProxy probe until probeTtlMs has passed on the clock, then asks again", () =>
-    fc.assert(
-      fc.asyncProperty(fc.integer({ min: 0, max: PROBE_TTL_MS - 1 }), fc.integer({ min: 0, max: 600_000 }), async (within, after) => {
-        const { world, time } = fresh();
-        const connected = () => world.models.catalog().find((provider) => provider.id === "vibeproxy")?.connected;
-
-        await world.apply({ kind: "machine", name: "mac", online: true, shares: true });
-        await world.apply({ kind: "refresh" });
-        expect(connected()).toBe(true);
-        await world.apply({ kind: "probe" });
-        world.vibeUp = false;
-
-        time.at += within;
-        await world.apply({ kind: "probe" });
-        expect(connected()).toBe(true);
-
-        time.at = START + PROBE_TTL_MS + after;
-        await world.apply({ kind: "probe" });
-        expect(connected()).toBe(false);
-      }),
-      runs()
-    ));
 });
 
 describe("stored rows", () => {
@@ -296,7 +266,7 @@ describe("stored rows", () => {
           await world.models.addKey("anthropic", ANTHROPIC_KEY);
           world.db.prepare("INSERT INTO ky_providers (id, kind, vendor, machine, port, api, label, enabled) VALUES ('odd', ?, 'openai', NULL, NULL, NULL, 'Odd', 1)").run(kind);
           world.db.prepare("INSERT INTO ky_providers (id, kind, vendor, machine, port, api, label, enabled) VALUES ('openai', 'api-key', 'openai', NULL, NULL, NULL, 'OpenAI', ?)").run(enabled);
-          await world.apply({ kind: "reboot", tunnel: false });
+          await world.apply({ kind: "reboot" });
 
           expect(providerIds(world)).toEqual(enabled === 1 ? ["anthropic", "openai", "workers-ai"] : ["anthropic", "workers-ai"]);
           expect(await ask(world)).toMatchObject({ provider: "anthropic" });
@@ -305,18 +275,16 @@ describe("stored rows", () => {
       runs()
     ));
 
-  it("writes nothing on a refresh that changes nothing, and moves a record only when what it names moved", () =>
+  it("writes nothing on a refresh that changes nothing", () =>
     fc.assert(
       fc.asyncProperty(
-        fc.array(fc.record({ name: fc.constantFrom("mac", "mini"), online: fc.boolean(), shares: fc.boolean() }), { maxLength: 4 }),
-        fc.boolean(),
-        async (machines, tunnel) => {
+        fc.shuffledSubarray([...VENDORS]),
+        async (vendors) => {
           const { world } = fresh();
           const writes = () => Number(world.db.prepare("SELECT total_changes() AS n").get()?.["n"]);
 
-          await world.apply({ kind: "reboot", tunnel });
-
-          for (const machine of machines) await world.apply({ kind: "machine", ...machine });
+          for (const vendor of vendors) await world.models.addKey(vendor, VENDOR_KEYS[vendor]);
+          await world.apply({ kind: "reboot" });
           await world.apply({ kind: "refresh" });
           const before = { rows: stored(world), writes: writes() };
 

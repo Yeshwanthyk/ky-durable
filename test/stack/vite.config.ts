@@ -11,9 +11,8 @@ import { client } from "../../vite.client.ts";
 
 /**
  * The local stack: ky's web app and real Worker (src/tests/stack.ts) with
- * fakes at the outside boundary: a fake AI binding, a fake VibeProxy (the
- * Mac starts away; `POST /test/mac?up=1` brings it online), a fake Executor
- * and a fake browser. `pnpm stack` serves it on KY_STACK_PORT (default 8790),
+ * fakes at the outside boundary: a fake AI binding, a fake Executor and a
+ * fake browser. `pnpm stack` serves it on KY_STACK_PORT (default 8790),
  * behind a fake Access (src/tests/fake-access.ts). Every start gets fresh state in
  * a temporary directory.
  *

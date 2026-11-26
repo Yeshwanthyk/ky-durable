@@ -4,13 +4,12 @@ import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { agentModel } from "../providers/contract";
 import { agent, connect, inside, prompt, snapshotView } from "./drive";
+import { GLM, OPENCODE_KEY } from "./stack";
 
 /**
  * What each chat's agent document stores of its model. Its history is rewindable, so every change stays as a
  * revision for good: a chat stores the slot it follows, `ky/main`, and the model main resolves to is read at each call.
  */
-
-const MAC_UP_KEY = "test:mac-up";
 
 const SLOT = { provider: "ky", modelId: "main" };
 
@@ -19,9 +18,9 @@ function agentRevisions(name: string): Promise<number> {
   return inside(name, (_instance, state) => state.storage.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM pi_document_revisions r JOIN pi_documents d ON d.id = r.document_id WHERE d.kind = '"pi.agent"'`).one().n);
 }
 
-/** The Mac's VibeProxy answers again, or stops: only the next probe sees it, as when a Wi-Fi drop ends. */
-function macAnswers(name: string, up: boolean): Promise<void> {
-  return inside(name, (_instance, state) => state.storage.put(MAC_UP_KEY, up));
+/** The model each call so far was sent to. */
+function modelsCalled(name: string): Promise<string[]> {
+  return inside(name, (instance) => instance.boundary.calls.map(({ model }) => model));
 }
 
 /** Start the object over, as a deploy or an eviction does. */
@@ -31,18 +30,19 @@ async function restart(name: string): Promise<void> {
 }
 
 describe("the chats' model", () => {
-  it("stays on the main slot while the Mac blinks, and each call runs on what main is then", async () => {
+  it("stays on the main slot while main moves to another provider, and each call runs on what main is then", async () => {
     const name = crypto.randomUUID();
-    await agent(name).mac(true);
     (await connect(name)).close();
     expect((await snapshotView(name)).model).toEqual(SLOT);
     const before = await agentRevisions(name);
 
-    await macAnswers(name, false);
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
-    await macAnswers(name, true);
-    expect((await prompt(name, "again")).text).toContain("Claude claude-opus-5-5");
+    expect(await inside(name, (instance) => instance.models.addKey("opencode-go", OPENCODE_KEY))).toEqual({});
+    expect((await prompt(name, "again")).text).toBe("echo: again");
 
+    const called = await modelsCalled(name);
+    expect(called[0]).toBe(GLM);
+    expect(called.at(-1)).toBe("deepseek-v4.1-flash");
     expect(await agentRevisions(name)).toBe(before);
   });
 

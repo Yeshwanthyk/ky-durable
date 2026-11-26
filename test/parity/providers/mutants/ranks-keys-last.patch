@@ -1,0 +1,13 @@
+diff --git a/src/providers/sources/api-keys.ts b/src/providers/sources/api-keys.ts
+index e3894ad1..43e7404b 100644
+--- a/src/providers/sources/api-keys.ts
++++ b/src/providers/sources/api-keys.ts
+@@ -86,7 +86,7 @@ export function apiKey(vendor: Vendor, fetch: FetchFunction, key: (providerId: s
+ /** The vendors the user pasted a key for: a record each, added and removed in Settings, never placed. */
+ export const apiKeys: Source = {
+   kind: "api-key",
+-  priority: 1,
++  priority: 4,
+   start: ({ boundary, vault, now }) => ({
+     place: () => [],
+     build: (record) => {

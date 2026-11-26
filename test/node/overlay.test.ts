@@ -8,16 +8,12 @@ const REPO = path.resolve(import.meta.dirname, "../..");
 const read = (file: string) => experimental_readRawConfig({ config: path.join(REPO, file) }).rawConfig;
 
 describe("the owner overlay", () => {
-  it("adds the example overlay's vars and VibeProxy tunnel to wrangler.jsonc and keeps its bindings", () => {
+  it("applies the example overlay over wrangler.jsonc and keeps its bindings", () => {
     const config = read("wrangler.jsonc");
     const buckets = config.r2_buckets;
     applyOverlay(config, read("wrangler.local.example.jsonc"));
 
     expect(config).toMatchObject({
-      vars: {
-        VIBEPROXY_ORIGIN: "http://127.0.0.1:8317"
-      },
-      vpc_services: [{ binding: "VIBEPROXY", remote: true }],
       ai: { binding: "AI", remote: true },
       r2_buckets: buckets
     });

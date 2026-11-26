@@ -6,6 +6,3 @@
 # KY_DEV=1
 # KY_DEV_EMAIL=you@example.com
 # ACCESS_EMAILS=you@example.com
-
-# VibeProxy's x-api-key; with VIBEPROXY and VIBEPROXY_ORIGIN in wrangler.local.jsonc.
-# VIBEPROXY_KEY=

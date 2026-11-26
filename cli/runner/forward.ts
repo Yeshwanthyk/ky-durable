@@ -126,7 +126,7 @@ export class Forwarder {
   }
 }
 
-/** A request as its log line names it: `GET :8317/v1/models`, without the query, which may hold a key. */
+/** A request as its log line names it: `GET :11434/api/tags`, without the query, which may hold a key. */
 function described({ method, port, path }: HttpRequest): string {
   return `${method} :${port}${path.split("?")[0]}`;
 }
