@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import Type, { type Static } from "typebox";

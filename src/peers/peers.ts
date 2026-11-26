@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension, hook, ToolTask } from "@earendil-works/pi-durable";
 import type { Static, TSchema } from "typebox";
 import { decodeOr, parseOr } from "../core/decode";

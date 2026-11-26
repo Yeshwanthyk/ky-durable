@@ -90,7 +90,7 @@ function workersAI(ai: AiBinding, now: Now): Endpoint {
 /** Workers AI, through this deploy's AI binding: always there, always last, and the default for background work. */
 export const workersAi: Source = {
   kind: "workers-ai",
-  priority: 3,
+  priority: 4,
   background: true,
   start: ({ boundary, now }) => ({
     place: () => [WORKERS_AI_RECORD],

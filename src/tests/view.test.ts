@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@earendil-works/pi-durable";
+import { type AgentEvent, watchEvents } from "../events";
 import { describe, expect, it } from "vitest";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import { inside, snapshotView, submit, wait } from "./drive";
@@ -18,7 +18,7 @@ function watch(name: string): Watch {
   });
 
   const done = inside(name, async (agent) => {
-    const stream = await agent.harness.session().events();
+    const stream = await watchEvents(agent.harness);
     let view = reduceEvents(EMPTY_VIEW, [stream.snapshot]);
     const types: string[] = ["snapshot"];
     // A streaming tool call's arguments after each batch, as the page would draw them.

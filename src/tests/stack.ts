@@ -1,4 +1,5 @@
-import { type JsonValue, type Static, Type } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import { type Static, Type } from "typebox";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { DreamLedgerRow } from "../dreaming/contract";
 import { CLOUD, type TaskTokens } from "../machines/contract";

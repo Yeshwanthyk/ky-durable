@@ -40,7 +40,7 @@ export const BloubSpecSchema = Type.Object({
   name: Type.Optional(Type.String({ maxLength: NAME_MAX })),
   body: Type.Object({ w: Type.Number(), h: Type.Number(), corner: Type.Number(), color: TypeHex }),
   eyes: Type.Object({ count: Type.Union([Type.Literal(1), Type.Literal(2)]), size: Type.Number() }),
-  top: Type.Object({ kind: Type.Union(TOPS.map((kind) => Type.Literal(kind))), color: Type.Optional(TypeHex) }),
+  top: Type.Object({ kind: Type.Unsafe<(typeof TOPS)[number]>(Type.Union(TOPS.map((kind) => Type.Literal(kind)))), color: Type.Optional(TypeHex) }),
   cheeks: Type.Boolean(),
   feet: Type.Boolean()
 });

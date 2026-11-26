@@ -1,4 +1,5 @@
-import type { AgentEvent, ConversationId, EntryId, SubmissionId, UserInput } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, SubmissionId, UserInput } from "@earendil-works/pi-durable";
+import type { AgentEvent } from "../events";
 import { describe, expect, it } from "vitest";
 import {
   dropReturned,
@@ -43,7 +44,7 @@ const unanswered = (requestId: string, id: number, reason: string): AgentEvent =
   record: { type: "input", id: submissionId(id), conversationId, requestId, status: "unanswered", reason }
 });
 
-const inbox = (...ids: number[]): AgentEvent => ({ type: "inbox_update", items: ids.map((id) => ({ id: submissionId(id), mode: "steer" })) });
+const inbox = (...ids: number[]): AgentEvent => ({ type: "inbox_update", items: ids.map((id) => ({ id: submissionId(id), mode: "steer", content: "" })) });
 
 describe("reduceOutbox", () => {
   it("keeps a queued message with pi's id until pi places it", () => {

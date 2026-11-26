@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage, ImageContent, JsonValue, TextContent } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
 import {

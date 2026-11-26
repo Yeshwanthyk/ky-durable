@@ -1,5 +1,5 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { AgentEvent } from "@earendil-works/pi-durable";
+import type { AgentEvent } from "./events";
 import type { PiSessionId } from "agents/harness/pi";
 import type { Static } from "typebox";
 import type { ApprovalView, ToolPolicyView } from "./approvals/contract";

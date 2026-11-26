@@ -1,5 +1,6 @@
 import type { Workspace } from "@cloudflare/computer";
-import { type JsonValue, Type } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
   defineExtension,
   type Extension,

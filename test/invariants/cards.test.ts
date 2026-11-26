@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { ToolExecutionResult } from "@earendil-works/pi-durable";
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";

@@ -283,6 +283,11 @@ export class Vault extends DurableObject<Env> {
     return creds ? { accessToken: creds.accessToken } : null;
   }
 
+  /** The Claude subscription setup token (`sk-ant-oat…`) for ky's own chat; null when not saved. */
+  async claudeToken(): Promise<{ oauthToken: string } | null> {
+    return this.#claudeCreds() ?? null;
+  }
+
   /** Start a ChatGPT sign-in: the user enters `userCode` at `verificationUrl`, and the Vault's alarm polls until they have. */
   async chatgptLogin(): Promise<ChatGptCode> {
     const device = await startDevice(this.openai);

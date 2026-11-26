@@ -8,7 +8,8 @@
  * Only typebox and types, so Node loads it as it is, as the harness does.
  */
 import type { JsonValue } from "@earendil-works/pi-ai";
-import type { AgentEvent, EntryRecord } from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
+import type { AgentEvent } from "./events";
 import Type, { type Static, type TSchema } from "typebox";
 import { ApprovalKindSchema, type ApprovalView, ToolPolicySchema, type ToolPolicyView } from "./approvals/contract.ts";
 import { BloubSpecSchema } from "./avatars/contract.ts";

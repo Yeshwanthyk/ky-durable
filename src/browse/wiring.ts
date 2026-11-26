@@ -1,6 +1,6 @@
 import type { Workspace } from "@cloudflare/computer";
 import type { BrowserContext, BrowserWorker, Browser as CloudBrowser, Page } from "@cloudflare/playwright";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { type ConversationId, defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";

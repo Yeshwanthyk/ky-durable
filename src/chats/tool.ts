@@ -1,4 +1,4 @@
-import { type Static, Type } from "@earendil-works/pi-ai";
+import { type Static, Type } from "typebox";
 import { defineExtension, defineTool, type Extension, GenerationTask, hook, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { ROOT_SESSION } from "agents/harness/pi";
 import { toolReply as reply } from "../core/reply";
