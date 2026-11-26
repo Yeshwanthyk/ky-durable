@@ -1,6 +1,7 @@
 import type { MachineInfo, TaskRow } from "../protocol";
 import { duration } from "./duration";
 import { plain } from "./plain";
+import { money } from "./Spend";
 
 /** How long a working task may go without a step before the card says it has gone quiet. */
 const QUIET_AFTER_MS = 3 * 60_000;
@@ -43,15 +44,6 @@ export function quietNote(task: TaskRow, machines: readonly MachineInfo[], now: 
 }
 
 const turnsOf = (turns: number | null) => (turns === null ? null : `${turns} ${turns === 1 ? "turn" : "turns"}`);
-
-/** Money as people say it: "$1.24" from a dollar up, "2¢" under one, "<1¢" under a cent. */
-export function money(usd: number): string {
-  const cents = Math.round(usd * 100);
-
-  if (cents >= 100) return `$${usd.toFixed(2)}`;
-
-  return cents < 1 ? "<1¢" : `${cents}¢`;
-}
 
 const dollars = (cost: number | null) => (cost ? money(cost) : null);
 

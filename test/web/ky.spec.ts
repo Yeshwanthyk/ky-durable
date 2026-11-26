@@ -2153,11 +2153,13 @@ test.describe("automations in Activity", () => {
 
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/today-fired.png` });
 
+    // The run opens in Activity's place, and Today brings the timeline back.
     await fired.click();
-    const sheet = page.getByRole("dialog", { name: new RegExp(title) });
-    await expect(sheet).toBeVisible();
-    await sheet.getByRole("button", { name: "Close" }).click();
-    await expect(sheet).toBeHidden();
+    const run = panel(page).getByRole("region", { name: new RegExp(title) });
+    await expect(run).toBeVisible();
+    await expect(today).toBeHidden();
+    await run.getByRole("button", { name: "Today" }).click();
+    await expect(today).toBeVisible();
 
     await send(page, `tool automation ${JSON.stringify({ action: "delete", id })}`);
   });
