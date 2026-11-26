@@ -191,35 +191,65 @@ const EMPTY: Partial<Record<TaskRow["status"], string>> = { queued: "Waiting to 
 /** Who runs the task and how it stands; once it ends, what it spent. */
 const taskLine = (task: TaskRow, now: number) => [task.worker, ENDED[task.status], ...(isLive(task) ? [] : spendParts(task, now))].join(" · ");
 
-function OpenChat({ onOpen }: { onOpen?: () => void }) {
-  if (!onOpen) return null;
-
-  return (
-    <button type="button" className="timeline-open pressable" onClick={onOpen}>
-      Open chat
-    </button>
-  );
-}
-
 /** What a task reported once it ended. */
 function TaskResult({ task }: { task: TaskRow }) {
   if (isLive(task) || !task.summary) return null;
 
   return (
-    <div className="timeline-result" data-tone={task.status}>
+    <div className="timeline-result task-page-result" data-tone={task.status}>
       <Markdown source={task.summary} />
     </div>
   );
 }
 
-/** A task's timeline, live while it works; once it ends, what it reported under the steps. */
-export function TaskTimeline({ task, now, onClose, onOpenChat }: { task: TaskRow; now: number; onClose: () => void; onOpenChat?: () => void }) {
+// One task, in place of Activity's timeline as a routine opens there: back to Today, its name and how it stands, what
+// it reported first since that is what the user came for, then its steps, live while it works. Open chat sits at the
+// bottom, in reach of a thumb. Escape goes back.
+export function TaskPage({ task, now, onBack, onOpenChat }: { task: TaskRow; now: number; onBack: () => void; onOpenChat?: () => void }) {
   const steps = taskTimeline(task, useTaskLog(task));
+  const heading = useRef<HTMLHeadingElement>(null);
+  const live = isLive(task);
+  const title = plain(task.title);
+
+  useEffect(() => heading.current?.focus({ preventScroll: true }), []);
 
   return (
-    <TimelineSheet title={plain(task.title)} sub={taskLine(task, now)} onClose={onClose} tools={<OpenChat onOpen={onOpenChat} />}>
-      <Timeline steps={steps} working={isLive(task)} empty={EMPTY[task.status] ?? "No steps recorded"} />
+    <section
+      className="routines task-page"
+      aria-label={title}
+      data-tone={task.status}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        onBack();
+      }}
+    >
+      <button type="button" className="back-link pressable" onClick={onBack}>
+        <Icon name="arrowLeft" size={14} />
+        Today
+      </button>
+      <header className="task-page-head">
+        <h3 ref={heading} className="routines-title" tabIndex={-1}>
+          {title}
+        </h3>
+        <p className="task-page-sub">{taskLine(task, now)}</p>
+      </header>
       <TaskResult task={task} />
-    </TimelineSheet>
+      {steps.length > 0 || live ? (
+        <section className="task-page-steps" aria-label="How it went">
+          {live ? null : <h4 className="feed-head">Steps</h4>}
+          <Timeline steps={steps} working={live} empty={EMPTY[task.status] ?? "No steps recorded"} />
+        </section>
+      ) : task.summary ? null : (
+        <p className="timeline-empty">No steps recorded</p>
+      )}
+      {onOpenChat ? (
+        <div className="task-page-foot">
+          <button type="button" className="task-page-open pressable" onClick={onOpenChat}>
+            Open chat
+          </button>
+        </div>
+      ) : null}
+    </section>
   );
 }

@@ -6391,3 +6391,68 @@ button.rt-bar:focus-visible {
   flex-basis: 100%;
   margin-left: 42px;
 }
+
+/* A task opened in place of Activity's timeline: its name, how it stands, what it reported, then its steps. */
+.task-page {
+  --timeline-running: var(--warning);
+  --timeline-failed: var(--danger);
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+:root[data-mode="dark"] .task-page {
+  --timeline-running: #ff9f0a;
+  --timeline-failed: #ff453a;
+}
+
+.task-page-head {
+  margin: 4px 0 14px;
+  padding-left: 4px;
+}
+
+.task-page-head .routines-title {
+  overflow-wrap: anywhere;
+}
+
+.task-page-head .routines-title:focus {
+  outline: none;
+}
+
+.task-page-sub {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.task-page-result {
+  margin: 0 0 18px;
+  padding: 0 4px;
+  border-top: 0;
+}
+
+.task-page-steps {
+  padding: 0 4px;
+}
+
+.task-page-steps > .feed-head {
+  padding-left: 0;
+}
+
+.task-page-foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 14px 0 calc(4px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--sidebar) 14px);
+}
+
+.task-page-open {
+  width: 100%;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: calc(14px * var(--text-scale));
+  font-weight: 500;
+}

@@ -2153,11 +2153,13 @@ test.describe("automations in Activity", () => {
 
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/today-fired.png` });
 
+    // The run opens in Activity's place, and Today brings the timeline back.
     await fired.click();
-    const sheet = page.getByRole("dialog", { name: new RegExp(title) });
-    await expect(sheet).toBeVisible();
-    await sheet.getByRole("button", { name: "Close" }).click();
-    await expect(sheet).toBeHidden();
+    const run = panel(page).getByRole("region", { name: new RegExp(title) });
+    await expect(run).toBeVisible();
+    await expect(today).toBeHidden();
+    await run.getByRole("button", { name: "Today" }).click();
+    await expect(today).toBeVisible();
 
     await send(page, `tool automation ${JSON.stringify({ action: "delete", id })}`);
   });
@@ -2262,9 +2264,9 @@ test("shows a subagent's work in Activity and opens its chat", async ({ page }) 
   const task = panel(page).getByRole("button", { name: /browserhelper/ }).first();
   await expect(task).toBeVisible();
 
-  // The task opens its steps; its chat opens from there.
+  // The task opens in Activity's place, with its steps; its chat opens from there.
   await task.click();
-  await page.getByRole("dialog").getByRole("button", { name: "Open chat" }).click();
+  await panel(page).getByRole("button", { name: "Open chat" }).click();
   await expect(page.getByRole("button", { name: "Back to the main chat" })).toBeVisible();
   // In the chat: Activity's summary of the task says the same once it ends.
   await expect(chat(page).getByText("echo: say hi from the subagent")).toBeVisible();
@@ -2367,7 +2369,7 @@ test("adds a machine with a pairing code, then removes it", async ({ page }) => 
   await expect(panel(page).getByRole("listitem").filter({ hasText: "webadd" })).toHaveCount(0);
 });
 
-test("shows what a machine task is doing, then who did it and how long it took; its sheet says what it cost", async ({ page }) => {
+test("shows what a machine task is doing, then who did it and how long it took; its page says what it cost", async ({ page }) => {
   await open(page);
   await send(page, "machine@webmac [delay=4000] [tools=Bash:pnpm build] build with steps");
   const card = panel(page).getByRole("button", { name: /build with steps/ }).first();
@@ -2380,7 +2382,10 @@ test("shows what a machine task is doing, then who did it and how long it took; 
   await expect(card).not.toContainText("Done");
   await card.click();
   await expect(page.getByRole("list", { name: "Steps" })).toContainText("pnpm build");
-  await expect(page.getByRole("dialog")).toContainText("1 turn · $0.01");
+  await expect(panel(page).locator(".task-page-sub")).toContainText("1 turn · 1¢");
+  // Back is where it was: Today, with the row that opened it.
+  await panel(page).getByRole("button", { name: "Today" }).click();
+  await expect(card).toBeVisible();
 });
 
 test("shows a task without its markdown, and its machine and time each on one line", async ({ page }) => {

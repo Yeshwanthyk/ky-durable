@@ -1,6 +1,7 @@
 import type { MachineInfo, TaskRow } from "../protocol";
 import { duration } from "./duration";
 import { plain } from "./plain";
+import { money } from "./Spend";
 
 /** How long a working task may go without a step before the card says it has gone quiet. */
 const QUIET_AFTER_MS = 3 * 60_000;
@@ -44,8 +45,7 @@ export function quietNote(task: TaskRow, machines: readonly MachineInfo[], now: 
 
 const turnsOf = (turns: number | null) => (turns === null ? null : `${turns} ${turns === 1 ? "turn" : "turns"}`);
 
-/** Dollars, to the cent, or to a tenth of one below a cent. */
-const dollars = (cost: number | null) => (cost ? `$${cost.toFixed(cost < 0.01 ? 3 : 2)}` : null);
+const dollars = (cost: number | null) => (cost ? money(cost) : null);
 
 /** What a finished task cost, quietly: how long, how many model turns, and how much, each its own token. */
 export function spendParts(task: TaskRow, now: number): string[] {

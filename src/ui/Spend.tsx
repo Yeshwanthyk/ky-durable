@@ -18,9 +18,9 @@ export const SpendContext = createContext<SpendActions>({
 
 /** Money as people say it: cents under a dollar ("2¢", "<1¢" for a sliver), dollars and cents from one ("$1.24"). */
 export function money(usd: number): string {
-  if (usd >= 1) return `$${usd.toFixed(2)}`;
-
   const cents = Math.round(usd * 100);
+
+  if (cents >= 100) return `$${usd.toFixed(2)}`;
 
   return cents === 0 && usd > 0 ? "<1¢" : `${cents}¢`;
 }
