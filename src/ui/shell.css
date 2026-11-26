@@ -86,6 +86,12 @@
   overflow-y: auto;
 }
 
+/* The Desk and the main chat stay whole at the top; only the side chats below shrink and scroll. */
+.chat-list-pinned {
+  flex: none;
+  overflow: visible;
+}
+
 .chat-item {
   width: 100%;
   min-height: 36px;
@@ -383,7 +389,7 @@
 
   @starting-style {
     opacity: 0;
-    transform: translateX(-8px) scale(0.6);
+    transform: translateX(-8px) scale(0.97);
   }
 }
 
@@ -391,11 +397,19 @@
   margin-left: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .crew-face {
+    @starting-style {
+      transform: none;
+    }
+  }
+}
+
 .crew-count {
   padding: 1px 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--working) 14%, transparent);
-  color: var(--working);
+  color: var(--working-ink);
   font-size: calc(10.5px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -631,7 +645,7 @@
 /* The first empty chat rises in block by block. Nothing waits on it: every block is
    clickable while it fades, and rows that change state later don't replay it. */
 .welcome[data-enter="true"] > * {
-  animation: welcome-in 340ms var(--ease-out) backwards;
+  animation: welcome-in var(--enter) var(--ease-out) backwards;
 }
 
 .welcome[data-enter="true"] > :nth-child(2) {
@@ -937,7 +951,7 @@
 }
 
 .panel .pressable:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(var(--press));
 }
 
 .feed-item:has(.feed-stop) .feed-button {
@@ -2802,7 +2816,7 @@
 
   /* Full width, a pill shrinks too far at the usual press scale. */
   .suggestions .pill:active:not(:disabled) {
-    transform: scale(0.98);
+    transform: scale(var(--press-row));
   }
 
   .topbar .icon-button {
@@ -3868,7 +3882,7 @@ article.skills-reader > * {
   font-size: 14px;
   font-style: italic;
   line-height: 1.5;
-  color: #8a8a8a;
+  color: var(--quiet);
 }
 
 .soul-body {
@@ -3988,7 +4002,7 @@ article.skills-reader > * {
   padding: 0 14px;
   border-radius: 999px;
   background: #1c1c1c;
-  color: #8a8a8a;
+  color: var(--quiet);
 }
 
 .memory-search:focus-within {
@@ -4094,7 +4108,7 @@ article.skills-reader > * {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  color: #8a8a8a;
+  color: var(--quiet);
 }
 
 .memory-block-tools > [aria-expanded="true"] {
@@ -4131,7 +4145,7 @@ article.skills-reader > * {
 .memory-found {
   margin: 0;
   font-size: 14px;
-  color: #8a8a8a;
+  color: var(--quiet);
 }
 
 .memory-found {
@@ -5282,22 +5296,6 @@ article.skills-reader > * {
 /* ---------- Last night ----------
    The latest dream's changes: each its reason under it, wrapping to two lines, and Undo at the right edge. */
 
-.ledger-change .feed-button {
-  align-items: center;
-  padding-right: 6px;
-}
-
-.ledger-change .feed-glyph {
-  align-self: flex-start;
-}
-
-/* The whole change reads: a merge names both skills. */
-.ledger-change .feed-title {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
-}
-
 .ledger-reason {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -5315,23 +5313,6 @@ article.skills-reader > * {
   line-height: 1.4;
   color: var(--danger);
   text-wrap: pretty;
-}
-
-.ledger-undone {
-  flex: none;
-  padding: 0 10px;
-  font-size: calc(12.5px * var(--text-scale));
-  color: var(--quiet);
-}
-
-/* Undone: the change steps back, as a paused automation does. */
-.ledger-change[data-undone] :is(.feed-glyph, .feed-title, .ledger-reason) {
-  opacity: 0.5;
-}
-
-.ledger-change[data-undone] .feed-title {
-  text-decoration: line-through;
-  text-decoration-color: var(--quiet);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -5425,7 +5406,7 @@ article.skills-reader > * {
 /* A wide row barely moves when pressed; the fill says it took the tap. */
 .first-run .row:active:not(:disabled) {
   background: var(--hover);
-  transform: scale(0.99);
+  transform: scale(var(--press-row));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -5449,8 +5430,8 @@ article.skills-reader > * {
 }
 
 :root[data-mode="dark"] .timeline-sheet {
-  --timeline-running: #ff9f0a;
-  --timeline-failed: #ff453a;
+  --timeline-running: var(--timeline-running-dark);
+  --timeline-failed: var(--timeline-failed-dark);
 }
 
 .timeline-sheet::backdrop {
@@ -5964,7 +5945,7 @@ article.skills-reader > * {
 }
 
 .rt-run:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(var(--press));
 }
 
 /* Run now waits for a hover, a focus or an open row; Stop is always there while a run goes. */
@@ -6013,7 +5994,7 @@ article.skills-reader > * {
 }
 
 .rt-row[data-live] .rt-meta {
-  color: var(--working);
+  color: var(--working-ink);
 }
 
 .rt-last {

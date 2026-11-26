@@ -1,0 +1,64 @@
+/* Settings › Proactivity on the kit's tokens: rows at one height, quiet words in --quiet, and the two settings that
+   need the width (the look times, the pace) stacked as label, hint, then control. */
+
+#settings-proactivity .row {
+  min-height: calc(var(--control-touch) + 8px);
+  padding: 8px 14px;
+  font-size: var(--fs-14);
+}
+
+#settings-proactivity .row-label {
+  font-weight: var(--fw-medium);
+}
+
+#settings-proactivity .row-sub,
+#settings-proactivity .row-value {
+  font-size: var(--fs-13);
+  color: var(--quiet);
+}
+
+/* A stacked row hands its layout to the setting inside it. */
+#settings-proactivity .row.stacked {
+  display: block;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+#settings-proactivity .kit-setting-label {
+  font-size: var(--fs-14);
+}
+
+#settings-proactivity .kit-setting-hint {
+  font-size: var(--fs-13);
+}
+
+/* The pace spans the row, its three choices sharing it evenly. */
+#settings-proactivity .kit-setting-control > .segmented.small > button {
+  flex: 1 1 0;
+}
+
+#settings-proactivity .segmented.small {
+  padding: 2px;
+  border-radius: var(--radius-lg);
+}
+
+#settings-proactivity .segmented.small > button,
+#settings-proactivity .segmented.small > .segmented-pill {
+  height: var(--control-sm);
+  border-radius: var(--radius-md);
+}
+
+#settings-proactivity .chip {
+  height: var(--control-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-13);
+}
+
+/* The field's Add fills the chip's right end. */
+#settings-proactivity .chip-field {
+  padding-right: 0;
+}
+
+#settings-proactivity .chip-field > .kit-button {
+  border-radius: var(--radius-pill);
+}

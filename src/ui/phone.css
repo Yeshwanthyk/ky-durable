@@ -277,4 +277,12 @@
   .composer > .composer-icon:first-child {
     margin-left: calc(max(8px, env(safe-area-inset-left)) - var(--composer-hit));
   }
+
+  /* ---------- Desk: the page scrolls clear of the home indicator ---------- */
+
+  .desk-page .desk-scroll {
+    padding: 8px max(16px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+    scroll-padding-bottom: calc(48px + env(safe-area-inset-bottom));
+  }
 }

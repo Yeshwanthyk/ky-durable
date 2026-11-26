@@ -2,8 +2,10 @@ import { createContext, type KeyboardEvent, useCallback, useContext, useEffect, 
 import { RIGHT_AWAY_MOST } from "../dreaming/contract";
 import type { Pace, ZoneView, ProactivityLevel, ProactivityView } from "../protocol";
 import { Problem } from "./Subscriptions";
-import { RowValue, Segmented, SegmentedOption, Stepper, Switch } from "./Controls";
+import { RowValue, Stepper, Switch } from "./Controls";
 import { Icon } from "../chat-kit/Icon";
+import { Button } from "./kit/Button";
+import { Segmented, SettingRow } from "./kit/SettingRow";
 import { UsefulRate } from "./PostVerdict";
 
 type ProactivityActions = {
@@ -56,21 +58,13 @@ const PACES: ReadonlyArray<{ pace: Pace; label: string; sub: string }> = [
   { pace: "eager", label: "Eager", sub: "Also every hour and when mail arrives, when something changed" }
 ];
 
-// The pace as one segmented radio group, under the schedule's looks.
+// The pace as one segmented radio group, under the schedule's looks: its label and hint across, the choice below.
 function PaceRow({ pace, onChoose }: { readonly pace: Pace; readonly onChoose: (pace: Pace) => void }) {
   return (
-    <div className="row">
-      <span className="row-text">
-        <span className="row-label">Between looks</span>
-        <span className="row-sub">{PACES.find((each) => each.pace === pace)?.sub}</span>
-      </span>
-      <Segmented small role="radiogroup" aria-label="Pace" chosen={pace}>
-        {PACES.map((each) => (
-          <SegmentedOption key={each.pace} checked={pace === each.pace} onChoose={() => onChoose(each.pace)}>
-            {each.label}
-          </SegmentedOption>
-        ))}
-      </Segmented>
+    <div className="row stacked">
+      <SettingRow label="Between looks" hint={PACES.find((each) => each.pace === pace)?.sub}>
+        <Segmented small label="Pace" value={pace} options={PACES.map((each) => ({ value: each.pace, label: each.label }))} onChange={onChoose} />
+      </SettingRow>
     </div>
   );
 }
@@ -84,13 +78,7 @@ function Levels({ level, onChoose }: { readonly level: ProactivityLevel; readonl
           <span className="row-label">Messages you first</span>
           <span className="row-sub">{LEVELS.find((each) => each.level === level)?.sub}</span>
         </span>
-        <Segmented small role="radiogroup" aria-label="Proactivity" chosen={level}>
-          {LEVELS.map((each) => (
-            <SegmentedOption key={each.level} checked={level === each.level} onChoose={() => onChoose(each.level)}>
-              {each.label}
-            </SegmentedOption>
-          ))}
-        </Segmented>
+        <Segmented small label="Proactivity" value={level} options={LEVELS.map((each) => ({ value: each.level, label: each.label }))} onChange={onChoose} />
       </div>
     </div>
   );
@@ -116,32 +104,33 @@ function Looks({ looks, onChange }: { readonly looks: readonly string[]; readonl
   };
 
   return (
-    <div className="row looks">
-      <span className="row-label">Looks at</span>
-      <ul className="chips" aria-label="When ky looks">
-        {looks.map((time) => (
-          <li key={time} className="chip tabular">
-            <span>{time}</span>
-            <button type="button" className="chip-remove pressable" aria-label={`Remove ${time}`} onClick={() => onChange(looks.filter((each) => each !== time))}>
-              <Icon name="x" size={11} />
-            </button>
-          </li>
-        ))}
-        {looks.length >= MOST_LOOKS ? null : adding === null ? (
-          <li>
-            <button type="button" className="chip chip-add pressable" aria-label="Add a time" onClick={() => setAdding("")}>
-              <Icon name="plus" size={12} />
-            </button>
-          </li>
-        ) : (
-          <li className="chip chip-field">
-            <input ref={focusOnce} type="time" aria-label="Look time" value={adding} onKeyDown={onKeyDown} onChange={(event) => setAdding(event.target.value)} />
-            <button type="button" className="chip-confirm pressable" disabled={adding === ""} onClick={add}>
-              Add
-            </button>
-          </li>
-        )}
-      </ul>
+    <div className="row stacked">
+      <SettingRow label="Looks at">
+        <ul className="chips" aria-label="When ky looks">
+          {looks.map((time) => (
+            <li key={time} className="chip tabular">
+              <span>{time}</span>
+              <button type="button" className="chip-remove pressable" aria-label={`Remove ${time}`} onClick={() => onChange(looks.filter((each) => each !== time))}>
+                <Icon name="x" size={11} />
+              </button>
+            </li>
+          ))}
+          {looks.length >= MOST_LOOKS ? null : adding === null ? (
+            <li>
+              <button type="button" className="chip chip-add pressable" aria-label="Add a time" onClick={() => setAdding("")}>
+                <Icon name="plus" size={12} />
+              </button>
+            </li>
+          ) : (
+            <li className="chip chip-field">
+              <input ref={focusOnce} type="time" aria-label="Look time" value={adding} onKeyDown={onKeyDown} onChange={(event) => setAdding(event.target.value)} />
+              <Button variant="primary" size={28} disabled={adding === ""} onClick={add}>
+                Add
+              </Button>
+            </li>
+          )}
+        </ul>
+      </SettingRow>
     </div>
   );
 }

@@ -16,7 +16,8 @@ import { paletteCommands } from "./ui/commands";
 import type { Mentionable } from "./chat-kit/Composer";
 import { ComposerDock } from "./ui/ComposerDock";
 import { ExecutorContext } from "./ui/Executor";
-import { ApprovalsContext, decisionsWaiting } from "./ui/Approvals";
+import { ApprovalsContext, decisionsWaiting, useNeedingYou } from "./ui/Approvals";
+import { DeskPage } from "./ui/desk/DeskPage";
 import { MailContext } from "./ui/Mail";
 import { ProactivityContext, usePushUpkeep } from "./ui/Proactivity";
 import { SpendContext } from "./ui/Spend";
@@ -60,6 +61,11 @@ import "./chat-kit/chat.css";
 import "./ui/chat-content.css";
 import "./ui/shell.css";
 import "./ui/phone.css";
+import "./ui/kit/kit.css";
+import "./ui/kit/settings.css";
+import "./ui/kit/approvals.css";
+import "./ui/kit/rows.css";
+import "./ui/desk/desk.css";
 
 /** ky's own blob, ink on light and cream on dark; subagents get one from their name. */
 const KY_BLOB: Record<Theme, BlobVariantId> = { light: "squircle-encre", dark: "squircle-creme" };
@@ -177,7 +183,19 @@ type Parts = {
   visit: Visit;
   /** Opens the Skills page, from the sidebar or the command palette. */
   onSkillsPage: () => void;
+  /** Opens the Desk page, from the sidebar or a chat's approvals. */
+  onDeskPage: () => void;
 };
+
+/** The approvals and what a tap does, for a chat's cards and the Desk's deck alike. */
+function useApprovals(ky: Ky, onOpenDesk: () => void) {
+  const waiting = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
+
+  return useMemo(
+    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting, onOpenDesk }),
+    [ky.approvals, ky.approvalActions, waiting, onOpenDesk]
+  );
+}
 
 /** What the page can do to the draft from outside the composer: put a suggested ask in it. */
 type DraftHandle = { readonly pick: (prompt: string) => void };
@@ -386,7 +404,7 @@ function useOutboxParts(outbox: readonly Outgoing[]) {
 }
 
 function Stage(parts: Parts) {
-  const { ky, view, panel, visit } = parts;
+  const { ky, view, panel, visit, onDeskPage } = parts;
   const { open, variantId } = view;
   const composer = useRef<DraftHandle>(null);
 
@@ -443,12 +461,7 @@ function Stage(parts: Parts) {
 
   const routines = useMemo(() => ({ automations: ky.automations, onAction: ky.changeAutomation }), [ky.automations, ky.changeAutomation]);
 
-  const deciding = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
-
-  const approvals = useMemo(
-    () => ({ approvals: ky.approvals, onDecide: ky.approvalActions.onDecide, waiting: deciding }),
-    [ky.approvals, ky.approvalActions, deciding]
-  );
+  const approvals = useApprovals(ky, onDeskPage);
 
   return (
     <section className="stage" aria-label="Chat">
@@ -520,6 +533,23 @@ function RoutineStage({ open, ky, onOpen, onChats }: { open: string; ky: Ky; onO
         <RoutineList open={open} tasks={ky.tasks} now={now} onOpen={onOpen} onChats={onChats} />
       </ProactivityContext.Provider>
     </AutomationsContext.Provider>
+  );
+}
+
+// The Desk page over the chat, with its own clock and what its parts read: the approvals of every chat, last
+// night's changes and the Desk's work.
+function DeskStage({ ky, shell, onDeskPage }: Parts) {
+  const now = useNow();
+  const approvals = useApprovals(ky, onDeskPage);
+
+  return (
+    <ApprovalsContext.Provider value={approvals}>
+      <LedgerContext.Provider value={ky.ledgerActions}>
+        <DeskContext.Provider value={ky.deskActions}>
+          <DeskPage now={now} onOpen={shell.openSession} onChats={shell.showChats} />
+        </DeskContext.Provider>
+      </LedgerContext.Provider>
+    </ApprovalsContext.Provider>
   );
 }
 
@@ -700,7 +730,16 @@ function App() {
     route.showSkills("all");
   });
 
-  const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage };
+  const onDeskPage = useStableCallback(() => {
+    if (!wide()) panel.setOpen(false);
+    shell.setDrawerOpen(false);
+    route.showDesk();
+  });
+
+  const offline = useMemo(() => decisionsWaiting(ky.acts), [ky.acts]);
+  const deskWaiting = useNeedingYou(ky.approvals, offline).length;
+
+  const parts: Parts = { ky, view, status, panel, shell, setTheme, visit, onSkillsPage, onDeskPage };
 
   return (
     <OnlineContext.Provider value={view.connected}>
@@ -744,6 +783,9 @@ function App() {
                     shell.setDrawerOpen(false);
                     route.showRoutine("");
                   }}
+                  desk={route.desk}
+                  onDesk={onDeskPage}
+                  waiting={deskWaiting}
                 />
               </div>
               {/* Always there so it can fade with the drawer; closed, it lets every click through. */}
@@ -755,6 +797,8 @@ function App() {
                 <SkillsPage filter={route.skills} ky={ky} onFilter={route.showSkills} onChats={shell.showChats} />
               ) : route.routine !== null ? (
                 <RoutineStage open={route.routine} ky={ky} onOpen={route.showRoutine} onChats={shell.showChats} />
+              ) : route.desk ? (
+                <DeskStage {...parts} />
               ) : (
                 <Stage {...parts} />
               )}

@@ -1534,7 +1534,7 @@ test("shows what the user is working toward on Activity's Desk, with its next st
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
   await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const desk = panel(page).getByRole("region", { name: "Desk" });
+  const desk = panel(page).getByRole("region", { name: "Keeping track" });
   const item = desk.getByRole("listitem", { name: title });
   await expect(item).toBeVisible();
   await expect(item.getByText("Next: Draft the announcement")).toBeVisible();
@@ -1574,7 +1574,7 @@ test("shows on Activity's Desk the look ky booked itself, and why", async ({ pag
   await page.reload();
   await expect(page.getByRole("button", { name: /^ky: Connected/ })).toBeVisible();
   await panel(page).getByRole("tab", { name: "Activity" }).click();
-  const desk = panel(page).getByRole("region", { name: "Desk" });
+  const desk = panel(page).getByRole("region", { name: "Keeping track" });
   await expect(desk.getByLabel("Next look")).toContainText(why);
 
   if (SHOTS) await desk.screenshot({ path: `${SHOTS}/desk-next.png` });
@@ -2191,6 +2191,61 @@ test("an app action waits for the user's tap on its card: Approve finishes the p
   // The stack is shared: put the tool back to the default.
   await policy.getByRole("radio", { name: "Ask" }).click();
   await expect(policy.getByRole("radio", { name: "Ask" })).toHaveAttribute("aria-checked", "true");
+});
+
+test("the Desk answers every chat's approvals one card at a time, Y, N and L by keyboard, counts them in the sidebar, and ends all clear", async ({ page }) => {
+  await open(page);
+  await connectExecutor(page);
+  const nav = page.getByRole("navigation", { name: "Chats" });
+  const entry = nav.getByRole("button", { name: /^Desk/ });
+  const desk = page.getByRole("region", { name: "Desk", exact: true });
+  const top = desk.locator(".desk-count");
+
+  // Clear what earlier tests left waiting, so the counts below are this test's own.
+  const clear = async (key: string) => {
+    await entry.click();
+    await expect(page).toHaveURL(/\?desk/);
+
+    while ((await top.textContent()) !== "Nothing needs you") await page.keyboard.press(key);
+    await expect(entry.locator(".desk-badge")).toHaveCount(0);
+  };
+
+  await clear("n");
+
+  // One approval in each of three side chats.
+  for (const to of ["ana", "bo", "cy"]) {
+    const before = page.url();
+    await nav.getByRole("button", { name: "New side chat" }).click();
+    await expect(page).not.toHaveURL(before);
+    await expect(page).toHaveURL(/\?session=/);
+    await send(page, `tool executor_execute ${JSON.stringify({ code: `approve gmail.send send mail to ${to}` })}`);
+    await expect(chat(page).getByRole("region", { name: "Approve this app action?" })).toBeVisible();
+  }
+
+  await expect(entry.locator(".desk-badge")).toHaveText("3");
+  await entry.click();
+  await expect(top).toHaveText("Three things need you");
+  await expect(desk.getByText("1 of 3")).toBeVisible();
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/desk-page.png` });
+
+  // Each key answers the top card at once and the next takes its place.
+  await page.keyboard.press("y");
+  await expect(top).toHaveText("Two things need you");
+  await expect(entry.locator(".desk-badge")).toHaveText("2", { timeout: 30_000 });
+  await page.keyboard.press("n");
+  await expect(top).toHaveText("One thing needs you");
+  await page.keyboard.press("l");
+  await expect(top).toHaveText("Nothing needs you");
+  await expect(entry.locator(".desk-badge")).toHaveCount(0);
+
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/desk-clear.png` });
+
+  // Later lasts only this tab: after a reload it waits again, and declining it leaves nothing.
+  await page.reload();
+  // The Desk page has no topbar to say Connected; the badge comes with the approvals once it is.
+  await expect(entry.locator(".desk-badge")).toHaveText("1");
+  await clear("n");
 });
 
 test("lists the tools ky can use", async ({ page }) => {

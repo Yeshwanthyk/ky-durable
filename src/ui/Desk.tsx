@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { DeskView } from "../protocol";
-import { Icon } from "../chat-kit/Icon";
+import { Button } from "./kit/Button";
+import { WorkRow } from "./kit/WorkRow";
 import { clock, day } from "./time";
 
 type DeskActions = {
@@ -44,13 +45,13 @@ export function Desk({ now, onOpen }: { now: number; onOpen: (session: string) =
   };
 
   return (
-    <section className="feed-group desk" aria-label="Desk">
+    <section className="feed-group desk" aria-label="Keeping track">
       <h3 className="feed-head">
-        Desk
+        Keeping track
+        {/* The tally sits apart at the row's end, so it takes no separator. */}
         {view.extra.most > 0 ? (
           <span className="ledger-tally">
-            {" "}
-            · {view.extra.used}/{view.extra.most} extra looks today
+            {view.extra.used}/{view.extra.most} extra looks today
           </span>
         ) : null}
       </h3>
@@ -59,63 +60,60 @@ export function Desk({ now, onOpen }: { now: number; onOpen: (session: string) =
           Next look {clock(view.next.at)}: {view.next.why}
         </p>
       )}
-      <ul className="feed">
+      <ul className="kit-rows">
         {view.starts.map((start) => (
-          <li key={start.id} className="feed-item desk-start" aria-label={`Started: ${start.title}`}>
-            <span className="feed-button">
-              <span className="feed-glyph">
-                <Icon name="plus" size={16} />
-              </span>
-              <span className="feed-text">
-                <button type="button" className="feed-title automation-text pressable" onClick={() => onOpen(start.session)}>
-                  {start.title}
-                </button>
-                <span className="ledger-reason">Started on its own · {day(start.at, now)}</span>
-              </span>
-              {start.verdict === null ? (
+          <WorkRow
+            key={start.id}
+            status={start.verdict === null ? "needs" : "done"}
+            label={`Started: ${start.title}`}
+            title={
+              <button type="button" onClick={() => onOpen(start.session)}>
+                {start.title}
+              </button>
+            }
+            meta={`Started on its own · ${day(start.at, now)}`}
+            trailing={
+              start.verdict === null ? (
                 <>
-                  <button type="button" className="automation-text pressable" aria-label={`Keep: ${start.title}`} onClick={() => judge(start.id, "kept")}>
+                  <Button size={28} aria-label={`Keep: ${start.title}`} onClick={() => judge(start.id, "kept")}>
                     Keep
-                  </button>
-                  <button type="button" className="automation-text pressable" aria-label={`Discard: ${start.title}`} onClick={() => judge(start.id, "discarded")}>
+                  </Button>
+                  <Button size={28} variant="quiet" aria-label={`Discard: ${start.title}`} onClick={() => judge(start.id, "discarded")}>
                     Discard
-                  </button>
+                  </Button>
                 </>
+              ) : start.verdict === "kept" ? (
+                "Kept"
               ) : (
-                <span className="ledger-undone">{start.verdict === "kept" ? "Kept" : "Discarded"}</span>
-              )}
-            </span>
-          </li>
+                "Discarded"
+              )
+            }
+          />
         ))}
         {view.map.map((item) => (
-          <li key={item.id} className="feed-item desk-map" aria-label={item.title}>
-            <span className="feed-button">
-              <span className="feed-glyph">
-                <Icon name="list" size={16} />
-              </span>
-              <span className="feed-text">
-                <span className="feed-title">{item.title}</span>
-                {item.next === "" ? null : <span className="ledger-reason">Next: {item.next}</span>}
-              </span>
-              <span className="ledger-tally">
-                {STATE_WORD.get(item.state) ?? item.state}
-                {item.by === "" ? "" : ` · by ${item.by.slice(0, 10)}`}
-              </span>
-            </span>
-          </li>
+          <WorkRow
+            key={item.id}
+            status={item.state === "doing" ? "working" : "open"}
+            label={item.title}
+            title={item.title}
+            meta={item.next === "" ? undefined : `Next: ${item.next}`}
+            trailing={`${STATE_WORD.get(item.state) ?? item.state}${item.by === "" ? "" : ` · by ${item.by.slice(0, 10)}`}`}
+            detail={
+              <>
+                {item.next === "" ? null : <p>Next: {item.next}</p>}
+                <p>Updated {day(item.updated_at, now)}</p>
+              </>
+            }
+          />
         ))}
         {view.events.map((event) => (
-          <li key={event.id} className="feed-item desk-event" aria-label={event.line}>
-            <span className="feed-button">
-              <span className="feed-glyph">
-                <Icon name="mail" size={16} />
-              </span>
-              <span className="feed-text">
-                <span className="feed-title">{event.line}</span>
-                <span className="ledger-reason">{event.look === null ? "Waiting for the next look" : "Seen by a look"}</span>
-              </span>
-            </span>
-          </li>
+          <WorkRow
+            key={event.id}
+            status={event.look === null ? "open" : "done"}
+            label={event.line}
+            title={event.line}
+            meta={event.look === null ? "Waiting for the next look" : "Seen by a look"}
+          />
         ))}
       </ul>
       {refusal === null ? null : (

@@ -185,12 +185,31 @@ function ArchivedChats({ chats, row }: { chats: readonly ChatRow[]; row: (chat: 
   );
 }
 
+// The Desk, above the main chat, with how many approvals wait on the user across every chat.
+function DeskEntry({ current, waiting, onOpen }: { current: boolean; waiting: number; onOpen: () => void }) {
+  return (
+    <ul className="chat-list chat-list-pinned">
+      <li>
+        <button type="button" className="chat-item desk-entry pressable pressable-row" aria-current={page(current)} onClick={onOpen}>
+          <Icon name="layers" size={15} />
+          <span className="chat-title">Desk</span>
+          {waiting > 0 ? (
+            <span className="desk-badge tabular" aria-label={`${waiting} waiting`}>
+              {waiting}
+            </span>
+          ) : null}
+        </button>
+      </li>
+    </ul>
+  );
+}
+
 // The main chat, alone at the top, open unless a side chat or a page is.
 function MainChat({ current, unread, updatedAt, now, onOpen }: { current: boolean; unread: boolean; updatedAt: number; now: number; onOpen: () => void }) {
   const news = useNews(unread, updatedAt > 0);
 
   return (
-    <ul className="chat-list">
+    <ul className="chat-list chat-list-pinned">
       <li>
         <button
           type="button"
@@ -286,6 +305,9 @@ export function Sidebar({
   automations,
   routine,
   onRoutine,
+  desk,
+  onDesk,
+  waiting,
 }: {
   chats: readonly ChatRow[];
   session: string;
@@ -312,6 +334,11 @@ export function Sidebar({
   /** Whether the Routines page is open, over the chat. */
   routine: boolean;
   onRoutine: () => void;
+  /** Whether the Desk page is open, over the chat. */
+  desk: boolean;
+  onDesk: () => void;
+  /** The approvals still waiting on the user, for the Desk's badge. */
+  waiting: number;
 }) {
   const active = chats.filter((chat) => chat.archived_at === null);
   const archived = chats.filter((chat) => chat.archived_at !== null);
@@ -320,7 +347,7 @@ export function Sidebar({
     <SideChat
       key={chat.session}
       chat={chat}
-      current={session === chat.session}
+      current={session === chat.session && !desk}
       unread={unread(chat.session)}
       now={now}
       onOpen={onOpen}
@@ -340,8 +367,9 @@ export function Sidebar({
         <Icon name="compose" size={15} />
         New chat
       </button>
+      <DeskEntry current={desk} waiting={waiting} onOpen={onDesk} />
       <MainChat
-        current={session === main && !artifacts && !skills && !routine}
+        current={session === main && !artifacts && !skills && !routine && !desk}
         unread={unread(main)}
         updatedAt={mainUpdatedAt}
         now={now}

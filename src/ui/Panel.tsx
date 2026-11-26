@@ -36,7 +36,7 @@ import { CopyButton, CopyLine } from "./CopyButton";
 import type { BlobVariantId } from "./blob-catalog";
 import { BotAvatar } from "./BotAvatar";
 import { KY_AVATAR } from "../avatars/contract";
-import { Icon, Spinner, type IconName } from "../chat-kit/Icon";
+import { Icon, type IconName } from "../chat-kit/Icon";
 import { EmptyState, RowValue, Segmented, VaultBadge } from "./Controls";
 import { ACCENTS, type Accent, setAccent, useAccent } from "./use-accent";
 import { plain } from "./plain";
@@ -50,6 +50,7 @@ import { Mail } from "./Mail";
 import { Proactivity, ProactivityValue } from "./Proactivity";
 import { Spend, SpendValue } from "./Spend";
 import { Desk } from "./Desk";
+import { StatusGlyph } from "./kit/StatusGlyph";
 import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
@@ -615,7 +616,7 @@ function NowSection({
           <li key={`${tool}-${index}`} className="feed-item ledger-item" data-live>
             <span className="ledger-button">
               <span className="ledger-lead">
-                <StatusGlyph status="working" />
+                <TaskGlyph status="working" />
               </span>
               <span className="row-text">
                 <span className="ledger-title">{tool}</span>
@@ -1717,14 +1718,14 @@ function TaskNow({ task, machines, now }: { task: TaskRow; machines: readonly Ma
   return step ? <span className="feed-step">{step}</span> : null;
 }
 
-/** A live task's status as one bare glyph: a spinner while it works, a quiet circle while it waits. */
-function StatusGlyph({ status }: { status: TaskRow["status"] }) {
+/** A live task's status as one bare glyph: the kit's turning ring while it works, its open circle while it waits. */
+function TaskGlyph({ status }: { status: TaskRow["status"] }) {
   // A glyph that changes on screen pops in; one that is simply shown does not.
   const changed = useChanges(status) > 0;
 
   return (
     <span className="feed-glyph" data-tone={status} data-pop={changed || undefined}>
-      {status === "working" ? <Spinner key="spin" size={14} /> : <Icon key="wait" name="circle" size={16} />}
+      <StatusGlyph key={status} status={status === "working" ? "working" : "open"} />
     </span>
   );
 }
@@ -1760,7 +1761,7 @@ function TaskLead({ task, sameTime }: { task: TaskRow; sameTime: boolean }) {
   if (isLive(task))
     return (
       <span className="ledger-lead">
-        <StatusGlyph status={task.status} />
+        <TaskGlyph status={task.status} />
       </span>
     );
 
