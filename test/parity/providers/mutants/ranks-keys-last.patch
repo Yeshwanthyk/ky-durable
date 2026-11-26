@@ -7,7 +7,7 @@ index e3894ad1..43e7404b 100644
  export const apiKeys: Source = {
    kind: "api-key",
 -  priority: 1,
-+  priority: 4,
++  priority: 5,
    start: ({ boundary, vault, now }) => ({
      place: () => [],
      build: (record) => {

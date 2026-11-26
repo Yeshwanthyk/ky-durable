@@ -1,9 +1,6 @@
 import type { AssistantMessage, JsonObject, JsonValue } from "@earendil-works/pi-ai";
-import type {
-  AgentEvent,
-  EntryRecord,
-  MessageChange
-} from "@earendil-works/pi-durable";
+import type { EntryRecord } from "@earendil-works/pi-durable";
+import type { AgentEvent, MessageChange } from "./events";
 import {
   projectEntries,
   projectEntry,

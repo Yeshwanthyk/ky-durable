@@ -311,7 +311,7 @@ export const TOOL_ACTIONS = ["create", "update", "list", ...BY_ID_ACTIONS] as co
 export type ToolAction = (typeof TOOL_ACTIONS)[number];
 
 export const AutomationToolInput = Type.Object({
-  action: Type.Union(TOOL_ACTIONS.map((action) => Type.Literal(action))),
+  action: Type.Unsafe<ToolAction>(Type.Union(TOOL_ACTIONS.map((action) => Type.Literal(action)))),
   id: Type.Optional(Type.String({ description: "An automation id from create or list." })),
   title: Type.Optional(Type.String({ description: "3-6 words for the automations list." })),
   prompt: Type.Optional(Type.String({ description: "What each run does; self-contained, since a run knows nothing else." })),

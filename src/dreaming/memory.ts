@@ -1,4 +1,5 @@
-import { type AssistantMessage, type Message, Type } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";

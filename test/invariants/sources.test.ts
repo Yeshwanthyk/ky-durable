@@ -12,12 +12,13 @@ const refuse = async () => new Response("no", { status: 503 });
 
 const boundary: ModelsBoundary = {
   ai: fakeAI(refuse),
-  fetch: refuse
+  fetch: refuse,
+  claudeCloud: refuse
 };
 
 const host: SourceHost = {
   boundary,
-  vault: { auth: async () => ({ apiKey: "key" }), put: async () => {}, remove: async () => {}, chatgptToken: async () => ({ accessToken: "token" }) },
+  vault: { auth: async () => ({ apiKey: "key" }), put: async () => {}, remove: async () => {}, chatgptToken: async () => ({ accessToken: "token" }), claudeToken: async () => ({ oauthToken: "sk-ant-oat-test" }) },
   now: () => 0,
   changed: () => {}
 };

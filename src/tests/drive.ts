@@ -3,6 +3,7 @@ import { runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test
 import type { PiOperationResult, PiReceipt } from "agents/harness/pi";
 import { expect } from "vitest";
 import type { PiClientMessage, PiServerMessage } from "../protocol";
+import { watchEvents } from "../events";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../view";
 import {
   decodeObjectFrame,
@@ -241,7 +242,7 @@ export async function gateStarted(name: string, runs: number): Promise<void> {
 /** A session's view, the root's by default, folded from a fresh snapshot as a client joining now gets it. */
 export function snapshotView(name: string, session?: string): Promise<PiSessionView> {
   return inside(name, async (instance) => {
-    const stream = await instance.harness.session(session).events();
+    const stream = await watchEvents(instance.harness, session);
     await stream.stop();
 
     return reduceEvents(EMPTY_VIEW, [stream.snapshot]);

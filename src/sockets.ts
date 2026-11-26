@@ -1,9 +1,9 @@
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type {
-  AgentEventStream,
   RegistryReader,
   UserInput
 } from "@earendil-works/pi-durable";
+import { type AgentEventStream, watchEvents } from "./events";
 import type { Connection, ConnectionContext } from "agents/lifecycle";
 import type { WebSocketMessage, WebSocketsOptions } from "agents/websockets";
 import {
@@ -685,7 +685,7 @@ export class PiSessionSockets {
 
   async #watch(socket: WebSocket, session: PiSessionId): Promise<void> {
     await this.#unwatch(socket);
-    const stream = await this.#harness.session(session).events();
+    const stream = await watchEvents(this.#harness, session);
     this.#watches.set(socket, stream);
     send(socket, { type: "events", session, events: [stream.snapshot] });
     const recalls = this.#recall.shown(session);
@@ -949,7 +949,7 @@ export class PiSessionSockets {
    */
   async #steerNow(session: PiSessionId): Promise<null> {
     if (this.#steering.has(session)) return null;
-    const stream = await this.#harness.session(session).events();
+    const stream = await watchEvents(this.#harness, session);
 
     if (!stream.snapshot.run || stream.snapshot.inbox.length === 0) {
       await stream.stop();

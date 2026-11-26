@@ -103,7 +103,7 @@ function endpoint({ boundary, vault, now }: SourceHost, signedIn: () => boolean)
 
 export const chatgpt: Source = {
   kind: "chatgpt",
-  priority: 2,
+  priority: 3,
   start: (host) => {
     let signedIn = false;
     let last: { at: number; done: Promise<void> } | undefined;

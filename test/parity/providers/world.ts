@@ -203,6 +203,7 @@ export class World {
     const vault: KeyVault = {
       auth: async (id) => this.keys.get(id) ?? null,
       chatgptToken: async () => (this.chatgpt === null ? null : { accessToken: this.chatgpt }),
+      claudeToken: async () => null,
       put: async (kind, id, value) => {
         this.vaultLog.push({ put: kind, id, apiKey: value.apiKey });
         this.keys.set(id, value);

@@ -1,4 +1,5 @@
-import type { AgentEvent, ConversationId, EntryId } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId } from "@earendil-works/pi-durable";
+import type { AgentEvent } from "../events";
 import { describe, expect, it } from "vitest";
 import { CARD_ANSWER, type CardAnswer } from "../cards/contract";
 import { EMPTY_VIEW, reduceEvents } from "../view";

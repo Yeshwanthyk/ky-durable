@@ -1,4 +1,5 @@
-import type { AgentEvent, UserInput } from "@earendil-works/pi-durable";
+import type { UserInput } from "@earendil-works/pi-durable";
+import type { AgentEvent } from "./events";
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Asks } from "./asks";

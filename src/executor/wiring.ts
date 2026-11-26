@@ -1,4 +1,5 @@
-import { type JsonValue, Type } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import * as Option from "effect/Option";
 import { type Edge, makeEdge } from "../core/edge";

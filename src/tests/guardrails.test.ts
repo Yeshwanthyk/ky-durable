@@ -1,5 +1,5 @@
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 import { canonical } from "../core/canonical";
 import { decode, parseAs } from "../core/decode";

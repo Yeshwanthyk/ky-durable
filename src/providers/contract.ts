@@ -6,7 +6,7 @@ import type { Refusable } from "../core/edge";
 
 export const PROVIDER_TABLES = Object.freeze({ providers: "ky_providers" } as const);
 
-export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "chatgpt"]);
+export const ProviderKind = Schema.Literals(["workers-ai", "api-key", "claude", "chatgpt"]);
 
 export type ProviderKind = typeof ProviderKind.Type;
 
@@ -37,6 +37,8 @@ export type KeyVault = {
   remove(kind: "provider", id: string): Promise<void>;
   /** The ChatGPT login's access token, refreshed by the Vault when it's close to running out; null when signed out. */
   chatgptToken(): Promise<{ readonly accessToken: string } | null>;
+  /** The Claude subscription setup token (`sk-ant-oat…`) kept in Settings › Subscriptions; null when not saved. */
+  claudeToken(): Promise<{ readonly oauthToken: string } | null>;
 };
 
 export type ModelsBoundary = {
@@ -47,6 +49,11 @@ export type ModelsBoundary = {
    * chatgpt.com turns many requests from a Worker away, and takes the same request from the container.
    */
   readonly chatgptCloud?: FetchFunction;
+  /**
+   * The cloud machine's Claude Code bridge (CloudMachine.claude), on a deploy with one:
+   * runs Claude subscription chat turns through Claude Code inside the container.
+   */
+  readonly claudeCloud?: FetchFunction;
 };
 
 export const CLAUDE_TOKEN_HERE =

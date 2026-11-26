@@ -34,6 +34,7 @@ import { buffer } from "node:stream/consumers";
 import { pipeline } from "node:stream/promises";
 import { CHATGPT_RESPONSES } from "../../src/machines/contract.ts";
 import type { Context } from "../commands.ts";
+import { openClaudeBridge } from "./claude-bridge.ts";
 import { checkoutVersion, runRunner } from "./run.ts";
 import { pack, unpack } from "./save.ts";
 import { withEnv } from "./settings.ts";
@@ -129,6 +130,13 @@ export async function cloudCommand(context: Context): Promise<number> {
   const stop = new AbortController();
   let state: State = "waiting";
   let runner: Promise<void> | undefined;
+  let claudeBridge: ReturnType<typeof openClaudeBridge> | undefined;
+
+  const claude = (request: IncomingMessage, response: ServerResponse) => {
+    claudeBridge ??= openClaudeBridge({ executable: env.KY_CLAUDE_BIN || "claude" });
+
+    return claudeBridge.stream(request, response);
+  };
 
   await configureGit(system.home, env.KY_GITHUB_PROXY ?? GITHUB_PROXY);
 
@@ -151,6 +159,11 @@ export async function cloudCommand(context: Context): Promise<number> {
   };
 
   const save = async (response: ServerResponse) => {
+    if (claudeBridge) {
+      await claudeBridge.close();
+      claudeBridge = undefined;
+    }
+
     if (state === "running") {
       stop.abort();
       await runner;
@@ -176,7 +189,9 @@ export async function cloudCommand(context: Context): Promise<number> {
               ? snapshot(response)
               : route === "POST /chatgpt"
                 ? chatgpt(request, response)
-                : Promise.resolve(answer(response, 404));
+                : route === "POST /claude"
+                  ? claude(request, response)
+                  : Promise.resolve(answer(response, 404));
 
     handled.catch((error: Error) => {
       console.error(`${route} failed`, error);

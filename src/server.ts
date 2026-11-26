@@ -110,6 +110,15 @@ function chatgptFrom(env: Env): FetchFunction {
   };
 }
 
+/** A Claude subscription chat turn, streamed through Claude Code in the cloud machine `cloud` (CloudMachine.claude). */
+function claudeFrom(env: Env): FetchFunction {
+  return async (input, init) => {
+    const request = new Request(input, init);
+
+    return env.CloudMachine.getByName(CLOUD).claude(Object.fromEntries(request.headers), await request.arrayBuffer());
+  };
+}
+
 /** The user's one agent, one Durable Object. */
 export class PiAgent extends DurableObject<Env> {
   readonly boundary = this.boundaryFor(this.env);
@@ -952,6 +961,7 @@ export class PiAgent extends DurableObject<Env> {
       fetch: (input, init) => fetch(input, init),
       mail: email && address ? { address: addressOf(address), send: (message) => email.send(message) } : undefined,
       chatgptCloud: env.KY_CLOUD ? chatgptFrom(env) : undefined,
+      claudeCloud: env.KY_CLOUD ? claudeFrom(env) : undefined,
       browser: env.BROWSER,
       extensions: [],
       seeds: true

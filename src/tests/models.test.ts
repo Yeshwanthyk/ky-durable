@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { Models } from "../providers/wiring";
-import { CLAUDE_TOKEN_HERE, type KeyVault } from "../providers/contract";
+import { CLAUDE_TOKEN_HERE, type KeyVault, type ModelsBoundary } from "../providers/contract";
 import type { ModelChoice, Purpose } from "../settings/contract";
 import { agent, inside, prompt } from "./drive";
 import type { AiCall } from "../../test/fakes/ai";
@@ -170,7 +170,7 @@ describe("a turn", () => {
     expect((await prompt(name, "hello")).text).toBe("echo: hello");
 
     const [sent] = await calls(name);
-    expect(sent).toMatchObject({ url: "https://opencode.ai/inference/go/v1/chat/completions", model: "deepseek-v4.1-flash" });
+    expect(sent).toMatchObject({ url: "https://opencode.ai/inference/go/openai/v1/chat/completions", model: "deepseek-v4.1-flash" });
     expect(sent!.headers.authorization).toBe(`Bearer ${OPENCODE_KEY}`);
   });
 
@@ -337,7 +337,8 @@ describe("a ChatGPT sign-in", () => {
     auth: async () => null,
     put: async () => {},
     remove: async () => {},
-    chatgptToken: async () => ({ accessToken: CHATGPT_TOKEN })
+    chatgptToken: async () => ({ accessToken: CHATGPT_TOKEN }),
+    claudeToken: async () => null
   };
 
   it("runs main on GPT at ChatGPT's Codex backend, with the sign-in's token and account", async () => {
@@ -404,6 +405,70 @@ describe("a ChatGPT sign-in", () => {
     expect(answer).toContain("failed:");
     expect(answer).toContain("Unable to load site");
     expect(cloudSent).toHaveLength(1);
+  });
+});
+
+describe("a Claude subscription", () => {
+  const CLAUDE_TOKEN = "sk-ant-oat01-test-token";
+
+  const subscribed: KeyVault = {
+    auth: async () => null,
+    put: async () => {},
+    remove: async () => {},
+    chatgptToken: async () => null,
+    claudeToken: async () => ({ oauthToken: CLAUDE_TOKEN })
+  };
+
+  it("runs main on Claude through the cloud machine when a setup token is saved, and hides it without a cloud machine", async () => {
+    const name = await fresh("bare");
+    let capturedBody = "";
+
+    const claudeCloud: ModelsBoundary["claudeCloud"] = async (input, init) => {
+      capturedBody = await new Request(input, init).text();
+      // SAFETY: remoteClaudeApi always sends a JSON object with `{ model: { id } }`.
+      const { model } = JSON.parse(capturedBody) as { model: { id: string } };
+
+      const message = {
+        role: "assistant",
+        content: [{ type: "text", text: "hello from claude container" }],
+        api: "claude-code",
+        provider: "claude",
+        model: model.id,
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop",
+        timestamp: Date.now()
+      };
+
+      const body = [
+        JSON.stringify({ type: "start" }),
+        JSON.stringify({ type: "text_start", contentIndex: 0 }),
+        JSON.stringify({ type: "text_delta", contentIndex: 0, delta: "hello from claude container" }),
+        JSON.stringify({ type: "text_end", contentIndex: 0, content: "hello from claude container" }),
+        JSON.stringify({ type: "done", reason: "stop", message })
+      ].join("\n");
+
+      return new Response(`${body}\n`, { status: 200, headers: { "content-type": "application/x-ndjson" } });
+    };
+
+    const { withoutCloud, withCloud } = await inside(name, async (instance, state) => {
+      const noCloud = new Models(state.storage, { ...instance.boundary, claudeCloud: undefined }, subscribed);
+
+      await noCloud.refresh();
+      const withoutCloud = noCloud.catalog().map((provider) => provider.id);
+
+      const models = new Models(state.storage, { ...instance.boundary, claudeCloud }, subscribed);
+
+      await models.refresh();
+      const { choice } = models.resolve("main");
+      const answer = await models.complete("main", "be brief", "say hi");
+
+      return { withoutCloud, withCloud: { choice, answer } };
+    });
+
+    expect(withoutCloud).not.toContain("claude");
+    expect(withCloud.choice.provider).toBe("claude");
+    expect(withCloud.answer).toBe("hello from claude container");
+    expect(JSON.parse(capturedBody)).toMatchObject({ options: { apiKey: CLAUDE_TOKEN } });
   });
 });
 

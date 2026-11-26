@@ -352,7 +352,7 @@ describe("memory_recall and chat_search by day", () => {
       "tool said: from 2026-01-03 is after to 2026-01-02."
     );
     // No date at all: the schema refuses it before the tool runs.
-    expect(await call(name, "memory_recall", { regex: "ferry", to: "yesterday" })).toContain("to: must match pattern");
+    expect(await call(name, "memory_recall", { regex: "ferry", to: "yesterday" })).toContain("to: expected to match");
   });
 });
 

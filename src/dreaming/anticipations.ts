@@ -1,4 +1,4 @@
-import { type Static, Type } from "@earendil-works/pi-ai";
+import { type Static, Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-durable";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
