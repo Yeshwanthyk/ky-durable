@@ -6435,6 +6435,10 @@ button.rt-bar:focus-visible {
   padding: 0 4px;
 }
 
+.task-page-steps > .feed-head {
+  padding-left: 0;
+}
+
 .task-page-foot {
   position: sticky;
   bottom: 0;
