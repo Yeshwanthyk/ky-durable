@@ -538,7 +538,7 @@ function RoutineStage({ open, ky, onOpen, onChats }: { open: string; ky: Ky; onO
 
 // The Desk page over the chat, with its own clock and what its parts read: the approvals of every chat, last
 // night's changes and the Desk's work.
-function DeskStage({ ky, view, shell, onDeskPage }: Parts) {
+function DeskStage({ ky, shell, onDeskPage }: Parts) {
   const now = useNow();
   const approvals = useApprovals(ky, onDeskPage);
 
@@ -546,7 +546,7 @@ function DeskStage({ ky, view, shell, onDeskPage }: Parts) {
     <ApprovalsContext.Provider value={approvals}>
       <LedgerContext.Provider value={ky.ledgerActions}>
         <DeskContext.Provider value={ky.deskActions}>
-          <DeskPage now={now} variantId={KY_BLOB[view.theme]} onOpen={shell.openSession} onChats={shell.showChats} />
+          <DeskPage now={now} onOpen={shell.openSession} onChats={shell.showChats} />
         </DeskContext.Provider>
       </LedgerContext.Provider>
     </ApprovalsContext.Provider>

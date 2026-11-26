@@ -58,17 +58,17 @@ export function Deck({ deck, heading }: { deck: readonly ApprovalView[]; heading
     setRefused(undefined);
     refocus.current = true;
 
-    if (action === "later") return snooze(approval.id);
+    if (action === "later") return snooze(approval);
 
     pending.current.add(approval.id);
-    markAnswered(approval.id, true);
+    markAnswered(approval, true);
     void onDecide(approval.id, action).then((reason) => {
       pending.current.delete(approval.id);
 
       if (reason === undefined) return;
 
       setRefused(reason);
-      markAnswered(approval.id, false);
+      markAnswered(approval, false);
     });
   });
 
@@ -104,12 +104,12 @@ export function Deck({ deck, heading }: { deck: readonly ApprovalView[]; heading
 
   return (
     <section className="desk-deck-group" aria-label="Only you can decide">
-      <header className="desk-section-head">
-        <h2>Only you can decide</h2>
-        <p className="desk-keys" aria-hidden>
+      <h2 className="feed-head">
+        Only you can decide
+        <span className="desk-keys" aria-hidden>
           <kbd>Y</kbd> Yes <kbd>N</kbd> No <kbd>L</kbd> Later
-        </p>
-      </header>
+        </span>
+      </h2>
       <div
         ref={box}
         className="desk-deck"

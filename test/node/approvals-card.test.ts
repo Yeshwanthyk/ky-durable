@@ -81,7 +81,7 @@ describe("approvals in a chat", () => {
   });
 
   it("stops showing and counting what was put off with Later", () => {
-    snooze("b");
+    snooze(ask("b", "car"));
 
     const html = inChat("main", waiting, () => {});
 

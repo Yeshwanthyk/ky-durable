@@ -2199,7 +2199,7 @@ test("the Desk answers every chat's approvals one card at a time, Y, N and L by 
   const nav = page.getByRole("navigation", { name: "Chats" });
   const entry = nav.getByRole("button", { name: /^Desk/ });
   const desk = page.getByRole("region", { name: "Desk", exact: true });
-  const top = desk.getByRole("heading", { level: 1 });
+  const top = desk.locator(".desk-count");
 
   // Clear what earlier tests left waiting, so the counts below are this test's own.
   const clear = async (key: string) => {

@@ -29,14 +29,20 @@ export const ApprovalsContext = createContext<{
   onOpenDesk?: () => void;
 }>({ approvals: [], onDecide: async () => undefined, waiting: new Map() });
 
-// The approvals put off with Later, in this tab only: they come back on reload, and the server never hears of it.
+/**
+ * One ask of an approval. The server keeps an approval's id when the same request asks again, as a new ask with a
+ * later `createdAt`; what this tab put off or answered is the ask, so a new one shows again.
+ */
+export const askOf = (approval: ApprovalView) => `${approval.id}:${approval.createdAt}`;
+
+// The asks put off with Later, in this tab only: they come back on reload, and the server never hears of it.
 let snoozed: ReadonlySet<string> = new Set();
 
 const snoozeListeners = new Set<() => void>();
 
 /** Puts an approval off until the page reloads: its chat and the Desk stop showing it. */
-export function snooze(approval: string): void {
-  snoozed = new Set([...snoozed, approval]);
+export function snooze(approval: ApprovalView): void {
+  snoozed = new Set([...snoozed, askOf(approval)]);
 
   for (const listener of snoozeListeners) listener();
 }
@@ -59,8 +65,10 @@ let answered: ReadonlySet<string> = new Set();
 const answeredListeners = new Set<() => void>();
 
 /** Marks an approval answered on the page (`gone`), or puts it back when its answer was refused. */
-export function markAnswered(approval: string, gone: boolean): void {
-  answered = gone ? new Set([...answered, approval]) : new Set([...answered].filter((each) => each !== approval));
+export function markAnswered(approval: ApprovalView, gone: boolean): void {
+  const ask = askOf(approval);
+
+  answered = gone ? new Set([...answered, ask]) : new Set([...answered].filter((each) => each !== ask));
 
   for (const listener of answeredListeners) listener();
 }
@@ -78,7 +86,7 @@ export function useAnswered(): ReadonlySet<string> {
 
 /** The approvals still waiting on the user's tap, in the order they came: not expired, not put off. */
 export const stillWaiting = (approvals: readonly ApprovalView[], put: ReadonlySet<string>) =>
-  approvals.filter((approval) => approval.lapsedAt === undefined && !put.has(approval.id));
+  approvals.filter((approval) => approval.lapsedAt === undefined && !put.has(askOf(approval)));
 
 /**
  * What needs the user, as every count of it says: the chat's "x of y" and "more in other chats", the Desk's deck and
@@ -86,7 +94,7 @@ export const stillWaiting = (approvals: readonly ApprovalView[], put: ReadonlySe
  * and not a hand-off of ky's browser, which takes the user to the live page from its own chat.
  */
 export const needingYou = (approvals: readonly ApprovalView[], put: ReadonlySet<string>, waiting: ReadonlyMap<string, ApprovalAction>, done: ReadonlySet<string>) =>
-  stillWaiting(approvals, put).filter((approval) => approval.kind !== "browser-handoff" && !waiting.has(approval.id) && !done.has(approval.id));
+  stillWaiting(approvals, put).filter((approval) => approval.kind !== "browser-handoff" && !waiting.has(approval.id) && !done.has(askOf(approval)));
 
 /** {@link needingYou} for these approvals, with what this tab put off and answered. */
 export function useNeedingYou(approvals: readonly ApprovalView[], waiting: ReadonlyMap<string, ApprovalAction>): readonly ApprovalView[] {
@@ -206,7 +214,7 @@ export function ApprovalCards({ chat }: { chat: string }) {
   const { approvals, onOpenDesk, waiting } = useContext(ApprovalsContext);
   const put = useSnoozed();
   const all = useNeedingYou(approvals, waiting);
-  const here = approvals.filter((approval) => approval.chat === chat && !put.has(approval.id));
+  const here = approvals.filter((approval) => approval.chat === chat && !put.has(askOf(approval)));
   const elsewhere = all.filter((approval) => approval.chat !== chat).length;
 
   const at = (approval: ApprovalView): Position | undefined => {
@@ -265,7 +273,7 @@ function ApprovalCard({ approval, position }: { approval: ApprovalView; position
   return (
     <div className="approval" data-approval={approval.id}>
       {asking ? (
-        <DecisionCard approval={approval} onDecide={decide} onLater={() => snooze(approval.id)} position={position} waiting={decided} pending={pending} />
+        <DecisionCard approval={approval} onDecide={decide} onLater={() => snooze(approval)} position={position} waiting={decided} pending={pending} />
       ) : (
         <ReplyContext.Provider value={decide}>
           <BlockCard call={`approval:${approval.id}`} ui={ui} answer={answer} open />

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ApprovalView } from "../../src/approvals/contract.ts";
 import type { ApprovalAction } from "../../src/approvals/contract.ts";
-import { ApprovalCards, ApprovalsContext, markAnswered, needingYou } from "../../src/ui/Approvals.tsx";
+import { ApprovalCards, ApprovalsContext, askOf, markAnswered, needingYou } from "../../src/ui/Approvals.tsx";
 import { Deck } from "../../src/ui/desk/Deck.tsx";
 import { DeskPage, needsYou } from "../../src/ui/desk/DeskPage.tsx";
 
@@ -24,7 +24,7 @@ const page = (approvals: readonly ApprovalView[], waiting: ReadonlyMap<string, A
     createElement(
       ApprovalsContext.Provider,
       { value: { approvals, onDecide: async () => undefined, waiting } },
-      createElement(DeskPage, { now: 0, variantId: "squircle-encre", onOpen: () => {}, onChats: () => {} })
+      createElement(DeskPage, { now: 0, onOpen: () => {}, onChats: () => {} })
     )
   );
 
@@ -44,13 +44,13 @@ describe("the deck", () => {
   it("holds what the user can answer from any chat: not one lapsed, put off, or a browser hand-off", () => {
     const all = [ask("a"), ask("lapsed", { lapsedAt: 2 }), ask("later"), ask("handoff", { kind: "browser-handoff" }), ask("b")];
 
-    expect(needingYou(all, new Set(["later"]), new Map(), new Set()).map((approval) => approval.id)).toEqual(["a", "b"]);
+    expect(needingYou(all, new Set([askOf(ask("later"))]), new Map(), new Set()).map((approval) => approval.id)).toEqual(["a", "b"]);
   });
 
   it("leaves out one tapped offline and one just answered on the page", () => {
     const all = [ask("a"), ask("offline"), ask("answered"), ask("b")];
 
-    expect(needingYou(all, new Set(), new Map([["offline", "accept"]]), new Set(["answered"])).map((approval) => approval.id)).toEqual(["a", "b"]);
+    expect(needingYou(all, new Set(), new Map([["offline", "accept"]]), new Set([askOf(ask("answered"))])).map((approval) => approval.id)).toEqual(["a", "b"]);
   });
 
   it("shows the first card as 1 of all, with two edges behind it at most", () => {
@@ -92,10 +92,17 @@ describe("the Desk page", () => {
   });
 
   it("counts what was just answered on the page as gone, until a refusal puts it back", () => {
-    markAnswered("x", true);
+    markAnswered(ask("x"), true);
     expect(page([ask("x"), ask("y")])).toContain("One thing needs you");
-    markAnswered("x", false);
+    markAnswered(ask("x"), false);
     expect(page([ask("x"), ask("y")])).toContain("Two things need you");
+  });
+
+  it("counts a new ask again when the server reuses an answered approval's id", () => {
+    markAnswered(ask("again"), true);
+    expect(page([ask("again")])).not.toContain("Send the reply for again.");
+    expect(page([ask("again", { createdAt: 2 })])).toContain("Send the reply for again.");
+    markAnswered(ask("again"), false);
   });
 
   it("counts as the chat does: its \"x of y\" and \"more in other chats\" leave out the same ones the greeting does", () => {
@@ -107,8 +114,11 @@ describe("the Desk page", () => {
     expect(inChat("main", all, waiting)).toContain("1 more waiting in other chats");
   });
 
-  it("puts the keyboard on the greeting, which says its count aloud as it changes", () => {
-    expect(page([ask("x")])).toContain('<h1 tabindex="-1" aria-live="polite">');
+  it("heads the page like Routines: the keyboard on its name, and under it the count, said aloud as it changes", () => {
+    const html = page([ask("x")]);
+
+    expect(html).toContain('<h1 tabindex="-1">Desk</h1>');
+    expect(html).toContain('<p class="desk-count" aria-live="polite">One thing needs you</p>');
   });
 
   it("is all clear when nothing waits: no deck, and it says so", () => {
