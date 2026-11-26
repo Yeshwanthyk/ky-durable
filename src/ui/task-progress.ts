@@ -44,8 +44,16 @@ export function quietNote(task: TaskRow, machines: readonly MachineInfo[], now: 
 
 const turnsOf = (turns: number | null) => (turns === null ? null : `${turns} ${turns === 1 ? "turn" : "turns"}`);
 
-/** Dollars, to the cent, or to a tenth of one below a cent. */
-const dollars = (cost: number | null) => (cost ? `$${cost.toFixed(cost < 0.01 ? 3 : 2)}` : null);
+/** Money as people say it: "$1.24" from a dollar up, "2¢" under one, "<1¢" under a cent. */
+export function money(usd: number): string {
+  const cents = Math.round(usd * 100);
+
+  if (cents >= 100) return `$${usd.toFixed(2)}`;
+
+  return cents < 1 ? "<1¢" : `${cents}¢`;
+}
+
+const dollars = (cost: number | null) => (cost ? money(cost) : null);
 
 /** What a finished task cost, quietly: how long, how many model turns, and how much, each its own token. */
 export function spendParts(task: TaskRow, now: number): string[] {

@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createContext, type FormEvent, Fragment, type KeyboardEvent, type ReactNode, type RefObject, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Type, { type Static } from "typebox";
 import { parseOr } from "../core/decode";
 import { CONNECTION_TONE, type ConnectionKind } from "../connection";
@@ -55,7 +55,7 @@ import { LastNight } from "./LastNight";
 import { Peers } from "./Peers";
 import { Problem, Subscriptions, type SubscriptionsData } from "./Subscriptions";
 import { currentStep, elapsed, isLive, quietNote } from "./task-progress";
-import { TaskTimeline } from "./Timeline";
+import { TaskPage } from "./Timeline";
 import { ago, clock, day } from "./time";
 import { SETTINGS_HOME, SettingsNavContext, type SettingsPage } from "./use-panel";
 
@@ -410,6 +410,9 @@ function useLeaving(live: readonly TaskRow[]): readonly { task: TaskRow; at: num
   return leaving;
 }
 
+/** Opens a task in place of Activity's timeline; given by Activity to every task row under it. */
+const OpenTask = createContext<(task: string) => void>(() => {});
+
 type FeedProps = {
   session: string;
   now: number;
@@ -433,7 +436,9 @@ function Activity({
   const body = useRef<HTMLDivElement>(null);
   const zone = useZone();
   const [view, setView] = useState<RoutinesView>(TODAY);
-  const [run, setRun] = useState<TaskRow | null>(null);
+  // The task open in place of the timeline, by id so it stays live; and where the timeline was scrolled, for Back.
+  const [opened, setOpened] = useState<string | null>(null);
+  const scrolled = useRef(0);
   const live = tasks.filter(isLive);
   const past = tasks.filter((task) => !isLive(task));
   // A routine's fire is its row on the timeline, so today's fold holds only the work chats handed out.
@@ -442,22 +447,55 @@ function Activity({
   const latest = today[0];
   const finished = latest ? { at: latest.updated_at, row: <FinishedFold key="finished" latest={latest} tasks={today} {...feed} /> } : null;
 
+  const openTask = (task: string) => {
+    scrolled.current = body.current?.scrollTop ?? 0;
+    setOpened(task);
+    body.current?.scrollTo({ top: 0 });
+  };
+
   // A fire's row opens its run, as the task's own row would; false when there is no run to open.
   const openRun = (automation: string) => {
     const fired = tasks.find((task) => routineOf(task) === automation);
 
-    if (fired) setRun(fired);
+    if (fired) openTask(fired.id);
 
     return fired !== undefined;
   };
 
   useArrivals(body);
 
+  // Back on the timeline, where it was left.
+  const back = () => setOpened(null);
+  const task = opened === null ? undefined : tasks.find((each) => each.id === opened);
+
+  useLayoutEffect(() => {
+    if (opened === null) body.current?.scrollTo({ top: scrolled.current });
+  }, [opened]);
+
   // Each page starts at its top.
   const show = (next: RoutinesView) => {
     setView(next);
     body.current?.scrollTo({ top: 0 });
   };
+
+  if (task !== undefined) {
+    const session = task.kind === "cloud" ? task.session : null;
+
+    // Opening the chat leaves the task: back on Today when the panel shows again.
+    const openChat =
+      session === null
+        ? undefined
+        : () => {
+            back();
+            feed.onOpen(session);
+          };
+
+    return (
+      <div ref={body} className="panel-body" data-scroll>
+        <TaskPage key={task.id} task={task} now={feed.now} onBack={back} onOpenChat={openChat} />
+      </div>
+    );
+  }
 
   if (view.page !== "today")
     return (
@@ -468,15 +506,16 @@ function Activity({
 
   return (
     <div ref={body} className="panel-body activity" data-scroll>
+      <OpenTask.Provider value={openTask}>
       <NowSection live={live} running={running} onStopAll={onStopAll} {...feed} />
       <section className="feed-group today" aria-label="Today">
         <TodayHead now={feed.now} zone={zone} onView={show} />
         <Timeline now={feed.now} zone={zone} busy={live.length + running.length > 0} finished={finished} onView={show} onRun={openRun} />
       </section>
-      {run ? <TaskSheet task={run} now={feed.now} onClose={() => setRun(null)} onOpen={feed.onOpen} /> : null}
       <Desk now={feed.now} onOpen={feed.onOpen} />
       <LastNight now={feed.now} />
       <History past={earlier} {...feed} />
+      </OpenTask.Provider>
     </div>
   );
 }
@@ -1780,22 +1819,6 @@ const sameTimeAs = (tasks: readonly TaskRow[], index: number) => {
   return task !== undefined && before !== undefined && !isLive(task) && clockAt(task.updated_at) === clockAt(before.updated_at);
 };
 
-/** An opened task's timeline; a cloud task with a chat can open it from there. */
-function TaskSheet({ task, now, onClose, onOpen }: { task: TaskRow; now: number; onClose: () => void; onOpen: (session: string) => void }) {
-  const session = task.kind === "cloud" ? task.session : null;
-
-  // Opening the chat closes the sheet: left open, the modal covers the chat it opened.
-  const openChat =
-    session === null
-      ? undefined
-      : () => {
-          onClose();
-          onOpen(session);
-        };
-
-  return <TaskTimeline task={task} now={now} onClose={onClose} onOpenChat={openChat} />;
-}
-
 /** Stop a working task, or cancel a queued one. */
 function StopButton({ task, onStop }: { task: TaskRow; onStop: (task: string) => void }) {
   const online = useContext(OnlineContext);
@@ -1827,7 +1850,6 @@ function TaskItem({
   session,
   now,
   machines,
-  onOpen,
   onStop,
 }: FeedProps & {
   task: TaskRow;
@@ -1840,7 +1862,7 @@ function TaskItem({
   /** Ends the same minute as the row above: its time is left blank. */
   sameTime?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const openTask = useContext(OpenTask);
   const row = useRef<HTMLLIElement>(null);
   const opens = task.kind === "cloud" && task.session !== null;
   const shared = useContext(FilesContext).some((file) => file.task === task.id && isMedia(file));
@@ -1867,8 +1889,7 @@ function TaskItem({
       <button
         type="button"
         className="ledger-button pressable"
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
+        onClick={() => openTask(task.id)}
       >
         <TaskLead task={task} sameTime={sameTime} />
         <span className="row-text">
@@ -1877,7 +1898,6 @@ function TaskItem({
           <TaskMeta task={task} now={now} />
         </span>
       </button>
-      {open ? <TaskSheet task={task} now={now} onClose={() => setOpen(false)} onOpen={onOpen} /> : null}
       {shared ? (
         <div className="feed-files">
           <Attachments task={task.id} compact />
