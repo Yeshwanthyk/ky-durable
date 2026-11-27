@@ -167,6 +167,23 @@ export function fakeAccount(id: string, name: string, account: Partial<FakeAccou
   return { id, name, scripts: new Map(), buckets: new Map(), apps: new Map(), tags: new Set(), assets: new Set(), paid: false, containerApps: new Map(), zones: new Map(), ...account };
 }
 
+/**
+ * Turns a deploy back into what a ky from before the neutral deploy identity left: the Worker and its
+ * Access apps tagged `ky`, the release tagged `ky-release-<version>`, and each bucket it marked holding `.ky`.
+ */
+export function earlierKy(account: FakeAccount): FakeAccount {
+  const earlier = (tag: string) => tag.replace(/^self-hosted-agent/, "ky");
+
+  for (const script of account.scripts.values()) script.tags = script.tags.map(earlier);
+
+  for (const app of account.apps.values()) app.tags = app.tags?.map(earlier);
+  account.tags = new Set([...account.tags].map(earlier));
+
+  for (const keys of account.buckets.values()) if (keys.delete(".self-hosted-agent")) keys.add(".ky");
+
+  return account;
+}
+
 async function body(message: IncomingMessage): Promise<Uint8Array<ArrayBuffer>> {
   const chunks: Buffer[] = [];
 
